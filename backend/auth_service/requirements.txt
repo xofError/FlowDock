@@ -12,3 +12,4 @@ pillow
 sqlalchemy
 psycopg2-binary
 python-multipart
+argon2_cffi
