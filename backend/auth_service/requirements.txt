@@ -2,4 +2,13 @@ fastapi
 uvicorn[standard]
 passlib[bcrypt]
 python-jose
+cryptography
 pydantic
+pydantic[email]
+email-validator
+pyotp
+qrcode
+pillow
+sqlalchemy
+psycopg2-binary
+python-multipart
