@@ -5,18 +5,18 @@ import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Optional, Tuple, Dict, Any
 from uuid import UUID
-
 from jose import jwt, JWTError
 from passlib.context import CryptContext
 
-JWT_SECRET = os.getenv("JWT_SECRET")
+JWT_SECRET = "secret"
 JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
 
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "15"))
 REFRESH_TOKEN_EXPIRE_DAYS = int(os.getenv("REFRESH_TOKEN_EXPIRE_DAYS", "30"))
 
-
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+# Use Argon2 for password hashing: memory-hard, resistant to GPU attacks,
+# and handles long passwords gracefully. Widely recommended for production.
+pwd_context = CryptContext(schemes=["argon2"], deprecated="auto")
 
 
 def _ensure_jwt_secret() -> None:

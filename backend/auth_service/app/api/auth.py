@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException, status, Depends
-from datetime import datetime
+from datetime import datetime, timezone
 
 from app.schemas.auth import (
     LoginRequest,
@@ -41,7 +41,7 @@ def refresh(data: RefreshRequest):
     if not record:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token")
 
-    if record["expiry"] < datetime.utcnow():
+    if record["expiry"] < datetime.now(timezone.utc):
         token_store.revoke_refresh_token(hashed)
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token expired")
 

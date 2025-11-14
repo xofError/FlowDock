@@ -9795,3 +9795,5 @@ backend/auth_service/app/utils/__pycache__/security.cpython-313.pyc
 backend/auth_service/app/utils/__pycache__/totp.cpython-313.pyc
 backend/auth_service/app/__pycache__/__init__.cpython-311.pyc
 backend/auth_service/app/__pycache__/main.cpython-311.pyc
+backend/auth_service/app/__pycache__/__init__.cpython-313.pyc
+backend/auth_service/app/__pycache__/main.cpython-313.pyc
