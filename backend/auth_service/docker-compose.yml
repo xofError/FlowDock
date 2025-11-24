@@ -14,7 +14,7 @@ services:
 
   redis:
     image: redis:7
-    container_name: auth_redis
+    container_name: redis_server
     restart: always
     ports:
       - "6379:6379"
@@ -39,7 +39,7 @@ services:
       - postgres
       - redis
     ports:
-      - "8080:8080"
+      - "8000:8000"
 
 volumes:
   pgdata:
