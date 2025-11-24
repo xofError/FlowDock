@@ -1,0 +1,71 @@
+@startuml
+title Authentication Flow (Email/Password + OTP/TOTP + Redis + Sessions + Traefik)
+
+start
+:User submits login form (email, password);
+
+partition "Traefik Gateway" {
+    :Route request to Auth Service;
+    :Apply TLS termination;
+    :Forward headers (IP, User-Agent);
+}
+
+partition "Rate Limiter (Redis)" {
+    :INCR login_attempt:<ip>;
+    if (Attempts > limit?) then (yes)
+        :Return 429 Too Many Requests;
+        stop
+    endif
+    :Set TTL on key if first attempt;
+}
+
+partition "Auth Service" {
+    :Validate request structure;
+    :Fetch user from PostgreSQL;
+    if (User exists?) then (yes)
+        :Verify password hash;
+        if (Password correct?) then (yes)
+            :Check if user.2FA_enabled?;
+        else (no)
+            :Increment rate-limit counter;
+            :Return invalid credentials;
+            stop
+        endif
+    else (no)
+        :Return user-not-found;
+        stop
+    endif
+}
+
+if (2FA enabled?) then (yes)
+    partition "TOTP Validator" {
+        :User submits TOTP code;
+        :Validate TOTP(secret, timestamp);
+        if (TOTP valid?) then (yes)
+            :Proceed;
+        else (no)
+            :Return invalid TOTP;
+            stop
+        endif
+    }
+else (no)
+    :Proceed without TOTP;
+endif
+
+partition "Session Manager" {
+    :Create DB row: sessions(user_id, ua, ip, refresh_token_hash, expires_at);
+    :Generate access JWT (short-lived);
+    :Generate refresh token (long-lived);
+    :Hash refresh token;
+    :Store hash in DB;
+}
+
+partition "Redis" {
+    :SETEX otp:login:<user_id> ttl otp;
+    :If OTP login (email delivery) is needed;
+}
+
+:Return tokens to client;
+
+stop
+@enduml

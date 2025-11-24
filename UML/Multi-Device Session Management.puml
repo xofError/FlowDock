@@ -1,0 +1,80 @@
+@startuml
+title Multi-Device Session Management (List + Revoke)
+
+start
+
+:User requests session list;
+
+partition "Traefik" {
+    :Forward to Auth Service;
+}
+
+partition "Auth Middleware" {
+    :Validate access token;
+    if (Invalid?) then (yes)
+        :Return 401;
+        stop
+    endif
+}
+
+partition "Auth Service" {
+    :Query sessions WHERE user_id=current_user ORDER BY created_at;
+    :Return all sessions (device type, IP, UA, last_seen, active);
+}
+
+stop
+
+== REVOKE FLOW ==
+
+start
+
+:User requests revoke session <session_id>;
+
+partition "Auth Middleware" {
+    :Validate JWT;
+}
+
+partition "Auth Service" {
+    :SELECT session WHERE id = session_id AND user_id=current_user;
+    if (Not found?) then (yes)
+        :Return 404;
+        stop
+    endif
+
+    :Set session.active = false;
+    :Delete refresh_token_hash;
+}
+
+:Return success;
+
+stop
+
+== SESSION LIFECYCLE ==
+
+start
+:Client performs refresh token exchange;
+
+partition "Auth Service" {
+    :Find session by hashed refresh token;
+    if (Not found?) then (yes)
+        :Return 401;
+        stop
+    endif
+
+    if (Session inactive?) then (yes)
+        :Return revoked session;
+        stop
+    endif
+
+    if (Expired?) then (yes)
+        :Mark inactive;
+        :Return 401;
+        stop
+    endif
+
+    :Rotate refresh token;
+    :Update last_seen timestamp;
+}
+
+stop
+@enduml
