@@ -28,6 +28,16 @@ class TotpSetupRequest(BaseModel):
 class TotpVerifyRequest(BaseModel):
     email: EmailStr
     code: str
+
+
+class RegisterRequest(BaseModel):
+    email: EmailStr
+    password: str
+
+
+class VerifyEmailOTPRequest(BaseModel):
+    email: EmailStr
+    token: str
 # from pydantic import BaseModel
 # from uuid import UUID
 

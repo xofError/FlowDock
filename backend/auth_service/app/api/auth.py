@@ -8,10 +8,14 @@ from app.schemas.auth import (
     LogoutRequest,
     TotpSetupRequest,
     TotpVerifyRequest,
+    RegisterRequest,
+    VerifyEmailOTPRequest,
 )
 from app.services import user_store
 from app.services import token_store
+from app.services import auth_service as svc_auth
 from app.utils import security, totp
+from app.utils import email as email_utils
 
 router = APIRouter()
 
@@ -87,3 +91,29 @@ def totp_verify(data: TotpVerifyRequest):
 
     user.twofa_enabled = True
     return {"detail": "TOTP enabled"}
+
+
+
+@router.post("/register", status_code=status.HTTP_201_CREATED)
+def register(data: RegisterRequest):
+    # create user and send email OTP for verification
+    try:
+        user = user_store.create_user(data.email, data.password)
+    except ValueError:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="User already exists")
+
+    otp = svc_auth.create_email_otp(user.email)
+    # send OTP email (falls back to console if SMTP not configured)
+    subject = "Your FlowDock registration code"
+    body = f"Your verification code is: {otp}\nIt expires in 15 minutes."
+    email_utils.send_email(user.email, subject, body)
+
+    return {"detail": "verification code sent"}
+
+
+@router.post("/verify-email")
+def verify_email(data: VerifyEmailOTPRequest):
+    ok = svc_auth.verify_email_otp(data.email, data.token)
+    if not ok:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid or expired token")
+    return {"detail": "email verified"}

@@ -1,32 +1,48 @@
-from typing import Optional, Dict
-from uuid import UUID, uuid4
-from datetime import datetime
+from typing import Optional
 
+from app.database import SessionLocal
+from app.models.user import User as DBUser
 from app.utils import security
 
 
-class InMemoryUser:
-    def __init__(self, email: str, password: str, twofa_enabled: bool = False):
-        self.id: UUID = uuid4()
-        self.email = email
-        self.password_hash = security.hash_password(password)
-        self.twofa_enabled = twofa_enabled
-        self.totp_secret = None
-        self.created_at = datetime.utcnow()
+def create_test_user(email: str = "test@example.com", password: str = "password") -> DBUser:
+    """Create a default test user in the DB if it doesn't already exist.
+
+    Useful for local development. Returns the DB user instance.
+    """
+    db = SessionLocal()
+    try:
+        user = db.query(DBUser).filter(DBUser.email == email).first()
+        if user:
+            return user
+        new = DBUser(email=email, password_hash=security.hash_password(password))
+        db.add(new)
+        db.commit()
+        db.refresh(new)
+        return new
+    finally:
+        db.close()
 
 
-_USERS: Dict[str, InMemoryUser] = {}
+def get_user_by_email(email: str) -> Optional[DBUser]:
+    db = SessionLocal()
+    try:
+        return db.query(DBUser).filter(DBUser.email == email).first()
+    finally:
+        db.close()
 
 
-def create_test_user(email: str = "test@example.com", password: str = "password") -> InMemoryUser:
-    user = InMemoryUser(email=email, password=password)
-    _USERS[email] = user
-    return user
-
-
-def get_user_by_email(email: str) -> Optional[InMemoryUser]:
-    return _USERS.get(email)
-
-
-# create a default test user
-create_test_user()
+def create_user(email: str, password: str) -> DBUser:
+    """Create a new user in the database. Raises ValueError if user exists."""
+    db = SessionLocal()
+    try:
+        existing = db.query(DBUser).filter(DBUser.email == email).first()
+        if existing:
+            raise ValueError("user already exists")
+        new = DBUser(email=email, password_hash=security.hash_password(password))
+        db.add(new)
+        db.commit()
+        db.refresh(new)
+        return new
+    finally:
+        db.close()
