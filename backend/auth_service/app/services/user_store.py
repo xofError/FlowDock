@@ -32,14 +32,14 @@ def get_user_by_email(email: str) -> Optional[DBUser]:
         db.close()
 
 
-def create_user(email: str, password: str) -> DBUser:
+def create_user(email: str, full_name: str, password: str) -> DBUser:
     """Create a new user in the database. Raises ValueError if user exists."""
     db = SessionLocal()
     try:
         existing = db.query(DBUser).filter(DBUser.email == email).first()
         if existing:
             raise ValueError("user already exists")
-        new = DBUser(email=email, password_hash=security.hash_password(password))
+        new = DBUser(email=email, full_name = full_name , password_hash=security.hash_password(password))
         db.add(new)
         db.commit()
         db.refresh(new)

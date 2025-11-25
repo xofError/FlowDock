@@ -98,7 +98,7 @@ def totp_verify(data: TotpVerifyRequest):
 def register(data: RegisterRequest):
     # create user and send email OTP for verification
     try:
-        user = user_store.create_user(data.email, data.password)
+        user = user_store.create_user(data.email, data.full_name, data.password)
     except ValueError:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="User already exists")
 
