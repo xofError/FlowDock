@@ -5,12 +5,18 @@ from typing import Optional
 class LoginRequest(BaseModel):
     email: EmailStr
     password: str
+    # Optional TOTP code for combined login+TOTP flow
+    totp_code: Optional[str] = None
 
 
 class TokenResponse(BaseModel):
+    """Response containing an access token only.
+
+    Refresh tokens should not be returned in JSON responses for
+    production; they are set as HttpOnly cookies instead.
+    """
     access_token: str
     token_type: str = "bearer"
-    refresh_token: Optional[str] = None
 
 
 class RefreshRequest(BaseModel):
@@ -32,6 +38,7 @@ class TotpVerifyRequest(BaseModel):
 
 class RegisterRequest(BaseModel):
     email: EmailStr
+    full_name: str
     password: str
 
 

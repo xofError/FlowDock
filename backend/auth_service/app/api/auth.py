@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, status, Depends
+from fastapi import APIRouter, HTTPException, status, Depends, Response, Cookie
 from datetime import datetime, timezone
 
 from app.schemas.auth import (
@@ -21,26 +21,64 @@ router = APIRouter()
 
 
 @router.post("/login", response_model=TokenResponse)
-def login(data: LoginRequest):
+def login(data: LoginRequest, response: Response):
+    """Authenticate user and, if required, verify TOTP in a single call.
+
+    If the user has 2FA enabled, a `totp_code` must be supplied in the
+    request. On success, the access token is returned in the JSON body and
+    the refresh token is set as an HttpOnly cookie (not returned in JSON).
+    """
     user = user_store.get_user_by_email(data.email)
     if not user or not security.verify_password(data.password, user.password_hash):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
 
     if user.twofa_enabled:
-        # For simplicity, require TOTP before issuing tokens
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="TOTP required")
+        # Require provided TOTP code for users with 2FA enabled
+        if not data.totp_code:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="TOTP required")
+        ok = totp.verify_totp(user.totp_secret, data.totp_code)
+        if not ok:
+            # Could increment a failure counter / rate limit here
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid TOTP code")
 
     access = security.create_access_token(user.id)
     plain, hashed, expiry = security.create_refresh_token(user.id)
     token_store.store_refresh_token(hashed, user.email, expiry)
 
-    return TokenResponse(access_token=access, refresh_token=plain)
+    # Set refresh token as an HttpOnly cookie. In production, set secure=True
+    # and adjust SameSite according to your client requirements.
+    now = datetime.now(timezone.utc)
+    max_age = int((expiry - now).total_seconds())
+    response.set_cookie(
+        key="refresh_token",
+        value=plain,
+        httponly=True,
+        secure=False,
+        samesite="lax",
+        max_age=max_age,
+    )
+
+    return TokenResponse(access_token=access)
 
 
 @router.post("/refresh", response_model=TokenResponse)
-def refresh(data: RefreshRequest):
-    # Verify provided refresh token
-    hashed = security.hash_refresh_token(data.refresh_token)
+def refresh(response: Response, refresh_token: str = Cookie(None), data: RefreshRequest = None):
+    """Rotate refresh token and issue a new access token.
+
+    The refresh token may be supplied either in the request body (for
+    backward-compatibility) or as an HttpOnly cookie. The endpoint will
+    rotate the refresh token and set the new one as a cookie.
+    """
+    token = None
+    if data and getattr(data, "refresh_token", None):
+        token = data.refresh_token
+    elif refresh_token:
+        token = refresh_token
+
+    if not token:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token required")
+
+    hashed = security.hash_refresh_token(token)
     record = token_store.get_refresh_token(hashed)
     if not record:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token")
@@ -56,13 +94,36 @@ def refresh(data: RefreshRequest):
     token_store.revoke_refresh_token(hashed)
     token_store.store_refresh_token(new_hashed, user.email, new_expiry)
 
-    return TokenResponse(access_token=access, refresh_token=new_plain)
+    # Set new refresh token cookie
+    now = datetime.now(timezone.utc)
+    max_age = int((new_expiry - now).total_seconds())
+    response.set_cookie(
+        key="refresh_token",
+        value=new_plain,
+        httponly=True,
+        secure=False,
+        samesite="lax",
+        max_age=max_age,
+    )
+
+    return TokenResponse(access_token=access)
 
 
 @router.post("/logout")
-def logout(data: LogoutRequest):
-    hashed = security.hash_refresh_token(data.refresh_token)
-    token_store.revoke_refresh_token(hashed)
+def logout(response: Response, refresh_token: str = Cookie(None), data: LogoutRequest = None):
+    """Revoke a refresh token. Accepts token in cookie or body."""
+    token = None
+    if data and getattr(data, "refresh_token", None):
+        token = data.refresh_token
+    elif refresh_token:
+        token = refresh_token
+
+    if token:
+        hashed = security.hash_refresh_token(token)
+        token_store.revoke_refresh_token(hashed)
+
+    # clear cookie
+    response.delete_cookie("refresh_token")
     return {"detail": "logged out"}
 
 
@@ -73,8 +134,12 @@ def totp_setup(data: TotpSetupRequest):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
 
     secret = totp.generate_totp_secret()
-    # store secret temporarily; require verification to enable
-    user.totp_secret = secret
+    # Persist the secret; verification required to enable 2FA
+    try:
+        user_store.set_totp_secret(user.email, secret)
+    except ValueError:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
     uri = totp.get_totp_qr_uri(user.email, secret, app_name="FlowDock")
     return {"totp_uri": uri}
 
@@ -88,9 +153,13 @@ def totp_verify(data: TotpVerifyRequest):
     ok = totp.verify_totp(user.totp_secret, data.code)
     if not ok:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid TOTP code")
+    # Enable two-factor auth and create one-time recovery codes to show to the user
+    try:
+        codes = user_store.enable_twofa_and_generate_recovery_codes(user.email)
+    except ValueError:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
 
-    user.twofa_enabled = True
-    return {"detail": "TOTP enabled"}
+    return {"detail": "TOTP enabled", "recovery_codes": codes}
 
 
 
@@ -98,7 +167,7 @@ def totp_verify(data: TotpVerifyRequest):
 def register(data: RegisterRequest):
     # create user and send email OTP for verification
     try:
-        user = user_store.create_user(data.email, data.password)
+        user = user_store.create_user(data.email, data.full_name, data.password)
     except ValueError:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="User already exists")
 
