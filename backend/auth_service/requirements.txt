@@ -5,6 +5,7 @@ python-jose
 cryptography
 pydantic
 pydantic[email]
+pydantic-settings
 email-validator
 pyotp
 qrcode
@@ -15,3 +16,5 @@ python-multipart
 argon2_cffi
 pytest
 httpx
+authlib
+itsdangerous

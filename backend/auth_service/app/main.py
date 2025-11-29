@@ -1,4 +1,6 @@
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.sessions import SessionMiddleware
 from contextlib import asynccontextmanager
 
 from app.api import auth as auth_router
@@ -17,6 +19,17 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Auth Service", lifespan=lifespan)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # In production, set this to your frontend's URL
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+app.add_middleware(
+    SessionMiddleware,
+    secret_key="CHANGE_THIS_TO_A_RANDOM_SECRET",  # Set to a strong random value in production
+)
 app.include_router(auth_router.router, prefix="/auth", tags=["auth"])
 
 
