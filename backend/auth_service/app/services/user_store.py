@@ -129,3 +129,17 @@ def verify_and_consume_recovery_code(email: str, code: str) -> bool:
         return True
     finally:
         db.close()
+
+
+def mark_user_verified(email: str) -> None:
+    """Mark a user as email-verified."""
+    db = SessionLocal()
+    try:
+        user = db.query(DBUser).filter(DBUser.email == email).first()
+        if not user:
+            raise ValueError("user not found")
+        user.verified = True
+        db.add(user)
+        db.commit()
+    finally:
+        db.close()

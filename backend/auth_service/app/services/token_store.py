@@ -57,3 +57,20 @@ def revoke_refresh_token(hashed: str) -> None:
         db.commit()
     finally:
         db.close()
+
+
+def revoke_all_refresh_tokens_for_user(user_email: str) -> None:
+    """Revoke all active refresh tokens for a user. Used to enforce single-session behavior."""
+    db = SessionLocal()
+    try:
+        user = db.query(DBUser).filter(DBUser.email == user_email).first()
+        if not user:
+            return
+        
+        db.query(DBSession).filter(
+            DBSession.user_id == user.id,
+            DBSession.active == True
+        ).update({"active": False})
+        db.commit()
+    finally:
+        db.close()
