@@ -1,5 +1,5 @@
 from typing import Optional, Dict
-from datetime import timezone
+from datetime import timezone, datetime
 import redis
 import os
 import json
@@ -33,7 +33,7 @@ def store_refresh_token(hashed: str, user_email: str, expiry) -> None:
         expiry_timestamp = int(expiry.timestamp())
     
     # Calculate TTL (time to live) in seconds
-    now_timestamp = int(timezone.utc.now().timestamp()) if not hasattr(timezone, "utc_now") else int(timezone.utc.now().timestamp())
+    now_timestamp = int(datetime.now(timezone.utc).timestamp())
     ttl = max(1, expiry_timestamp - now_timestamp)
     
     # Store token data in Redis with automatic expiry
