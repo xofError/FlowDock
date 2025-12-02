@@ -1,0 +1,143 @@
+
+services:
+  # Database
+  postgres:
+    image: postgres:16
+    container_name: flowdock_postgres
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: FlowDock
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      - flowdock_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Cache
+  redis:
+    image: redis:7
+    container_name: flowdock_redis
+    restart: always
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata:/data
+    networks:
+      - flowdock_network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Database Admin UI (Development only)
+  pgadmin:
+    image: dpage/pgadmin4
+    container_name: flowdock_pgadmin
+    restart: always
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@pgadmin.com
+      PGADMIN_DEFAULT_PASSWORD: admin
+    ports:
+      - "5050:80"
+    networks:
+      - flowdock_network
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # Reverse Proxy & Load Balancer
+  traefik:
+    image: traefik:v2.10
+    container_name: flowdock_traefik
+    restart: always
+    command:
+      - "--api.insecure=true"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--entrypoints.web.address=:80"
+    ports:
+      - "80:80"
+      - "8080:8080"  # Traefik Dashboard
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - flowdock_network
+    depends_on:
+      - auth_service
+
+  # Authentication Service
+  auth_service:
+    build:
+      context: ./backend/auth_service
+      dockerfile: Dockerfile
+    container_name: flowdock_auth_service
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: FlowDock
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      JWT_SECRET: "secret"
+      JWT_ALGORITHM: "HS256"
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+    ports:
+      - "8000:8000"
+    networks:
+      - flowdock_network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.auth.rule=Host(`localhost`) && PathPrefix(`/auth`)"
+      - "traefik.http.services.auth.loadbalancer.server.port=8000"
+
+  # File Service (Placeholder for future development)
+  # file_service:
+  #   build:
+  #     context: ./backend/file_service
+  #     dockerfile: Dockerfile
+  #   container_name: flowdock_file_service
+  #   restart: always
+  #   environment:
+  #     POSTGRES_USER: postgres
+  #     POSTGRES_PASSWORD: postgres
+  #     POSTGRES_DB: FlowDock
+  #     POSTGRES_HOST: postgres
+  #     POSTGRES_PORT: 5432
+  #     REDIS_HOST: redis
+  #     REDIS_PORT: 6379
+  #   ports:
+  #     - "8001:8000"
+  #   networks:
+  #     - flowdock_network
+  #   depends_on:
+  #     postgres:
+  #       condition: service_healthy
+  #     redis:
+  #       condition: service_healthy
+  #   labels:
+  #     - "traefik.enable=true"
+  #     - "traefik.http.routers.file.rule=Host(`localhost`) && PathPrefix(`/files`)"
+  #     - "traefik.http.services.file.loadbalancer.server.port=8000"
+
+volumes:
+  pgdata:
+  redisdata:
+
+networks:
+  flowdock_network:
+    driver: bridge
