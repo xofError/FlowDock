@@ -57,6 +57,13 @@ def login(data: LoginRequest, response: Response):
     request. On success, the access token is returned in the JSON body and
     the refresh token is set as an HttpOnly cookie (not returned in JSON).
     """
+    # Check rate limit
+    if not svc_auth.check_login_rate_limit(data.email):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many login attempts. Try again later."
+        )
+    
     user = user_store.get_user_by_email(data.email)
     if not user or not security.verify_password(data.password, user.password_hash):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
@@ -197,6 +204,13 @@ def totp_verify(data: TotpVerifyRequest):
 
 @router.post("/register", status_code=status.HTTP_201_CREATED)
 def register(data: RegisterRequest):
+    # Check rate limit for OTP requests
+    if not svc_auth.check_otp_request_rate_limit(data.email):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many registration attempts. Try again later."
+        )
+    
     # create user and send email OTP for verification
     try:
         user = user_store.create_user(data.email, data.full_name, data.password)
