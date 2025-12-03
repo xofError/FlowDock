@@ -12,9 +12,16 @@ import logging
 import os
 from threading import Thread
 from typing import Optional
+
+from app.database import SessionLocal
+from app.models.user import User
 from .rabbitmq_consumer import create_file_event_consumer
 
 logger = logging.getLogger(__name__)
+
+# Track failed message attempts to prevent infinite requeue loops
+FAILED_MESSAGES = {}
+MAX_RETRIES = 3
 
 
 class StorageQuotaManager:
@@ -25,52 +32,68 @@ class StorageQuotaManager:
     
     @staticmethod
     def deduct_quota(user_id: str, file_size: int) -> bool:
-        """
-        Deduct storage quota for a user after file upload.
+        """Deduct storage quota for a user"""
+        db = SessionLocal()
+        try:
+            user = db.query(User).filter(User.id == user_id).first()
+            if not user:
+                logger.error(f"User not found: {user_id}")
+                return False
+            
+            # Check quota
+            if user.storage_used + file_size > user.storage_limit:
+                logger.error(f"Quota exceeded for user {user_id}: {user.storage_used} + {file_size} > {user.storage_limit}")
+                return False
+            
+            # Deduct quota
+            user.storage_used += file_size
+            db.commit()
+            logger.info(f"✓ Deducted {file_size} bytes from {user_id}; new total: {user.storage_used} / {user.storage_limit}")
+            return True
         
-        Args:
-            user_id: User identifier
-            file_size: File size in bytes
-        
-        Returns:
-            True if quota deducted successfully, False otherwise
-        """
-        # TODO: Implement in Core Service
-        # Example:
-        # user = get_user(user_id)
-        # if user.used_storage + file_size > user.storage_quota:
-        #     logger.error(f"Insufficient quota for user {user_id}")
-        #     return False
-        # user.used_storage += file_size
-        # save_user(user)
-        # return True
-        logger.info(f"[QUOTA] Deducted {file_size} bytes from user {user_id}")
-        return True
+        except Exception as e:
+            logger.error(f"Database error: {e}")
+            db.rollback()
+            return False
+        finally:
+            db.close()
     
     @staticmethod
     def restore_quota(user_id: str, file_size: int) -> bool:
-        """
-        Restore storage quota after file deletion.
+        """Restore storage quota after file deletion"""
+        db = SessionLocal()
+        try:
+            user = db.query(User).filter(User.id == user_id).first()
+            if user:
+                user.storage_used = max(0, user.storage_used - file_size)
+                db.commit()
+                logger.info(f"✓ Restored {file_size} bytes to {user_id}")
+                return True
+            return False
         
-        Args:
-            user_id: User identifier
-            file_size: File size in bytes
-        
-        Returns:
-            True if quota restored successfully, False otherwise
-        """
-        # TODO: Implement in Core Service
-        # Example:
-        # user = get_user(user_id)
-        # user.used_storage = max(0, user.used_storage - file_size)
-        # save_user(user)
-        # return True
-        logger.info(f"[QUOTA] Restored {file_size} bytes to user {user_id}")
-        return True
+        except Exception as e:
+            logger.error(f"Database error: {e}")
+            db.rollback()
+            return False
+        finally:
+            db.close()
 
 
 class FileEventHandler:
     """Handles file events from the Media Service"""
+    
+    @staticmethod
+    def _should_retry(message_id: str) -> bool:
+        """Check if a message should be retried or permanently rejected"""
+        attempt = FAILED_MESSAGES.get(message_id, 0)
+        if attempt >= MAX_RETRIES:
+            logger.error(f"Message {message_id} failed {MAX_RETRIES} times, permanently rejecting")
+            del FAILED_MESSAGES[message_id]
+            return False
+        
+        FAILED_MESSAGES[message_id] = attempt + 1
+        logger.warning(f"Message {message_id} failed, attempt {FAILED_MESSAGES[message_id]}/{MAX_RETRIES}")
+        return True
     
     @staticmethod
     def on_file_uploaded(event: dict) -> bool:
@@ -90,6 +113,7 @@ class FileEventHandler:
             user_id = event.get('user_id')
             file_size = event.get('file_size')
             file_id = event.get('file_id')
+            message_id = f"{file_id}_{user_id}"
             
             if not all([user_id, file_size, file_id]):
                 logger.error(f"Invalid FILE_UPLOADED event: {event}")
@@ -102,14 +126,24 @@ class FileEventHandler:
             
             if success:
                 logger.info(f"✓ Quota deducted for user {user_id}")
+                # Clear from failed attempts on success
+                FAILED_MESSAGES.pop(message_id, None)
             else:
-                logger.error(f"✗ Failed to deduct quota for user {user_id}")
+                # Retry logic for transient failures
+                if FileEventHandler._should_retry(message_id):
+                    return False  # Requeue
+                else:
+                    logger.error(f"✗ Permanently rejecting FILE_UPLOADED for user {user_id}")
+                    return True  # Ack and discard
             
             return success
         
         except Exception as e:
             logger.error(f"✗ Error handling FILE_UPLOADED event: {e}")
-            return False
+            message_id = f"{event.get('file_id')}_{event.get('user_id')}"
+            if FileEventHandler._should_retry(message_id):
+                return False  # Requeue
+            return True  # Give up and ack
     
     @staticmethod
     def on_file_deleted(event: dict) -> bool:
@@ -129,6 +163,7 @@ class FileEventHandler:
             user_id = event.get('user_id')
             file_size = event.get('file_size')
             file_id = event.get('file_id')
+            message_id = f"{file_id}_{user_id}"
             
             if not all([user_id, file_size, file_id]):
                 logger.error(f"Invalid FILE_DELETED event: {event}")
@@ -141,14 +176,24 @@ class FileEventHandler:
             
             if success:
                 logger.info(f"✓ Quota restored for user {user_id}")
+                # Clear from failed attempts on success
+                FAILED_MESSAGES.pop(message_id, None)
             else:
-                logger.error(f"✗ Failed to restore quota for user {user_id}")
+                # Retry logic for transient failures
+                if FileEventHandler._should_retry(message_id):
+                    return False  # Requeue
+                else:
+                    logger.error(f"✗ Permanently rejecting FILE_DELETED for user {user_id}")
+                    return True  # Ack and discard
             
             return success
         
         except Exception as e:
             logger.error(f"✗ Error handling FILE_DELETED event: {e}")
-            return False
+            message_id = f"{event.get('file_id')}_{event.get('user_id')}"
+            if FileEventHandler._should_retry(message_id):
+                return False  # Requeue
+            return True  # Give up and ack
 
 
 def start_file_event_consumer_background():

@@ -9,6 +9,7 @@ from app.api import auth as auth_router
 from app.database import Base, engine
 from app.models import *
 from app.services.user_store import create_test_user
+from app.services.rabbitmq_consumer_integration import start_file_event_consumer_background
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
@@ -23,6 +24,11 @@ async def lifespan(app: FastAPI):
         create_test_user()
     except Exception as e:
         logger.warning(f"Could not create test user: {e}")
+    
+    # Startup: Start RabbitMQ file event consumer
+    logger.info("Starting RabbitMQ file event consumer...")
+    start_file_event_consumer_background()
+    
     yield
     # Shutdown: Nothing to do
 
