@@ -12,7 +12,10 @@ class Settings:
     # Service info
     SERVICE_NAME: str = "FlowDock Media Service"
     SERVICE_VERSION: str = "2.0.0"
-    
+
+    # New: 32-byte Hex Key
+    ENCRYPTION_MASTER_KEY: str = os.getenv("ENCRYPTION_MASTER_KEY" , "a2d446b1587fd0afbf338055123deb317193c3406794b451296b6b3c16f85166")
+
     # MongoDB
     MONGO_URL: str = os.getenv(
         "MONGO_URL",
