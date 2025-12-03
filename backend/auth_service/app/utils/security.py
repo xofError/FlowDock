@@ -83,3 +83,60 @@ def create_refresh_token(user_id: UUID) -> Tuple[str, str, datetime]:
     hashed = hash_refresh_token(token)
     expiry = datetime.now(timezone.utc) + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
     return token, hashed, expiry
+
+
+def create_download_token(file_id: str) -> str:
+    """
+    Generates a short-lived (1 minute) token that grants access 
+    to download a SINGLE specific file.
+    
+    This token is used to authorize file downloads from the Media Service
+    without requiring the user to present their main JWT token, which allows
+    sharing files via public links.
+    
+    Args:
+        file_id: MongoDB ObjectId or identifier of the file to download
+        
+    Returns:
+        JWT token string that can be used with the download endpoint
+    """
+    _ensure_jwt_secret()
+    now = datetime.now(timezone.utc)
+    
+    # Very short lifespan: just enough time for the browser to start the request
+    expire = now + timedelta(minutes=1)
+
+    payload = {
+        "sub": "download_permit",  # Subject - indicates this is a download permit
+        "file_id": file_id,        # The only file this token can touch
+        "exp": int(expire.timestamp()),
+        "iat": int(now.timestamp()),
+        "type": "download"         # Scope - indicates this is a download token
+    }
+
+    return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
+
+
+def verify_download_token(token: str, file_id: str) -> bool:
+    """
+    Verifies the token is valid, not expired, AND is for the correct file.
+    
+    Args:
+        token: JWT token string to verify
+        file_id: The file_id that should be contained in the token
+        
+    Returns:
+        True if token is valid and matches the file_id, False otherwise
+    """
+    payload = decode_token(token)
+    
+    if not payload:
+        return False
+        
+    if payload.get("type") != "download":
+        return False
+        
+    if payload.get("file_id") != file_id:
+        return False
+        
+    return True
