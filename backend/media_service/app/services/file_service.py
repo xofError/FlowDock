@@ -1,20 +1,13 @@
-"""
-GridFS file operations service
-"""
-
 import logging
-from typing import Optional
+from typing import Optional, Tuple
 from bson import ObjectId
-from motor.motor_asyncio import AsyncIOMotorGridFSBucket
 from app.database import get_fs
 from app.utils.validators import validate_file_type, validate_file_size
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
-
 class FileService:
-    """Service for file operations using GridFS"""
     
     @staticmethod
     async def upload_file(
@@ -22,37 +15,25 @@ class FileService:
         file_content: bytes,
         content_type: str,
         user_id: str
-    ) -> tuple[bool, Optional[str], Optional[str]]:
-        """
-        Upload file to GridFS
+    ) -> Tuple[bool, Optional[str], Optional[str]]:
         
-        Args:
-            filename: Original filename
-            file_content: Binary file content
-            content_type: MIME type
-            user_id: User ID
-        
-        Returns:
-            Tuple of (success, file_id_or_error, error_message)
-        """
-        # Validate MIME type
+        # 1. Validation (Sync)
         if not validate_file_type(content_type):
-            error = f"Invalid file type: {content_type}. Allowed: {', '.join(settings.ALLOWED_MIMES)}"
+            error = f"Invalid file type: {content_type}."
             return False, None, error
         
-        # Validate file size
         file_size = len(file_content)
-        is_valid, error_msg = validate_file_size(file_size)
+        # You confirmed this is Sync, so NO 'await' here
+        is_valid, error_msg = validate_file_size(file_size) 
         if not is_valid:
             return False, None, error_msg
         
         try:
             fs = get_fs()
             
-            logger.info(f"Uploading {filename} ({file_size} bytes) for user {user_id}")
-            
-            # Open upload stream
-            grid_in = await fs.open_upload_stream(
+            # 2. Fix Motor Usage: open_upload_stream is SYNC
+            # Do NOT use 'await' here.
+            grid_in = fs.open_upload_stream(
                 filename,
                 metadata={
                     "owner": user_id,
@@ -61,136 +42,87 @@ class FileService:
                 }
             )
             
-            # Write file content
+            # 3. Write IS Async
             await grid_in.write(file_content)
             await grid_in.close()
             
             file_id = str(grid_in._id)
-            logger.info(f"✓ File uploaded: {file_id}")
-            
             return True, file_id, None
         
         except Exception as e:
-            logger.error(f"✗ Upload failed: {e}")
+            logger.error(f"Upload failed: {e}")
             return False, None, str(e)
-    
+
     @staticmethod
-    async def download_file(file_id: str) -> tuple[bool, Optional[bytes], Optional[dict], Optional[str]]:
-        """
-        Download file from GridFS
-        
-        Args:
-            file_id: MongoDB ObjectId
-        
-        Returns:
-            Tuple of (success, file_content, metadata, error_message)
-        """
+    async def download_file(file_id: str) -> Tuple[bool, Optional[bytes], Optional[dict], Optional[str]]:
         try:
-            # Validate ObjectId
-            try:
-                oid = ObjectId(file_id)
-            except Exception:
-                return False, None, None, "Invalid file ID format"
-            
+            oid = ObjectId(file_id)
             fs = get_fs()
             
-            # Open download stream
+            # 4. open_download_stream IS Async (fetches file doc)
             grid_out = await fs.open_download_stream(oid)
             
-            # Get metadata
             metadata = {
                 "filename": grid_out.filename,
-                "size": grid_out.length,
                 "content_type": grid_out.content_type,
-                "upload_date": grid_out.upload_date
             }
             
-            # Read file content
             file_content = await grid_out.read()
-            await grid_out.close()
-            
-            logger.info(f"✓ Downloaded file: {file_id}")
-            
             return True, file_content, metadata, None
-        
         except Exception as e:
-            logger.error(f"✗ Download failed: {e}")
             return False, None, None, "File not found"
-    
+
     @staticmethod
-    async def delete_file(file_id: str) -> tuple[bool, Optional[int], Optional[str]]:
-        """
-        Delete file from GridFS
-        
-        Args:
-            file_id: MongoDB ObjectId
-        
-        Returns:
-            Tuple of (success, file_size_or_none, error_message)
-        """
+    async def delete_file(file_id: str) -> Tuple[bool, Optional[int], Optional[str]]:
         try:
-            # Validate ObjectId
-            try:
-                oid = ObjectId(file_id)
-            except Exception:
-                return False, None, "Invalid file ID format"
-            
+            oid = ObjectId(file_id)
             fs = get_fs()
             
-            # Get file size before deletion
+            # Helper to get size before delete
             try:
                 grid_out = await fs.open_download_stream(oid)
                 file_size = grid_out.length
-                await grid_out.close()
             except Exception:
                 return False, None, "File not found"
-            
-            # Delete file
+
             await fs.delete(oid)
-            logger.info(f"✓ Deleted file: {file_id}")
-            
             return True, file_size, None
-        
         except Exception as e:
-            logger.error(f"✗ Deletion failed: {e}")
             return False, None, str(e)
-    
+
     @staticmethod
-    async def get_file_metadata(file_id: str) -> tuple[bool, Optional[dict], Optional[str]]:
-        """
-        Get file metadata without downloading
-        
-        Args:
-            file_id: MongoDB ObjectId
-        
-        Returns:
-            Tuple of (success, metadata, error_message)
-        """
+    async def get_file_metadata(file_id: str) -> Tuple[bool, Optional[dict], Optional[str]]:
         try:
-            # Validate ObjectId
             try:
                 oid = ObjectId(file_id)
             except Exception:
                 return False, None, "Invalid file ID format"
-            
+
             fs = get_fs()
             
-            # Open stream to get metadata
+            # Open the stream to fetch file details
             grid_out = await fs.open_download_stream(oid)
             
+            # SAFEGUARD: metadata might be None if the file has no metadata
+            file_metadata = grid_out.metadata or {}
+            
+            # RETRIEVE CONTENT_TYPE CORRECTLY:
+            # You stored it in 'metadata.contentType', so we look there first.
+            # Fallback to grid_out.content_type (root level) if not found.
+            content_type = file_metadata.get("contentType") or grid_out.content_type
+
             metadata = {
                 "file_id": file_id,
                 "filename": grid_out.filename,
                 "size": grid_out.length,
-                "content_type": grid_out.content_type,
+                "content_type": content_type, 
                 "upload_date": grid_out.upload_date,
-                "metadata": await grid_out.metadata
+                "metadata": file_metadata
             }
-            
-            await grid_out.close()
             
             return True, metadata, None
         
         except Exception as e:
-            logger.error(f"✗ Metadata retrieval failed: {e}")
+            # LOG THE REAL ERROR so you can see it in your terminal
+            logger.error(f"Metadata error for {file_id}: {e}")
             return False, None, "File not found"

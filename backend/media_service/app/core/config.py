@@ -29,14 +29,52 @@ class Settings:
     
     # File validation
     ALLOWED_MIMES: List[str] = [
+        # Images
         "image/jpeg",
         "image/png",
+        "image/gif",
+        "image/webp",
+        "image/svg+xml",
+        "image/bmp",
+        "image/tiff",
+
+        # Documents
         "application/pdf",
         "text/plain",
+        "application/rtf",
+        "application/json",
+        "application/xml",
+        "text/csv",
+        "application/epub+zip",
+
+        # Microsoft / Office formats
         "application/msword",
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         "application/vnd.ms-excel",
-        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "application/vnd.ms-powerpoint",
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        "application/vnd.oasis.opendocument.text",
+
+        # Archives
+        "application/zip",
+        "application/x-tar",
+        "application/gzip",
+        "application/x-7z-compressed",
+        "application/vnd.rar",
+        "application/x-rar-compressed",
+
+        # Audio
+        "audio/mpeg",
+        "audio/ogg",
+        "audio/wav",
+        "audio/webm",
+
+        # Video
+        "video/mp4",
+        "video/webm",
+        "video/quicktime",
+        "video/x-msvideo"
     ]
     
     MAX_FILE_SIZE: int = 100 * 1024 * 1024  # 100MB
