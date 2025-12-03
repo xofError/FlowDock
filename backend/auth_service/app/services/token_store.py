@@ -44,6 +44,22 @@ def store_refresh_token(hashed: str, user_email: str, expiry) -> None:
     }
     redis_client.setex(key, ttl, json.dumps(token_data))
 
+    # Also persist a session record in the SQL DB for auditing and session management
+    # db = SessionLocal()
+    # try:
+    #     user = db.query(DBUser).filter(DBUser.email == user_email).first()
+    #     if user:
+    #         session = DBSession(
+    #             user_id=user.id,
+    #             refresh_token_hash=hashed,
+    #             expires_at=expiry,
+    #             active=True
+    #         )
+    #         db.add(session)
+    #         db.commit()
+    # finally:
+    #     db.close()
+
 
 def get_refresh_token(hashed: str) -> Optional[Dict]:
     """Retrieve a refresh token from Redis if it exists and is not revoked."""
@@ -56,7 +72,7 @@ def get_refresh_token(hashed: str) -> Optional[Dict]:
     try:
         data = json.loads(token_data)
         # Convert expiry timestamp back to timezone-aware UTC
-        expiry = timezone.utc.localize(__import__("datetime").datetime.utcfromtimestamp(data["expiry"]))
+        expiry = datetime.fromtimestamp(data["expiry"], tz=timezone.utc)
         return {
             "user_email": data["user_email"],
             "expiry": expiry
@@ -80,7 +96,7 @@ def revoke_refresh_token(hashed: str) -> None:
     if token_data:
         try:
             data = json.loads(token_data)
-            now_timestamp = int(__import__("datetime").datetime.now(timezone.utc).timestamp())
+            now_timestamp = int(datetime.now(timezone.utc).timestamp())
             expiry_timestamp = data.get("expiry", now_timestamp + 86400)  # Default 1 day
             ttl = max(1, expiry_timestamp - now_timestamp)
             redis_client.setex(blacklist_key, ttl, "revoked")

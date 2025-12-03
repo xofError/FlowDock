@@ -16,11 +16,13 @@ from app.schemas.auth import (
     RegisterRequest,
     VerifyEmailOTPRequest,
 )
+from app.schemas.recovery import RequestPasswordReset, ResetPasswordRequest
 from app.services import user_store
 from app.services import token_store
 from app.services import auth_service as svc_auth
 from app.utils import security, totp
 from app.utils import email as email_utils
+from app.services import auth_service
 
 router = APIRouter()
 
@@ -48,6 +50,37 @@ def get_oauth_client():
             raise RuntimeError(f"Failed to initialize OAuth client: {e}")
     return _oauth_client
 
+@router.post("/register", status_code=status.HTTP_201_CREATED)
+def register(data: RegisterRequest):
+    # Check rate limit for OTP requests
+    if not svc_auth.check_otp_request_rate_limit(data.email):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many registration attempts. Try again later."
+        )
+    
+    # create user and send email OTP for verification
+    try:
+        user = user_store.create_user(data.email, data.full_name, data.password)
+    except ValueError:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="User already exists")
+
+    otp = svc_auth.create_email_otp(user.email)
+    # send OTP email (falls back to console if SMTP not configured)
+    subject = "Your FlowDock registration code"
+    body = f"Your verification code is: {otp}\nIt expires in 15 minutes."
+    email_utils.send_email(user.email, subject, body)
+
+    return {"detail": "verification code sent"}
+
+
+@router.post("/verify-email")
+def verify_email(data: VerifyEmailOTPRequest):
+    ok = svc_auth.verify_email_otp(data.email, data.token)
+    if not ok:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid or expired token")
+    return {"detail": "email verified"}
+
 
 @router.post("/login", response_model=TokenResponse)
 def login(data: LoginRequest, response: Response):
@@ -65,7 +98,14 @@ def login(data: LoginRequest, response: Response):
         )
     
     user = user_store.get_user_by_email(data.email)
-    if not user or not security.verify_password(data.password, user.password_hash):
+    if not user:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
+
+    # Ensure email is verified before allowing login
+    if not getattr(user, "verified", False):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Email not verified")
+
+    if not security.verify_password(data.password, user.password_hash):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
 
     if user.twofa_enabled:
@@ -202,36 +242,7 @@ def totp_verify(data: TotpVerifyRequest):
 
 
 
-@router.post("/register", status_code=status.HTTP_201_CREATED)
-def register(data: RegisterRequest):
-    # Check rate limit for OTP requests
-    if not svc_auth.check_otp_request_rate_limit(data.email):
-        raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail="Too many registration attempts. Try again later."
-        )
-    
-    # create user and send email OTP for verification
-    try:
-        user = user_store.create_user(data.email, data.full_name, data.password)
-    except ValueError:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="User already exists")
 
-    otp = svc_auth.create_email_otp(user.email)
-    # send OTP email (falls back to console if SMTP not configured)
-    subject = "Your FlowDock registration code"
-    body = f"Your verification code is: {otp}\nIt expires in 15 minutes."
-    email_utils.send_email(user.email, subject, body)
-
-    return {"detail": "verification code sent"}
-
-
-@router.post("/verify-email")
-def verify_email(data: VerifyEmailOTPRequest):
-    ok = svc_auth.verify_email_otp(data.email, data.token)
-    if not ok:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid or expired token")
-    return {"detail": "email verified"}
 
 
 # --- OAuth2 / External provider support (example: Google) -----------------
@@ -325,3 +336,21 @@ async def oauth_callback(provider: str, request: Request, response: Response):
     )
 
     return TokenResponse(access_token=access)
+
+
+@router.post("/forgot-password")
+async def forgot_password(data: RequestPasswordReset):
+    # request_password_reset is async; await it so exceptions are handled here
+    ok = await auth_service.request_password_reset(data.email)
+    if not ok:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to request password reset")
+    return {"detail": "password reset email sent"}
+
+
+@router.post("/reset-password")
+def reset_password(data: ResetPasswordRequest):
+    """Confirm a password reset: verify token and update password."""
+    ok = auth_service.confirm_password_reset(data.email, data.token, data.new_password)
+    if not ok:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid token or email")
+    return {"detail": "password updated"}

@@ -44,7 +44,8 @@ class FileService:
             
             # 3. Write IS Async
             await grid_in.write(file_content)
-            await grid_in.close()
+            # close() is synchronous
+            grid_in.close()
             
             file_id = str(grid_in._id)
             return True, file_id, None
@@ -54,26 +55,34 @@ class FileService:
             return False, None, str(e)
 
     @staticmethod
-    async def download_file(file_id: str) -> Tuple[bool, Optional[bytes], Optional[dict], Optional[str]]:
+    async def download_file(file_id: str, requester_user_id: str) -> Tuple[bool, Optional[bytes], Optional[dict], Optional[str]]:
         try:
             oid = ObjectId(file_id)
             fs = get_fs()
             
             # 4. open_download_stream IS Async (fetches file doc)
             grid_out = await fs.open_download_stream(oid)
-            
+            # enforce ownership if present in metadata
+            file_meta = grid_out.metadata or {}
+            owner = file_meta.get("owner")
+            if owner and owner != requester_user_id:
+                grid_out.close()
+                return False, None, None, "Access denied"
+
             metadata = {
                 "filename": grid_out.filename,
                 "content_type": grid_out.content_type,
             }
-            
+
             file_content = await grid_out.read()
+            # close stream
+            grid_out.close()
             return True, file_content, metadata, None
         except Exception as e:
             return False, None, None, "File not found"
 
     @staticmethod
-    async def delete_file(file_id: str) -> Tuple[bool, Optional[int], Optional[str]]:
+    async def delete_file(file_id: str, requester_user_id: str) -> Tuple[bool, Optional[int], Optional[str]]:
         try:
             oid = ObjectId(file_id)
             fs = get_fs()
@@ -81,17 +90,22 @@ class FileService:
             # Helper to get size before delete
             try:
                 grid_out = await fs.open_download_stream(oid)
+                file_meta = grid_out.metadata or {}
+                owner = file_meta.get("owner")
+                if owner and owner != requester_user_id:
+                    grid_out.close()
+                    return False, None, "Access denied"
+
                 file_size = grid_out.length
             except Exception:
                 return False, None, "File not found"
-
             await fs.delete(oid)
             return True, file_size, None
         except Exception as e:
             return False, None, str(e)
 
     @staticmethod
-    async def get_file_metadata(file_id: str) -> Tuple[bool, Optional[dict], Optional[str]]:
+    async def get_file_metadata(file_id: str, requester_user_id: str) -> Tuple[bool, Optional[dict], Optional[str]]:
         try:
             try:
                 oid = ObjectId(file_id)
@@ -105,6 +119,10 @@ class FileService:
             
             # SAFEGUARD: metadata might be None if the file has no metadata
             file_metadata = grid_out.metadata or {}
+            owner = file_metadata.get("owner")
+            if owner and owner != requester_user_id:
+                grid_out.close()
+                return False, None, "Access denied"
             
             # RETRIEVE CONTENT_TYPE CORRECTLY:
             # You stored it in 'metadata.contentType', so we look there first.
@@ -120,6 +138,7 @@ class FileService:
                 "metadata": file_metadata
             }
             
+            grid_out.close()
             return True, metadata, None
         
         except Exception as e:

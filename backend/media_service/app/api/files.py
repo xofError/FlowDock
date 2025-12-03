@@ -2,7 +2,7 @@
 API endpoints for file operations
 """
 
-from fastapi import APIRouter, UploadFile, File, HTTPException, Path, Query
+from fastapi import APIRouter, UploadFile, File, HTTPException, Path, Query, Depends
 from fastapi.responses import StreamingResponse
 import logging
 
@@ -15,6 +15,7 @@ from app.schemas.file import (
     HealthCheckResponse
 )
 from app.utils.validators import format_file_size
+from app.utils.security import get_current_user_id, verify_user_ownership
 
 logger = logging.getLogger(__name__)
 
@@ -35,13 +36,16 @@ async def health_check():
 @router.post("/upload/{user_id}", response_model=FileUploadResponse)
 async def upload_file(
     user_id: str = Path(..., description="User ID"),
-    file: UploadFile = File(..., description="File to upload")
+    file: UploadFile = File(..., description="File to upload"),
+    current_user_id: str = Depends(get_current_user_id)
 ):
     """
     Upload a file to GridFS and notify Core Service via RabbitMQ.
     
+    **Security**: Requires valid JWT token. User can only upload files for their own user_id.
+    
     Parameters:
-    - **user_id**: User identifier
+    - **user_id**: User identifier (from path, must match JWT token)
     - **file**: Binary file to upload
     
     Returns:
@@ -51,6 +55,8 @@ async def upload_file(
     - **filename**: Original filename
     - **content_type**: MIME type
     """
+    # Verify user ownership: token user must match path user_id
+    verify_user_ownership(current_user_id, user_id)
     try:
         # Read file content
         file_content = await file.read()
@@ -91,9 +97,15 @@ async def upload_file(
 
 
 @router.get("/download/{file_id}")
-async def download_file(file_id: str = Path(..., description="File ID (ObjectId)")):
+async def download_file(
+    file_id: str = Path(..., description="File ID (ObjectId)"),
+    current_user_id: str = Depends(get_current_user_id)
+):
     """
     Download a file from GridFS.
+    
+    **Security**: Requires valid JWT token. Currently allows authenticated users to download any file.
+    Consider adding ownership checks if files should be user-specific.
     
     Parameters:
     - **file_id**: MongoDB ObjectId of the file
@@ -102,10 +114,12 @@ async def download_file(file_id: str = Path(..., description="File ID (ObjectId)
     - Binary file stream
     """
     try:
-        # Download from GridFS
-        success, file_content, metadata, error = await FileService.download_file(file_id)
-        
+        # Download from GridFS (enforce ownership inside service)
+        success, file_content, metadata, error = await FileService.download_file(file_id, current_user_id)
+
         if not success:
+            if error == "Access denied":
+                raise HTTPException(status_code=403, detail=error)
             raise HTTPException(status_code=404, detail=error)
         
         # Return streaming response
@@ -128,23 +142,33 @@ async def download_file(file_id: str = Path(..., description="File ID (ObjectId)
 @router.delete("/files/{file_id}", response_model=FileDeleteResponse)
 async def delete_file(
     file_id: str = Path(..., description="File ID (ObjectId)"),
-    user_id: str = Query(None, description="User requesting deletion (optional)")
+    user_id: str = Query(None, description="User requesting deletion"),
+    current_user_id: str = Depends(get_current_user_id)
 ):
     """
     Delete a file from GridFS and notify Core Service.
     
+    **Security**: Requires valid JWT token. User can only delete files if user_id matches their token.
+    
     Parameters:
     - **file_id**: MongoDB ObjectId of the file
-    - **user_id**: User requesting deletion (for audit, optional)
+    - **user_id**: User requesting deletion (from query, must match JWT token)
     
     Returns:
     - Deletion status
     """
+    # Verify user ownership if user_id provided
+    if user_id:
+        verify_user_ownership(current_user_id, user_id)
+    else:
+        user_id = current_user_id
     try:
-        # Delete from GridFS
-        success, file_size, error = await FileService.delete_file(file_id)
-        
+        # Delete from GridFS (service enforces ownership)
+        success, file_size, error = await FileService.delete_file(file_id, current_user_id)
+
         if not success:
+            if error == "Access denied":
+                raise HTTPException(status_code=403, detail=error)
             raise HTTPException(status_code=404, detail=error)
         
         # Publish deletion event if user_id provided
@@ -169,9 +193,15 @@ async def delete_file(
 
 
 @router.get("/files/{file_id}/metadata", response_model=FileMetadataResponse)
-async def get_file_metadata(file_id: str = Path(..., description="File ID (ObjectId)")):
+async def get_file_metadata(
+    file_id: str = Path(..., description="File ID (ObjectId)"),
+    current_user_id: str = Depends(get_current_user_id)
+):
     """
     Get metadata for a file without downloading it.
+    
+    **Security**: Requires valid JWT token. Currently allows authenticated users to view any file metadata.
+    Consider adding ownership checks if files should be user-specific.
     
     Parameters:
     - **file_id**: MongoDB ObjectId of the file
@@ -180,10 +210,12 @@ async def get_file_metadata(file_id: str = Path(..., description="File ID (Objec
     - File metadata (size, name, type, owner, upload time)
     """
     try:
-        # Get metadata
-        success, metadata, error = await FileService.get_file_metadata(file_id)
-        
+        # Get metadata (service enforces ownership)
+        success, metadata, error = await FileService.get_file_metadata(file_id, current_user_id)
+
         if not success:
+            if error == "Access denied":
+                raise HTTPException(status_code=403, detail=error)
             raise HTTPException(status_code=404, detail=error)
         
         return FileMetadataResponse(

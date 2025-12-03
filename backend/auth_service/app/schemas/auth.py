@@ -1,4 +1,4 @@
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr , Field
 from typing import Optional
 
 
@@ -45,6 +45,15 @@ class RegisterRequest(BaseModel):
 class VerifyEmailOTPRequest(BaseModel):
     email: EmailStr
     token: str
+
+
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+class ResetPasswordRequest(BaseModel):
+    email: EmailStr
+    token: str = Field(..., min_length=6, max_length=6, description="The 6-digit OTP")
+    new_password: str = Field(..., min_length=8, description="New strong password")
 # from pydantic import BaseModel
 # from uuid import UUID
 

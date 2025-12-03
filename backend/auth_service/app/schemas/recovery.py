@@ -12,6 +12,12 @@ class VerifyResetToken(BaseModel):
     new_password: str
 
 
+class ResetPasswordRequest(BaseModel):
+    email: EmailStr
+    token: str
+    new_password: str
+
+
 class RecoveryTokenResponse(BaseModel):
     id: UUID
     user_id: UUID

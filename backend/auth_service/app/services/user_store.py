@@ -42,7 +42,10 @@ def create_user(email: str, full_name: str, password: str) -> DBUser:
     try:
         existing = db.query(DBUser).filter(DBUser.email == email).first()
         if existing:
-            raise ValueError("user already exists")
+            if existing.verified == False:
+                return existing
+            else:
+                raise ValueError("user already exists")
         new = DBUser(email=email, full_name = full_name , password_hash=security.hash_password(password))
         db.add(new)
         db.commit()
