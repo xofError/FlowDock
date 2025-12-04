@@ -3,11 +3,13 @@ import secrets
 from datetime import datetime, timedelta, timezone
 import redis
 import os
-
+from app.utils import security
 from app.database import SessionLocal
 from app.models.recovery_token import RecoveryToken as DBRecoveryToken
 from app.models.user import User as DBUser
-
+from app.utils import email as email_utils
+from app.core.config import settings
+from datetime import datetime
 
 OTP_EXPIRE_MINUTES = 15
 OTP_EXPIRE_SECONDS = OTP_EXPIRE_MINUTES * 60
@@ -115,3 +117,99 @@ def check_login_rate_limit(email: str) -> bool:
 def check_otp_request_rate_limit(email: str) -> bool:
     """Check if OTP requests for this email are within limit."""
     return check_rate_limit(f"otp_request:{email}", OTP_RATE_LIMIT, OTP_RATE_LIMIT_WINDOW)
+
+
+# --- DB-backed recovery token helpers ---------------------------------
+def create_recovery_token(user_email: str) -> str:
+    """Create a one-use recovery token stored in the DB and return the token string."""
+    db = SessionLocal()
+    try:
+        user = db.query(DBUser).filter(DBUser.email == user_email).first()
+        if not user:
+            raise ValueError("user not found")
+
+        token = secrets.token_urlsafe(32)
+        expires_at = datetime.now(timezone.utc) + timedelta(minutes=OTP_EXPIRE_MINUTES)
+
+        rec = DBRecoveryToken(user_id=user.id, token=token, method="email", expires_at=expires_at)
+        db.add(rec)
+        db.commit()
+        return token
+    finally:
+        db.close()
+
+
+def verify_recovery_token(user_email: str, token: str) -> bool:
+    """Verify a recovery token (DB). Marks it used and returns True on success."""
+    db = SessionLocal()
+    try:
+        user = db.query(DBUser).filter(DBUser.email == user_email).first()
+        if not user:
+            return False
+
+        now = datetime.now(timezone.utc)
+        rec = (
+            db.query(DBRecoveryToken)
+            .filter(DBRecoveryToken.user_id == user.id)
+            .filter(DBRecoveryToken.token == token)
+            .filter(DBRecoveryToken.used == False)
+            .filter(DBRecoveryToken.expires_at > now)
+            .first()
+        )
+        if not rec:
+            return False
+
+        # mark used
+        rec.used = True
+        db.add(rec)
+        db.commit()
+        return True
+    finally:
+        db.close()
+
+
+
+# 1. Request Reset
+async def request_password_reset(email: str) -> bool:
+    """Generates a DB-backed recovery token and sends a reset link to the user."""
+    try:
+        # Prefer a DB-backed recovery token so we can send a link to the frontend
+        token = create_recovery_token(email)
+
+        # Build reset link (frontend should have a route that accepts token & email)
+        frontend_url = getattr(settings, "frontend_url", None) or os.getenv("FRONTEND_URL", "http://localhost:8000")
+        reset_link = f"{frontend_url}/reset-password?token={token}&email={email}"
+
+        subject = "Reset your FlowDock password"
+        body = f"Click the link to reset your password:\n\n{reset_link}\n\nThis link expires in {OTP_EXPIRE_MINUTES} minutes."
+
+        # Send email synchronously (falls back to console if SMTP not configured)
+        email_utils.send_email(email, subject, body)
+        return True
+    except ValueError:
+        # User not found: Return True anyway to prevent Email Enumeration attacks
+        return True
+    except Exception as e:
+        print(f"Error requesting reset: {e}")
+        return False
+
+# 2. Confirm Reset
+def confirm_password_reset(email: str, token: str, new_password: str) -> bool:
+    """Verifies recovery token and updates the password."""
+    # Verify DB-backed recovery token
+    if not verify_recovery_token(email, token):
+        return False
+    
+    db = SessionLocal()
+    try:
+        user = db.query(DBUser).filter(DBUser.email == email).first()
+        if not user:
+            return False
+            
+        # Hash new password and save
+        user.password_hash = security.hash_password(new_password)
+        db.add(user)
+        db.commit()
+        return True
+    finally:
+        db.close()

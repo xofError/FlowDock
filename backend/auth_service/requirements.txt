@@ -19,3 +19,7 @@ pytest
 httpx
 authlib
 itsdangerous
+pika
+bson
+pymongo
+motor

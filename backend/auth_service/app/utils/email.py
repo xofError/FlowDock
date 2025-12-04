@@ -2,6 +2,7 @@ import os
 import smtplib
 from email.message import EmailMessage
 from typing import Optional
+import httpx
 
 
 def send_email(to: str, subject: str, body: str) -> None:
@@ -33,3 +34,4 @@ def send_email(to: str, subject: str, body: str) -> None:
     with smtplib.SMTP_SSL("smtp.gmail.com", 465) as smtp:
         smtp.login("flowdockproduction@gmail.com", "hmlz qbkb rbbb npja")
         smtp.send_message(msg)
+        
