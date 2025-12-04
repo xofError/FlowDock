@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import "../resources/fonts/fonts.css";
 
 // Inline MainLayout for consistency
@@ -14,6 +14,7 @@ function MainLayout({ children }) {
 }
 
 export default function SignUp() {
+  const navigate = useNavigate(); // <-- for navigation
   const [formData, setFormData] = useState({ name: "", email: "", password: "" });
 
   const handleChange = (e) => {
@@ -23,7 +24,17 @@ export default function SignUp() {
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    alert(`Account created for ${formData.email}`);
+
+    // simple validation
+    if (!formData.name || !formData.email || !formData.password) {
+      alert("Please fill all fields");
+      return;
+    }
+
+    // here you could send data to server
+
+    // navigate to verify email page after submission
+    navigate("/verify-email");
   };
 
   return (
