@@ -1,6 +1,7 @@
-import { Routes, Route, Navigate } from 'react-router-dom';
-import Login from './pages/Login.jsx';
-import SignUp from './pages/SignUp.jsx';
+import { Routes, Route, Navigate } from "react-router-dom";
+import Login from "./pages/Login.jsx";
+import SignUp from "./pages/SignUp.jsx";
+import VerifyEmail from "./pages/VerifyEmail.jsx";
 
 function App() {
   return (
@@ -11,6 +12,9 @@ function App() {
       {/* Public pages */}
       <Route path="/login" element={<Login />} />
       <Route path="/signup" element={<SignUp />} />
+
+      {/* Verify Email page */}
+      <Route path="/verify-email" element={<VerifyEmail />} />
     </Routes>
   );
 }
