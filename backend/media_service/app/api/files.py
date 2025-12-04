@@ -33,6 +33,7 @@ from app.utils.security import (
     verify_user_ownership,
     decode_jwt_token
 )
+from app.models.share import Share, ShareLink
 from sqlalchemy.orm import Session
 from app.database import get_db
 
@@ -336,6 +337,134 @@ async def list_user_files(
 
 
 # ============================================================================
+# SHARING QUERY ENDPOINTS
+# ============================================================================
+
+@router.get("/users/{user_id}/files/shared-with-me")
+async def get_files_shared_with_user(
+    user_id: str = Path(..., description="User ID"),
+    db: Session = Depends(get_db),
+    current_user_id: str = Depends(get_current_user_id)
+):
+    """
+    Get all files that have been shared with the user by others.
+    
+    Returns list of direct shares (not public links).
+    
+    **Security**: Requires valid JWT token. Users can only view shares intended for them.
+    """
+    # Verify the requester is viewing their own shares
+    if user_id != current_user_id:
+        raise HTTPException(
+            status_code=403,
+            detail="Cannot view shares for other users"
+        )
+    
+    try:
+        shares = db.query(Share).filter(Share.shared_with_user_id == user_id).all()
+        
+        result = []
+        for share in shares:
+            result.append({
+                "share_id": str(share.id),
+                "file_id": share.file_id,
+                "shared_by_user_id": str(share.shared_by_user_id),
+                "permission": share.permission,
+                "expires_at": share.expires_at,
+                "created_at": share.created_at
+            })
+        
+        return result
+    except Exception as e:
+        logger.error(f"Get shared files error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to retrieve shared files")
+
+
+@router.get("/users/{user_id}/files/shared-by-me")
+async def get_files_shared_by_user(
+    user_id: str = Path(..., description="User ID"),
+    db: Session = Depends(get_db),
+    current_user_id: str = Depends(get_current_user_id)
+):
+    """
+    Get all files that the user has shared with others (direct shares).
+    
+    Returns list of direct shares created by this user (not public links).
+    
+    **Security**: Requires valid JWT token. Users can only view shares they created.
+    """
+    # Verify the requester owns these shares
+    if user_id != current_user_id:
+        raise HTTPException(
+            status_code=403,
+            detail="Cannot view shares created by other users"
+        )
+    
+    try:
+        shares = db.query(Share).filter(Share.shared_by_user_id == user_id).all()
+        
+        result = []
+        for share in shares:
+            result.append({
+                "share_id": str(share.id),
+                "file_id": share.file_id,
+                "shared_with_user_id": str(share.shared_with_user_id),
+                "permission": share.permission,
+                "expires_at": share.expires_at,
+                "created_at": share.created_at
+            })
+        
+        return result
+    except Exception as e:
+        logger.error(f"Get user's shared files error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to retrieve shared files")
+
+
+@router.get("/users/{user_id}/share-links")
+async def get_user_share_links(
+    user_id: str = Path(..., description="User ID"),
+    db: Session = Depends(get_db),
+    current_user_id: str = Depends(get_current_user_id)
+):
+    """
+    Get all public share links created by the user.
+    
+    Returns list of public share links and their metadata.
+    
+    **Security**: Requires valid JWT token. Users can only view links they created.
+    """
+    # Verify the requester owns these links
+    if user_id != current_user_id:
+        raise HTTPException(
+            status_code=403,
+            detail="Cannot view share links created by other users"
+        )
+    
+    try:
+        links = db.query(ShareLink).filter(ShareLink.created_by_user_id == user_id).all()
+        
+        result = []
+        for link in links:
+            result.append({
+                "id": str(link.id),
+                "file_id": link.file_id,
+                "token": link.token,
+                "has_password": bool(link.password_hash),
+                "expires_at": link.expires_at,
+                "max_downloads": link.max_downloads,
+                "downloads_used": link.downloads_used,
+                "active": link.active,
+                "created_at": link.created_at,
+                "link_url": f"https://localhost:8001/s/{link.token}"
+            })
+        
+        return result
+    except Exception as e:
+        logger.error(f"Get user's share links error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to retrieve share links")
+
+
+# ============================================================================
 # FILE SHARING ENDPOINTS
 # ============================================================================
 
@@ -404,7 +533,7 @@ def create_public_share_link(
         link = SharingService.create_link(db, current_user_id, data)
         
         return ShareLinkResponse(
-            link_url=f"https://localhost:8001/media/download/{link.file_id}/{link.token}",
+            link_url=f"https://localhost:8001/s/{link.token}",
             expires_at=link.expires_at,
             has_password=bool(link.password_hash)
         )

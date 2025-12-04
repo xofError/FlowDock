@@ -1,4 +1,4 @@
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 from typing import Optional
 from datetime import datetime
 
@@ -7,14 +7,22 @@ class ShareCreate(BaseModel):
     file_id: str
     target_email: EmailStr  # User enters email, backend looks up ID
     permission: str = "read"
-    expires_at: Optional[datetime] = None
+    expires_at: Optional[datetime] = Field(
+        None,
+        description="Expiration date (leave empty for 30-day default)",
+        example=None
+    )
 
 
 # --- Link Sharing ---
 class ShareLinkCreate(BaseModel):
     file_id: str
     password: Optional[str] = None
-    expires_at: Optional[datetime] = None
+    expires_at: Optional[datetime] = Field(
+        None,
+        description="Expiration date (leave empty for 30-day default)",
+        example=None
+    )
     max_downloads: int = 0
 
 

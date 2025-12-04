@@ -12,6 +12,8 @@ from app.schemas.user import UserResponse
 from pydantic import BaseModel, EmailStr
 from uuid import UUID
 from datetime import datetime
+import httpx
+import os
 
 router = APIRouter()
 
@@ -188,18 +190,17 @@ def get_files_shared_with_user(user_id: UUID, db: Session = Depends(get_db)):
     """
     Get all files that have been shared with the user by others.
     
-    NOTE: Sharing data is now stored exclusively in Media Service.
-    For sharing information, query the Media Service endpoints directly.
-    This endpoint is kept for API contract compatibility and returns an empty list.
+    This endpoint proxies to the Media Service which maintains the sharing data.
     
     Args:
         user_id: User UUID
         
     Returns:
-        Empty list (sharing data is in Media Service)
+        List of SharedFileInfo objects showing who shared which files
         
     Raises:
         HTTPException 404: User not found
+        HTTPException 503: Media Service unavailable
     """
     # Verify user exists
     user = db.query(User).filter(User.id == user_id).first()
@@ -209,8 +210,25 @@ def get_files_shared_with_user(user_id: UUID, db: Session = Depends(get_db)):
             detail=f"User '{user_id}' not found"
         )
     
-    # Sharing data is now in Media Service only
-    return []
+    # Proxy to Media Service
+    media_service_url = os.getenv("MEDIA_SERVICE_URL", "http://localhost:8002")
+    try:
+        response = httpx.get(
+            f"{media_service_url}/media/users/{user_id}/files/shared-with-me",
+            timeout=5.0
+        )
+        if response.status_code == 200:
+            return response.json()
+        else:
+            raise HTTPException(
+                status_code=response.status_code,
+                detail="Error retrieving shared files from Media Service"
+            )
+    except httpx.RequestError:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Media Service unavailable"
+        )
 
 
 @router.get("/api/users/{user_id}/files/shared-by-me", response_model=List[FileSharedByUserInfo])
@@ -218,18 +236,17 @@ def get_files_shared_by_user(user_id: UUID, db: Session = Depends(get_db)):
     """
     Get all files that the user has shared with others.
     
-    NOTE: Sharing data is now stored exclusively in Media Service.
-    For sharing information, query the Media Service endpoints directly.
-    This endpoint is kept for API contract compatibility and returns an empty list.
+    This endpoint proxies to the Media Service which maintains the sharing data.
     
     Args:
         user_id: User UUID
         
     Returns:
-        Empty list (sharing data is in Media Service)
+        List of FileSharedByUserInfo objects showing who the user shared files with
         
     Raises:
         HTTPException 404: User not found
+        HTTPException 503: Media Service unavailable
     """
     # Verify user exists
     user = db.query(User).filter(User.id == user_id).first()
@@ -239,8 +256,25 @@ def get_files_shared_by_user(user_id: UUID, db: Session = Depends(get_db)):
             detail=f"User '{user_id}' not found"
         )
     
-    # Sharing data is now in Media Service only
-    return []
+    # Proxy to Media Service
+    media_service_url = os.getenv("MEDIA_SERVICE_URL", "http://localhost:8002")
+    try:
+        response = httpx.get(
+            f"{media_service_url}/media/users/{user_id}/files/shared-by-me",
+            timeout=5.0
+        )
+        if response.status_code == 200:
+            return response.json()
+        else:
+            raise HTTPException(
+                status_code=response.status_code,
+                detail="Error retrieving shared files from Media Service"
+            )
+    except httpx.RequestError:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Media Service unavailable"
+        )
 
 
 @router.get("/api/users/{user_id}/share-links", response_model=List[ShareLinkInfo])
@@ -248,18 +282,17 @@ def get_user_share_links(user_id: UUID, db: Session = Depends(get_db)):
     """
     Get all public share links created by the user.
     
-    NOTE: Sharing data is now stored exclusively in Media Service.
-    For sharing information, query the Media Service endpoints directly.
-    This endpoint is kept for API contract compatibility and returns an empty list.
+    This endpoint proxies to the Media Service which maintains the sharing data.
     
     Args:
         user_id: User UUID
         
     Returns:
-        Empty list (sharing data is in Media Service)
+        List of ShareLinkInfo objects
         
     Raises:
         HTTPException 404: User not found
+        HTTPException 503: Media Service unavailable
     """
     # Verify user exists
     user = db.query(User).filter(User.id == user_id).first()
@@ -269,5 +302,22 @@ def get_user_share_links(user_id: UUID, db: Session = Depends(get_db)):
             detail=f"User '{user_id}' not found"
         )
     
-    # Sharing data is now in Media Service only
-    return []
+    # Proxy to Media Service
+    media_service_url = os.getenv("MEDIA_SERVICE_URL", "http://localhost:8002")
+    try:
+        response = httpx.get(
+            f"{media_service_url}/media/users/{user_id}/share-links",
+            timeout=5.0
+        )
+        if response.status_code == 200:
+            return response.json()
+        else:
+            raise HTTPException(
+                status_code=response.status_code,
+                detail="Error retrieving share links from Media Service"
+            )
+    except httpx.RequestError:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Media Service unavailable"
+        )

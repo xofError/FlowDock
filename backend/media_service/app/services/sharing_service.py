@@ -92,14 +92,19 @@ class SharingService:
             )
 
         # 3. Normalize/validate expires_at and create share record
+        # If expires_at was auto-filled by Swagger to current time, treat as not provided
+        now_utc = datetime.now(timezone.utc)
         if data.expires_at:
             expires = data.expires_at
             # Ensure timezone-aware (assume UTC if naive)
             if expires.tzinfo is None:
-                expires = datetime.now(timezone.utc) + timedelta(days=30)
+                expires = expires.replace(tzinfo=timezone.utc)
+            # If the provided value is essentially "now" (within 1 second), ignore it
+            if abs((expires - now_utc).total_seconds()) < 1:
+                expires = now_utc + timedelta(days=30)
         else:
             # Default: 30 days from now
-            expires = datetime.now(timezone.utc) + timedelta(days=30)
+            expires = now_utc + timedelta(days=30)
 
         new_share = Share(
             file_id=data.file_id,
@@ -136,13 +141,18 @@ class SharingService:
         pwd_hash = hash_password(data.password) if data.password else None
         
         # 3. Normalize/validate expires_at and create share link record
+        # If expires_at was auto-filled by Swagger to current time, treat as not provided
+        now_utc = datetime.now(timezone.utc)
         if data.expires_at:
             link_expires = data.expires_at
             if link_expires.tzinfo is None:
-                link_expires = link_expires = datetime.now(timezone.utc) + timedelta(days=30)
+                link_expires = link_expires.replace(tzinfo=timezone.utc)
+            # If the provided value is essentially "now" (within 1 second), ignore it
+            if abs((link_expires - now_utc).total_seconds()) < 1:
+                link_expires = now_utc + timedelta(days=30)
         else:
             # Default: 30 days from now
-            link_expires = datetime.now(timezone.utc) + timedelta(days=30)
+            link_expires = now_utc + timedelta(days=30)
 
         link = ShareLink(
             file_id=data.file_id,
