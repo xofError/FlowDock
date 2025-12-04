@@ -9,6 +9,9 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import jwt, JWTError
 from typing import Dict, Any, Optional
 import os
+import logging
+
+logger = logging.getLogger(__name__)
 
 # JWT configuration - matches Auth Service
 JWT_SECRET = os.getenv("JWT_SECRET", "secret")
@@ -28,9 +31,12 @@ def decode_jwt_token(token: str) -> Optional[Dict[str, Any]]:
         Decoded token payload or None if invalid
     """
     try:
+        logger.info(f"[decode] Attempting to decode token with secret length: {len(JWT_SECRET)}, algo: {JWT_ALGORITHM}")
         payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+        logger.info(f"[decode] Token decoded successfully")
         return payload
-    except JWTError:
+    except JWTError as e:
+        logger.error(f"[decode] JWT decode failed: {e}")
         return None
 
 
@@ -141,15 +147,28 @@ def verify_download_token(token: str, file_id: str) -> bool:
     Returns:
         True if token is valid and matches the file_id, False otherwise
     """
+    logger.info(f"[verify_token] Starting verification - token: {token[:50]}..., file_id: {file_id}")
+    
     payload = decode_jwt_token(token)
+    logger.info(f"[verify_token] Decoded payload: {payload}")
     
     if not payload:
+        logger.error(f"[verify_token] Failed to decode token")
         return False
-        
-    if payload.get("type") != "download":
+    
+    token_type = payload.get("type")
+    logger.info(f"[verify_token] Token type: {token_type} (expected: download)")
+    
+    if token_type != "download":
+        logger.error(f"[verify_token] Wrong token type: {token_type}")
         return False
-        
-    if payload.get("file_id") != file_id:
+    
+    token_file_id = payload.get("file_id")
+    logger.info(f"[verify_token] Token file_id: {token_file_id}, path file_id: {file_id}")
+    
+    if token_file_id != file_id:
+        logger.error(f"[verify_token] File ID mismatch: {token_file_id} != {file_id}")
         return False
-        
+    
+    logger.info(f"[verify_token] Token verification PASSED")
     return True

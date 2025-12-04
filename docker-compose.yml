@@ -55,24 +55,24 @@ services:
         condition: service_healthy
 
   # Reverse Proxy & Load Balancer
-  traefik:
-    image: traefik:v2.10
-    container_name: flowdock_traefik
-    restart: always
-    command:
-      - "--api.insecure=true"
-      - "--providers.docker=true"
-      - "--providers.docker.exposedbydefault=false"
-      - "--entrypoints.web.address=:80"
-    ports:
-      - "80:80"
-      - "8080:8080"  # Traefik Dashboard
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-    networks:
-      - flowdock_network
-    depends_on:
-      - auth_service
+  # traefik:
+  #   image: traefik:v2.10
+  #   container_name: flowdock_traefik
+  #   restart: always
+  #   command:
+  #     - "--api.insecure=true"
+  #     - "--providers.docker=true"
+  #     - "--providers.docker.exposedbydefault=false"
+  #     - "--entrypoints.web.address=:80"
+  #   ports:
+  #     - "80:80"
+  #     - "8080:8080"  # Traefik Dashboard
+  #   volumes:
+  #     - /var/run/docker.sock:/var/run/docker.sock:ro
+  #   networks:
+  #     - flowdock_network
+  #   depends_on:
+  #     - auth_service
 
   # Authentication Service
   auth_service:
@@ -170,6 +170,8 @@ services:
       POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432
       AUTH_SERVICE_URL: "http://auth_service:8000"
+      JWT_SECRET: "secret"
+      JWT_ALGORITHM: "HS256"
     ports:
       - "8001:8000"
     volumes:

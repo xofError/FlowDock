@@ -533,7 +533,7 @@ def create_public_share_link(
         link = SharingService.create_link(db, current_user_id, data)
         
         return ShareLinkResponse(
-            link_url=f"https://localhost:8001/s/{link.token}",
+            link_url=f"http://localhost:8001/media/s/{link.token}/access",
             expires_at=link.expires_at,
             has_password=bool(link.password_hash)
         )
@@ -545,14 +545,97 @@ def create_public_share_link(
 
 
 # 3. Access a public share link (validate password, check expiry/limits)
+@router.get("/s/{token}/access")
+async def access_shared_file_get(
+    token: str = Path(..., description="Share link token"),
+    password: Optional[str] = Query(None, description="Password if link is password-protected"),
+    db: Session = Depends(get_db)
+):
+    """
+    GET endpoint for accessing a public share link (for browser-based access).
+    
+    If link is valid, redirects to the download URL.
+    If password is required but not provided, returns error asking for password.
+    
+    Parameters:
+    - **token**: Share link token from the URL (path parameter)
+    - **password**: Optional password if link is password-protected (query parameter)
+    
+    Returns:
+    - Redirect to download URL if successful, or JSON error response
+    """
+    try:
+        logger.info(f"[1] Access share link - token: {token}, password provided: {password is not None}")
+        
+        # 1. Validate permissions (Password, Expiry, Limits)
+        logger.info(f"[2] About to validate link access")
+        link = SharingService.validate_link_access(db, token, password)
+        logger.info(f"[3] Validation passed, link is valid")
+        
+        # 2. Increment download stats
+        logger.info(f"[4] About to increment download count")
+        SharingService.increment_download_count(db, token)
+        logger.info(f"[5] Download count incremented")
+        
+        # 3. Generate the short-lived download ticket
+        logger.info(f"[6] About to create download token")
+        download_token = create_download_token(link.file_id)
+        logger.info(f"[7] Download token created: {download_token}")
+        
+        # 4. Redirect to download URL
+        download_url = f"http://localhost:8001/media/public-download/{link.file_id}?token={download_token}"
+        
+        logger.info(f"[8] Share link access granted - redirecting to public download endpoint")
+        from fastapi.responses import RedirectResponse
+        return RedirectResponse(url=download_url)
+    except HTTPException as e:
+        logger.error(f"[ERROR] Share link access denied - status: {e.status_code}, detail: {e.detail}")
+        raise
+    except Exception as e:
+        logger.error(f"[ERROR] Access share link error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to access share link")
+
+
+@router.get("/s/{token}/debug")
+async def debug_share_link(
+    token: str = Path(..., description="Share link token"),
+    db: Session = Depends(get_db)
+):
+    """
+    Debug endpoint to check share link status without validation.
+    """
+    try:
+        link = db.query(ShareLink).filter(ShareLink.token == token).first()
+        
+        if not link:
+            raise HTTPException(status_code=404, detail="Link not found")
+        
+        return {
+            "token": link.token,
+            "file_id": str(link.file_id),
+            "created_by_user_id": str(link.created_by_user_id),
+            "has_password": bool(link.password_hash),
+            "active": link.active,
+            "expires_at": link.expires_at,
+            "created_at": link.created_at,
+            "max_downloads": link.max_downloads,
+            "downloads_used": link.downloads_used
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Debug share link error: {e}")
+        raise HTTPException(status_code=500, detail="Debug failed")
+
+
 @router.post("/s/{token}/access", response_model=AccessLinkResponse)
-def access_shared_file(
+def access_shared_file_post(
     token: str = Path(..., description="Share link token"),
     req: AccessLinkRequest = None,
     db: Session = Depends(get_db)
 ):
     """
-    Validate access to a public share link and get a download ticket.
+    POST endpoint for accessing a public share link (for API/programmatic access).
     
     This endpoint validates:
     - Link exists and is active
@@ -583,8 +666,8 @@ def access_shared_file(
         download_token = create_download_token(link.file_id)
         
         # 4. Return the download URL with the ticket embedded
-        # The frontend will immediately redirect the user's browser to this URL
-        download_url = f"https://api.flowdock.com/media/download/{link.file_id}?token={download_token}"
+        # The frontend will use the public-download endpoint
+        download_url = f"http://localhost:8001/media/public-download/{link.file_id}?token={download_token}"
         
         return AccessLinkResponse(
             status="authorized",
@@ -598,7 +681,83 @@ def access_shared_file(
 
 
 # ============================================================================
-# FILE DOWNLOAD WITH TOKEN SUPPORT (for public links)
+# PUBLIC LINK DOWNLOAD - Dedicated endpoint for token-based downloads
+# ============================================================================
+
+@router.get("/public-download/{file_id}")
+async def download_file_with_token(
+    file_id: str = Path(..., description="File ID (ObjectId)"),
+    token: str = Query(..., description="Download token for public links (REQUIRED)")
+):
+    """
+    Download a file using a temporary download token from a public share link.
+    
+    This endpoint is specifically for public link downloads and does NOT require
+    authentication. It only validates the download token.
+    
+    **Security**:
+    - Requires valid download token (short-lived, 1 minute)
+    - Token must contain matching file_id
+    
+    Parameters:
+    - **file_id**: MongoDB ObjectId of the file
+    - **token**: Temporary download token (required)
+    
+    Returns:
+    - Decrypted binary file stream
+    """
+    try:
+        logger.info(f"[public_download] Starting public link download - file_id: {file_id}, has_token: {token is not None}")
+        
+        if not token:
+            logger.error(f"[public_download] Token is required but missing")
+            raise HTTPException(
+                status_code=400,
+                detail="Download token is required"
+            )
+        
+        # Verify the token
+        logger.info(f"[public_download] Token: {token[:50]}...")
+        logger.info(f"[public_download] File ID from path: {file_id}")
+        
+        token_valid = verify_download_token(token, file_id)
+        logger.info(f"[public_download] Token verification result: {token_valid}")
+        
+        if not token_valid:
+            logger.error(f"[public_download] Token verification failed")
+            raise HTTPException(
+                status_code=403,
+                detail="Invalid or expired download token"
+            )
+        
+        # Token is valid - proceed with download as "public_link" user
+        logger.info(f"[public_download] Token valid - proceeding with download as public_link")
+        success, file_stream, info, error = await FileService.download_encrypted_file(
+            file_id,
+            requester_user_id="public_link"
+        )
+        
+        if not success:
+            if error == "Access denied":
+                raise HTTPException(status_code=403, detail=error)
+            raise HTTPException(status_code=404, detail=error)
+        
+        logger.info(f"[public_download] File download successful")
+        return StreamingResponse(
+            file_stream,
+            media_type=info["content_type"],
+            headers={"Content-Disposition": f"attachment; filename={info['filename']}"}
+        )
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[public_download] Error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to download file")
+
+
+# ============================================================================
+# FILE DOWNLOAD WITH AUTH/TOKEN SUPPORT (for both authenticated users and public links)
 # ============================================================================
 
 @router.get("/download/{file_id}")
@@ -626,31 +785,46 @@ async def download_file_with_auth(
     - Decrypted binary file stream
     """
     try:
+        logger.info(f"[download] Starting download - file_id: {file_id}, has_token: {token is not None}, has_user: {current_user_id is not None}")
+        
         is_authorized = False
         requester_user_id = None
 
         # Case A: Public Link with Download Token
         # This is for users accessing via public share links
         if token:
-            if verify_download_token(token, file_id):
+            logger.info(f"[download] Token-based access attempt")
+            logger.info(f"[download] Token: {token[:50]}...")
+            logger.info(f"[download] File ID from path: {file_id}")
+            
+            token_valid = verify_download_token(token, file_id)
+            logger.info(f"[download] Token verification result: {token_valid}")
+            
+            if token_valid:
                 is_authorized = True
                 requester_user_id = "public_link"  # Anonymous user
+                logger.info(f"[download] Token authorized - proceeding with download")
+            else:
+                logger.error(f"[download] Token verification failed")
         
         # Case B: Logged-in User (Direct Access or Share)
         # Check if user owns the file or has been granted access
         elif current_user_id:
+            logger.info(f"[download] User-based access - user: {current_user_id}")
             # TODO: Check if user owns the file or has been shared access
             # For now, check if the token user matches or if there's a share record
             requester_user_id = current_user_id
             is_authorized = True
             
         if not is_authorized:
+            logger.error(f"[download] Authorization failed - no valid token or user")
             raise HTTPException(
                 status_code=403,
                 detail="Permission denied"
             )
 
         # Proceed to download (existing encrypted download logic)
+        logger.info(f"[download] Attempting to download file {file_id} as {requester_user_id}")
         success, file_stream, info, error = await FileService.download_encrypted_file(
             file_id,
             requester_user_id=requester_user_id
@@ -679,109 +853,3 @@ async def download_file_with_auth(
 # ============================================================================
 # REMOVE DUPLICATE ENDPOINTS (below are the old ones that should be removed)
 # ============================================================================
-
-# 1. Share with specific user
-@router.post("/share/user")
-def share_file_user(
-    data: ShareCreate, 
-    db: Session = Depends(get_db), 
-    user_id: str = Depends(get_current_user_id)
-):
-    # (Optional) Verify user_id owns the file first via CoreService
-    SharingService.share_file(db, user_id, data)
-    return {"message": "File shared successfully"}
-
-# 2. Create Public Link
-@router.post("/share/link", response_model=ShareLinkResponse)
-def create_share_link(
-    data: ShareLinkCreate,
-    db: Session = Depends(get_db),
-    user_id: str = Depends(get_current_user_id)
-):
-    link = SharingService.create_link(db, user_id, data)
-    return {
-        "link_url": f"https://flowdock.com/s/{link.token}",
-        "expires_at": link.expires_at,
-        "has_password": bool(link.password_hash)
-    }
-
-# 3. Access Public Link (Download)
-@router.post("/s/{token}/access")
-def access_shared_file(
-    token: str, 
-    req: AccessLinkRequest, 
-    db: Session = Depends(get_db)
-):
-    """
-    Validates the link token and password.
-    Returns the file_id so the frontend can trigger the download.
-    """
-    link = SharingService.validate_link_access(db, token, req.password)
-    
-    # Increment stats
-    SharingService.increment_download_count(db, token)
-    
-    return {"file_id": link.file_id, "status": "authorized"}
-
-@router.post("/s/{token}/access")
-def access_shared_file(
-    token: str, 
-    req: AccessLinkRequest, 
-    db: Session = Depends(get_db)
-):
-    # 1. Validate permissions (Password, Expiry, Limits)
-    link = SharingService.validate_link_access(db, token, req.password)
-    
-    # 2. Increment stats
-    SharingService.increment_download_count(db, token)
-    
-    # 3. Generate the "Ticket"
-    download_token = create_download_token(link.file_id)
-    
-    # 4. Return the Direct Download URL
-    # The frontend will immediately redirect the user's browser to this URL
-    return {
-        "status": "authorized",
-        "download_url": f"https://api.flowdock.com/media/download/{link.file_id}?token={download_token}"
-    }
-
-
-@router.get("/download/{file_id}")
-async def download_file(
-    file_id: str, 
-    token: str = Query(None),                 # For Public Links
-    user_id: str = Depends(get_current_user_id) # For Logged-in Users
-):
-    """
-    Serves the decrypted file stream.
-    Requires EITHER:
-    1. A valid Login (user_id) AND ownership/share permission
-    2. OR A valid Download Token (from the Core Service)
-    """
-    is_authorized = False
-
-    # Case A: Public Link with Token
-    if token:
-        if verify_download_token(token, file_id):
-            is_authorized = True
-    
-    # Case B: Logged-in User (Direct Access)
-    elif user_id:
-        # Check if user owns the file or has been shared the file
-        # (You might need a quick check against DB or cache here)
-        is_authorized = True # Simplify for now
-        
-    if not is_authorized:
-        raise HTTPException(status_code=403, detail="Permission denied")
-
-    # Proceed to download (Your existing encrypted download logic)
-    success, file_stream, info, error = await FileService.download_encrypted_file(file_id)
-    
-    if not success:
-        raise HTTPException(status_code=404, detail=error)
-
-    return StreamingResponse(
-        file_stream,
-        media_type=info["content_type"],
-        headers={"Content-Disposition": f"attachment; filename={info['filename']}"}
-    )

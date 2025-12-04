@@ -253,9 +253,12 @@ class FileService:
             
             meta = grid_out.metadata or {}
             
-            # 2. Enforce ownership
+            # 2. Enforce ownership (skip for public link downloads)
             owner = meta.get("owner")
-            if owner and owner != requester_user_id:
+            # Allow access if:
+            # - User is the owner, OR
+            # - User is accessing via public link (requester_user_id == "public_link")
+            if owner and requester_user_id != "public_link" and owner != requester_user_id:
                 grid_out.close()
                 return False, None, None, "Access denied"
             

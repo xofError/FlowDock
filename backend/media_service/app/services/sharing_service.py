@@ -1,5 +1,6 @@
 import secrets
 import os
+import logging
 from datetime import datetime, timezone, timedelta
 from sqlalchemy.orm import Session
 from fastapi import HTTPException
@@ -8,6 +9,8 @@ import httpx
 
 from app.models.share import Share, ShareLink
 from app.schemas.sharing import ShareCreate, ShareLinkCreate
+
+logger = logging.getLogger(__name__)
 
 # Use Argon2 for password hashing (same as auth_service)
 pwd_context = CryptContext(schemes=["argon2"], deprecated="auto")
@@ -189,13 +192,19 @@ class SharingService:
         Raises:
             HTTPException: If link is invalid, expired, limited, or password wrong
         """
+        logger.info(f"[validate] Starting validation for token: {token}, password_provided: {password is not None}")
+        
         link = db.query(ShareLink).filter(ShareLink.token == token).first()
+        logger.info(f"[validate] Link lookup result: {link is not None}")
         
         if not link or not link.active:
+            logger.error(f"[validate] Link not found or inactive")
             raise HTTPException(
                 status_code=404,
                 detail="Link not found or inactive"
             )
+        
+        logger.info(f"[validate] Link found - active: {link.active}, has_password: {bool(link.password_hash)}")
             
         # 1. Check Expiry (use timezone-aware now)
         if link.expires_at:
@@ -203,32 +212,41 @@ class SharingService:
             expires = link.expires_at
             if expires.tzinfo is None:
                 expires = expires.replace(tzinfo=timezone.utc)
+            logger.info(f"[validate] Expiry check - expires_at: {expires}, now: {datetime.now(timezone.utc)}")
             if expires < datetime.now(timezone.utc):
+                logger.error(f"[validate] Link expired")
                 raise HTTPException(
                     status_code=410,
                     detail="Link expired"
                 )
             
         # 2. Check Download Limit
+        logger.info(f"[validate] Download limit check - used: {link.downloads_used}, max: {link.max_downloads}")
         if link.max_downloads > 0 and link.downloads_used >= link.max_downloads:
+            logger.error(f"[validate] Download limit exceeded")
             raise HTTPException(
                 status_code=410,
                 detail="Download limit reached"
             )
             
         # 3. Check Password (if required)
+        logger.info(f"[validate] Password check - has_hash: {bool(link.password_hash)}, provided: {password is not None}")
         if link.password_hash:
             if not password:
+                logger.error(f"[validate] Password required but not provided")
                 raise HTTPException(
                     status_code=401,
                     detail="Password required"
                 )
+            logger.info(f"[validate] Verifying password against hash")
             if not verify_password(password, link.password_hash):
+                logger.error(f"[validate] Invalid password provided")
                 raise HTTPException(
                     status_code=403,
                     detail="Invalid password"
                 )
-                
+        
+        logger.info(f"[validate] All validations passed, returning link")
         return link
 
     @staticmethod
