@@ -1,11 +1,31 @@
 import { Link } from "react-router-dom";
+import { useState } from "react";
 import MainLayout from "../layout/MainLayout.jsx";
-import "../resources/fonts/fonts.css";
 
 export default function Login() {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
+  const [isGoogleLoading, setIsGoogleLoading] = useState(false);
+
+  const handleSignIn = (e) => {
+    e.preventDefault();
+    setIsLoading(true);
+    console.log("Sign In clicked", { email, password });
+    // Simulate backend delay
+    setTimeout(() => setIsLoading(false), 2000);
+  };
+
+  const handleGoogleSignIn = () => {
+    setIsGoogleLoading(true);
+    console.log("Google Sign In clicked");
+    // Simulate backend delay
+    setTimeout(() => setIsGoogleLoading(false), 2000);
+  };
+
   return (
     <MainLayout>
-      <div className="flex flex-col gap-6 pb-10 font-custom w-full max-w-[320px] mx-auto">
+      <div className="flex flex-col gap-8 pb-10 w-full max-w-sm mx-auto">
 
         {/* Heading */}
         <h2 className="text-[#0d141b] text-[28px] font-bold leading-tight text-center pt-4">
@@ -13,35 +33,48 @@ export default function Login() {
         </h2>
 
         {/* Form */}
-        <form className="flex flex-col gap-5 px-2" onSubmit={(e) => e.preventDefault()}>
+        <form className="flex flex-col px-2" onSubmit={handleSignIn}>
           <input
             name="email"
             type="email"
             placeholder="Email"
-            className="w-full rounded-lg bg-[#e7edf3] h-14 px-4 text-[#0d141b] placeholder:text-[#4c739a] text-base focus:outline-none border-none"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            disabled={isLoading || isGoogleLoading}
+            style={{ height: "38px", marginBottom: "16px" }}
+            className="w-full rounded-lg bg-[#e7edf3] px-4 text-[#0d141b] placeholder:text-[#4c739a] text-base focus:outline-none border-none disabled:opacity-50"
           />
 
           <input
             name="password"
             type="password"
             placeholder="Password"
-            className="w-full rounded-lg bg-[#e7edf3] h-14 px-4 text-[#0d141b] placeholder:text-[#4c739a] text-base focus:outline-none border-none"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            disabled={isLoading || isGoogleLoading}
+            style={{ height: "38px", marginBottom: "32px" }}
+            className="w-full rounded-lg bg-[#e7edf3] px-4 text-[#0d141b] placeholder:text-[#4c739a] text-base focus:outline-none border-none disabled:opacity-50"
           />
 
           {/* Buttons with proper gap */}
-          <div className="flex flex-col gap-4 mt-2">
+          <div className="flex flex-col">
             <button
               type="submit"
-              className="h-14 w-full rounded-lg bg-[#1380ec] text-white text-lg font-bold"
+              disabled={isLoading || isGoogleLoading}
+              style={{ height: "38px", marginBottom: "16px", opacity: isLoading ? 0.7 : 1 }}
+              className="w-full rounded-lg bg-[#1380ec] text-white text-lg font-bold flex items-center justify-center transition-all"
             >
-              Sign In
+              {isLoading ? "Signing In..." : "Sign In"}
             </button>
 
             <button
               type="button"
-              className="h-14 w-full rounded-lg bg-[#E7EDF3] text-[#0D141B] text-lg font-bold"
+              onClick={handleGoogleSignIn}
+              disabled={isLoading || isGoogleLoading}
+              style={{ height: "38px", opacity: isGoogleLoading ? 0.7 : 1 }}
+              className="w-full rounded-lg bg-[#E7EDF3] text-[#0D141B] text-lg font-bold flex items-center justify-center transition-all"
             >
-              Sign in with Google
+              {isGoogleLoading ? "Signing In..." : "Sign in with Google"}
             </button>
           </div>
         </form>
