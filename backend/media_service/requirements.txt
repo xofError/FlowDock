@@ -7,3 +7,9 @@ pydantic==2.5.0
 pydantic-settings==2.1.0
 pymongo==4.6.0
 python-jose[cryptography]==3.3.0
+sqlalchemy
+psycopg2-binary
+passlib
+httpx
+pydantic[email]
+argon2_cffi

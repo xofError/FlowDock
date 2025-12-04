@@ -6,6 +6,7 @@ import os
 import logging
 
 from app.api import auth as auth_router
+from app.api import users as users_router
 from app.database import Base, engine
 from app.models import *
 from app.services.user_store import create_test_user
@@ -57,6 +58,7 @@ app.add_middleware(
     secret_key=session_secret,
 )
 app.include_router(auth_router.router, prefix="/auth", tags=["auth"])
+app.include_router(users_router.router, tags=["users"])
 
 
 @app.get("/")

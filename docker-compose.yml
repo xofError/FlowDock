@@ -164,6 +164,12 @@ services:
     environment:
       MONGO_URL: "mongodb://root:mongopass@mongo_meta:27017"
       RABBITMQ_URL: "amqp://guest:guest@rabbitmq:5672/"
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: FlowDock
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      AUTH_SERVICE_URL: "http://auth_service:8000"
     ports:
       - "8001:8000"
     volumes:

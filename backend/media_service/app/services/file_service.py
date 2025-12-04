@@ -301,3 +301,40 @@ class FileService:
         except Exception as e:
             logger.error(f"Decryption download failed: {e}")
             return False, None, None, "File not found"
+
+    @staticmethod
+    async def list_user_files(user_id: str) -> Tuple[bool, Optional[list], Optional[str]]:
+        """
+        List all files uploaded by a specific user from GridFS.
+        
+        Args:
+            user_id: The user's ID
+            
+        Returns:
+            Tuple of (success, files_list, error_message)
+            files_list contains dicts with file_id, filename, size, content_type, upload_date, metadata
+        """
+        try:
+            fs = get_fs()
+            
+            # Query MongoDB for files with matching owner metadata
+            # fs.find() returns a cursor directly (no await needed)
+            cursor = fs.find({"metadata.owner": user_id})
+            
+            files = []
+            async for grid_out in cursor:
+                meta = grid_out.metadata or {}
+                files.append({
+                    "file_id": str(grid_out._id),
+                    "filename": grid_out.filename,
+                    "size": grid_out.length,
+                    "content_type": meta.get("contentType", grid_out.content_type or "application/octet-stream"),
+                    "upload_date": grid_out.upload_date,
+                    "metadata": meta
+                })
+            
+            return True, files, None
+            
+        except Exception as e:
+            logger.error(f"List user files error: {e}")
+            return False, None, str(e)

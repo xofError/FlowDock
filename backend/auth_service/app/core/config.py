@@ -9,6 +9,9 @@ class Settings(BaseSettings):
     # Do NOT hard-code secrets here. Configure via environment variables or a .env file.
     google_client_id: str = ""
     google_client_secret: str = ""
+    
+    # RabbitMQ
+    RABBITMQ_URL: str = "amqp://guest:guest@rabbitmq:5672/"
 
     class Config:
         env_file = ".env"

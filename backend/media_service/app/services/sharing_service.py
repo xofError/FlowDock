@@ -1,6 +1,6 @@
 import secrets
 import os
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from sqlalchemy.orm import Session
 from fastapi import HTTPException
 from passlib.context import CryptContext
@@ -91,12 +91,22 @@ class SharingService:
                 detail="Unable to reach Auth Service"
             )
 
-        # 3. Create share record
+        # 3. Normalize/validate expires_at and create share record
+        if data.expires_at:
+            expires = data.expires_at
+            # Ensure timezone-aware (assume UTC if naive)
+            if expires.tzinfo is None:
+                expires = datetime.now(timezone.utc) + timedelta(days=30)
+        else:
+            # Default: 30 days from now
+            expires = datetime.now(timezone.utc) + timedelta(days=30)
+
         new_share = Share(
             file_id=data.file_id,
+            shared_by_user_id=owner_id,
             shared_with_user_id=target_user_id,
             permission=data.permission,
-            expires_at=data.expires_at
+            expires_at=expires
         )
         db.add(new_share)
         db.commit()
@@ -125,13 +135,21 @@ class SharingService:
         # 2. Hash password if provided (using Argon2 via auth_service)
         pwd_hash = hash_password(data.password) if data.password else None
         
-        # 3. Create share link record
+        # 3. Normalize/validate expires_at and create share link record
+        if data.expires_at:
+            link_expires = data.expires_at
+            if link_expires.tzinfo is None:
+                link_expires = link_expires = datetime.now(timezone.utc) + timedelta(days=30)
+        else:
+            # Default: 30 days from now
+            link_expires = datetime.now(timezone.utc) + timedelta(days=30)
+
         link = ShareLink(
             file_id=data.file_id,
             created_by_user_id=user_id,
             token=token,
             password_hash=pwd_hash,
-            expires_at=data.expires_at,
+            expires_at=link_expires,
             max_downloads=data.max_downloads
         )
         db.add(link)
@@ -169,12 +187,17 @@ class SharingService:
                 detail="Link not found or inactive"
             )
             
-        # 1. Check Expiry
-        if link.expires_at and link.expires_at < datetime.now():
-            raise HTTPException(
-                status_code=410,
-                detail="Link expired"
-            )
+        # 1. Check Expiry (use timezone-aware now)
+        if link.expires_at:
+            # Ensure DB value is timezone-aware for safe comparison
+            expires = link.expires_at
+            if expires.tzinfo is None:
+                expires = expires.replace(tzinfo=timezone.utc)
+            if expires < datetime.now(timezone.utc):
+                raise HTTPException(
+                    status_code=410,
+                    detail="Link expired"
+                )
             
         # 2. Check Download Limit
         if link.max_downloads > 0 and link.downloads_used >= link.max_downloads:

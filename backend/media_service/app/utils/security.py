@@ -9,17 +9,6 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import jwt, JWTError
 from typing import Dict, Any, Optional
 import os
-import sys
-
-# Add auth_service to path to import shared utilities
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../../auth_service'))
-
-from app.utils.security import (
-    _ensure_jwt_secret, 
-    decode_token,
-    create_download_token as auth_create_download_token,
-    verify_download_token as auth_verify_download_token
-)
 
 # JWT configuration - matches Auth Service
 JWT_SECRET = os.getenv("JWT_SECRET", "secret")
@@ -121,22 +110,29 @@ def create_download_token(file_id: str) -> str:
     Generates a short-lived (1 minute) token that grants access 
     to download a SINGLE specific file.
     
-    This is a wrapper around the auth_service function for convenience.
-    
     Args:
         file_id: MongoDB ObjectId or identifier of the file to download
         
     Returns:
         JWT token string
     """
-    return auth_create_download_token(file_id)
+    now = datetime.now(timezone.utc)
+    expire = now + timedelta(minutes=1)
+
+    payload = {
+        "sub": "download_permit",
+        "file_id": file_id,
+        "exp": int(expire.timestamp()),
+        "iat": int(now.timestamp()),
+        "type": "download"
+    }
+
+    return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
 
 
 def verify_download_token(token: str, file_id: str) -> bool:
     """
     Verifies the token is valid, not expired, AND is for the correct file.
-    
-    This is a wrapper around the auth_service function for convenience.
     
     Args:
         token: JWT token string to verify
@@ -145,4 +141,15 @@ def verify_download_token(token: str, file_id: str) -> bool:
     Returns:
         True if token is valid and matches the file_id, False otherwise
     """
-    return auth_verify_download_token(token, file_id)
+    payload = decode_jwt_token(token)
+    
+    if not payload:
+        return False
+        
+    if payload.get("type") != "download":
+        return False
+        
+    if payload.get("file_id") != file_id:
+        return False
+        
+    return True

@@ -282,6 +282,59 @@ async def get_file_metadata(
         raise HTTPException(status_code=500, detail="Metadata retrieval failed")
 
 
+@router.get("/user/{user_id}/files", response_model=list[FileMetadataResponse])
+async def list_user_files(
+    user_id: str = Path(..., description="User ID"),
+    current_user_id: str = Depends(get_current_user_id)
+):
+    """
+    List all files uploaded by a user.
+    
+    **Security**: Requires valid JWT token. Users can only list their own files.
+    
+    Parameters:
+    - **user_id**: User identifier (must match JWT token)
+    
+    Returns:
+    - List of FileMetadataResponse objects
+    """
+    try:
+        # Verify ownership
+        if user_id != current_user_id:
+            raise HTTPException(
+                status_code=403,
+                detail="Cannot list files for other users"
+            )
+        
+        # Retrieve file list from GridFS
+        success, files, error = await FileService.list_user_files(user_id)
+        
+        if not success:
+            raise HTTPException(status_code=500, detail=error or "Failed to list files")
+        
+        # Convert to response models
+        response_files = []
+        for file_info in files:
+            response_files.append(
+                FileMetadataResponse(
+                    file_id=file_info["file_id"],
+                    filename=file_info["filename"],
+                    size=file_info["size"],
+                    content_type=file_info["content_type"],
+                    upload_date=file_info["upload_date"],
+                    metadata=file_info.get("metadata", {})
+                )
+            )
+        
+        return response_files
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"List files error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to list files")
+
+
 # ============================================================================
 # FILE SHARING ENDPOINTS
 # ============================================================================
@@ -292,7 +345,6 @@ async def share_file_with_user(
     data: ShareCreate,
     db: Session = Depends(get_db),
     current_user_id: str = Depends(get_current_user_id),
-    current_user_email: str = None  # You may need to add this to token
 ):
     """
     Share a file with a specific user by their email.
@@ -312,7 +364,7 @@ async def share_file_with_user(
         share = await SharingService.share_file(
             db,
             owner_id=current_user_id,
-            owner_email=current_user_email or "unknown@flowdock.com",
+            owner_email="owner@flowdock.com",  # Not needed, owner_id is enough
             data=data
         )
         
@@ -352,7 +404,7 @@ def create_public_share_link(
         link = SharingService.create_link(db, current_user_id, data)
         
         return ShareLinkResponse(
-            link_url=f"https://flowdock.com/s/{link.token}",
+            link_url=f"https://localhost:8001/media/download/{link.file_id}/{link.token}",
             expires_at=link.expires_at,
             has_password=bool(link.password_hash)
         )

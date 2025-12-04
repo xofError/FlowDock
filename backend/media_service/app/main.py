@@ -9,9 +9,12 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import files as files_router
-from app.database import connect_to_mongo, close_mongo_connection
+from app.database import connect_to_mongo, close_mongo_connection, init_db
 from app.services import rabbitmq_service
+from app.services.share_event_publisher import get_share_event_publisher
 from app.core.config import settings
+# Import models to register them with SQLAlchemy Base
+from app.models import share
 
 # Configure logging
 logging.basicConfig(
@@ -34,11 +37,19 @@ async def lifespan(app: FastAPI):
     try:
         logger.info("🚀 Starting Media Service...")
         
+        # Initialize PostgreSQL tables
+        init_db()
+        logger.info("✓ PostgreSQL tables initialized")
+        
         # Connect to MongoDB
         await connect_to_mongo()
         
-        # Connect to RabbitMQ
+        # Connect to RabbitMQ (for file events)
         await rabbitmq_service.connect_rabbitmq()
+        
+        # Connect to RabbitMQ Share Event Publisher (for sharing sync events)
+        share_publisher = get_share_event_publisher()
+        logger.info("✓ Share Event Publisher initialized")
         
         logger.info("=" * 70)
         logger.info(f"✓ {settings.SERVICE_NAME} v{settings.SERVICE_VERSION}")
