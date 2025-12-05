@@ -207,6 +207,18 @@ export default function SignUp() {
                 >
                   {authLoading ? "Creating Account..." : "Sign Up"}
                 </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    window.location.href = `${import.meta.env.VITE_AUTH_API_URL}/auth/oauth/google/login`;
+                  }}
+                  disabled={authLoading}
+                  style={{ height: "38px" }}
+                  className="w-full rounded-lg bg-[#E7EDF3] text-[#0D141B] text-lg font-bold flex items-center justify-center transition-all"
+                >
+                  Sign up with Google
+                </button>
               </div>
             </form>
 

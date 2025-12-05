@@ -29,8 +29,8 @@ export default function Login() {
   };
 
   const handleGoogleSignIn = () => {
-    console.log("Google Sign In clicked - not implemented yet");
-    // TODO: Implement actual OAuth
+    // Redirect to backend OAuth login endpoint
+    window.location.href = `http://localhost:8000/auth/oauth/google/login`;
   };
 
   return (

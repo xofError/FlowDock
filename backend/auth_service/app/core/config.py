@@ -10,6 +10,9 @@ class Settings(BaseSettings):
     google_client_id: str = ""
     google_client_secret: str = ""
     
+    # Frontend redirect URL after OAuth
+    frontend_url: str = "http://localhost:5173"
+    
     # RabbitMQ
     RABBITMQ_URL: str = "amqp://guest:guest@rabbitmq:5672/"
 

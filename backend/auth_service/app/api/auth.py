@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 import secrets
 
 from starlette.responses import RedirectResponse
-
+import httpx
 from app.core.config import settings
 
 from app.schemas.auth import (
@@ -306,7 +306,7 @@ async def oauth_callback(provider: str, request: Request, response: Response):
     
     # Fetch user info using the access token directly via httpx
     try:
-        import httpx
+
         async with httpx.AsyncClient() as client:
             resp = await client.get(
                 "https://www.googleapis.com/oauth2/v1/userinfo",
@@ -350,11 +350,16 @@ async def oauth_callback(provider: str, request: Request, response: Response):
         max_age=max_age,
     )
 
-    return TokenResponse(
+    # Create TokenResponse
+    token_response = TokenResponse(
         access_token=access,
         user_id=str(user.id),
         totp_required=False
     )
+
+    # Redirect to frontend with tokens in URL params (using hash routing)
+    frontend_callback_url = f"{settings.frontend_url}/#/auth/callback?access_token={access}&user_id={str(user.id)}&totp_required=false"
+    return RedirectResponse(url=frontend_callback_url)
 
 
 @router.post("/forgot-password")
