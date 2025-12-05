@@ -1,22 +1,32 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Link } from "react-router-dom";
 import MainLayout from "../../layout/MainLayout.jsx";
+import useAuth from "../../hooks/useAuth.js";
 
 export default function PassRecovery() {
-  const [email, setEmail] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
   const navigate = useNavigate();
+  const { requestPasswordReset, loading: authLoading, error: authError } = useAuth();
+  
+  const [email, setEmail] = useState("");
+  const [error, setError] = useState(null);
+  const [success, setSuccess] = useState(false);
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!email) return alert("Enter your email");
+    setError(null);
 
-    setIsLoading(true);
-    console.log(`Recovery email sent to ${email}`);
-    setTimeout(() => {
-      setIsLoading(false);
-      navigate("/pass-recovery-verify");
-    }, 2000);
+    if (!email) {
+      setError("Please enter your email");
+      return;
+    }
+
+    try {
+      await requestPasswordReset(email);
+      setSuccess(true);
+      setTimeout(() => navigate("/pass-recovery-verify", { state: { email } }), 2000);
+    } catch (err) {
+      setError(err.message || "Failed to send recovery email");
+    }
   };
 
   return (
@@ -24,8 +34,20 @@ export default function PassRecovery() {
       <div className="flex flex-col gap-6 pb-10 w-full max-w-sm mx-auto">
         <h2 className="text-[#0D141B] text-[28px] font-bold text-center pt-4">Password Recovery</h2>
 
+        {(error || authError) && (
+          <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-lg" role="alert">
+            <p className="text-sm">{error || authError}</p>
+          </div>
+        )}
+
+        {success && (
+          <div className="bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded-lg" role="alert">
+            <p className="text-sm">Recovery email sent! Redirecting...</p>
+          </div>
+        )}
+
         <p className="text-center text-sm text-[#4c739a] px-2">
-          Enter your email and we will send you an activation code.
+          Enter your email and we will send you a reset code.
         </p>
 
         <form onSubmit={handleSubmit} className="flex flex-col px-2">
@@ -34,19 +56,27 @@ export default function PassRecovery() {
             placeholder="Email"
             value={email}
             onChange={e => setEmail(e.target.value)}
-            disabled={isLoading}
+            disabled={authLoading}
+            required
             style={{ height: "38px", marginBottom: "32px" }}
             className="w-full rounded-lg px-4 bg-[#e7edf3] text-[#0D141B] placeholder:text-[#4c739a] focus:outline-none border-none disabled:opacity-50"
           />
           <button
             type="submit"
-            disabled={isLoading}
-            style={{ height: "38px", opacity: isLoading ? 0.7 : 1 }}
+            disabled={authLoading}
+            style={{ height: "38px", opacity: authLoading ? 0.7 : 1 }}
             className="w-full bg-[#1380EC] text-white rounded-lg font-bold flex items-center justify-center transition-all"
           >
-            {isLoading ? "Sending..." : "Send Code"}
+            {authLoading ? "Sending..." : "Send Reset Code"}
           </button>
         </form>
+
+        <p className="text-center mt-4 text-sm">
+          Remember your password?{" "}
+          <Link to="/login" className="text-blue-600 underline">
+            Sign In
+          </Link>
+        </p>
       </div>
     </MainLayout>
   );

@@ -1,3 +1,4 @@
+import os
 from fastapi import APIRouter, HTTPException, status, Depends, Response, Cookie, Request
 from datetime import datetime, timezone
 import secrets
@@ -357,6 +358,20 @@ async def forgot_password(data: RequestPasswordReset):
     if not ok:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to request password reset")
     return {"detail": "password reset email sent"}
+
+
+@router.get("/verify-reset-token")
+def verify_reset_token(token: str, email: str):
+    """Verify that a reset token is valid. Returns frontend URL to redirect to."""
+    ok = auth_service.check_recovery_token(email, token)
+    if not ok:
+        # Token invalid or expired - redirect to password recovery page
+        frontend_url = os.getenv("FRONTEND_URL", "http://localhost:5173")
+        return RedirectResponse(url=f"{frontend_url}/#/pass-recovery?error=invalid_or_expired_token", status_code=302)
+    
+    # Token is valid - redirect to reset password page with token and email
+    frontend_url = os.getenv("FRONTEND_URL", "http://localhost:5173")
+    return RedirectResponse(url=f"{frontend_url}/#/reset-password?token={token}&email={email}", status_code=302)
 
 
 @router.post("/reset-password")

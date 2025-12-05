@@ -168,7 +168,27 @@ def verify_recovery_token(user_email: str, token: str) -> bool:
         db.close()
 
 
+def check_recovery_token(user_email: str, token: str) -> bool:
+    """Check if a recovery token is valid WITHOUT marking it as used.
+    Used for verification before showing the reset form."""
+    db = SessionLocal()
+    try:
+        user = db.query(DBUser).filter(DBUser.email == user_email).first()
+        if not user:
+            return False
 
+        now = datetime.now(timezone.utc)
+        rec = (
+            db.query(DBRecoveryToken)
+            .filter(DBRecoveryToken.user_id == user.id)
+            .filter(DBRecoveryToken.token == token)
+            .filter(DBRecoveryToken.used == False)
+            .filter(DBRecoveryToken.expires_at > now)
+            .first()
+        )
+        return rec is not None
+    finally:
+        db.close()
 # 1. Request Reset
 async def request_password_reset(email: str) -> bool:
     """Generates a DB-backed recovery token and sends a reset link to the user."""
@@ -176,9 +196,9 @@ async def request_password_reset(email: str) -> bool:
         # Prefer a DB-backed recovery token so we can send a link to the frontend
         token = create_recovery_token(email)
 
-        # Build reset link (frontend should have a route that accepts token & email)
-        frontend_url = getattr(settings, "frontend_url", None) or os.getenv("FRONTEND_URL", "http://localhost:8000")
-        reset_link = f"{frontend_url}/reset-password?token={token}&email={email}"
+        # Build reset link that points to the verification endpoint first
+        backend_url = os.getenv("BACKEND_URL", "http://localhost:8000")
+        reset_link = f"{backend_url}/auth/verify-reset-token?token={token}&email={email}"
 
         subject = "Reset your FlowDock password"
         body = f"Click the link to reset your password:\n\n{reset_link}\n\nThis link expires in {OTP_EXPIRE_MINUTES} minutes."
