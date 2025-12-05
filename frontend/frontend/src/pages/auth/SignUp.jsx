@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import MainLayout from "../layout/MainLayout.jsx";
+import MainLayout from "../../layout/MainLayout.jsx";
 
 export default function SignUp() {
   const navigate = useNavigate();

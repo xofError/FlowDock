@@ -3,12 +3,12 @@ version: '3.9'
 services:
   postgres:
     image: postgres:16-alpine
-    container_name: auth_postgres
+    container_name: media_postgres
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${DB_USER:-postgres}
       POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
-      POSTGRES_DB: ${DB_NAME:-auth_db}
+      POSTGRES_DB: ${DB_NAME:-media_db}
     ports:
       - "5432:5432"
     volumes:
@@ -21,7 +21,7 @@ services:
 
   redis:
     image: redis:7-alpine
-    container_name: auth_redis
+    container_name: media_redis
     restart: unless-stopped
     ports:
       - "6379:6379"
@@ -34,9 +34,26 @@ services:
       timeout: 5s
       retries: 5
 
+  mongodb:
+    image: mongo:7-alpine
+    container_name: media_mongodb
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_USER:-root}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD:-mongopass}
+    volumes:
+      - mongodb_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   rabbitmq:
     image: rabbitmq:3.13-management-alpine
-    container_name: auth_rabbitmq
+    container_name: media_rabbitmq
     restart: unless-stopped
     ports:
       - "5672:5672"
@@ -52,36 +69,41 @@ services:
       timeout: 5s
       retries: 5
 
-  auth_service:
+  media_service:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: auth_service
+    container_name: media_service
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${DB_USER:-postgres}
       POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
-      POSTGRES_DB: ${DB_NAME:-auth_db}
+      POSTGRES_DB: ${DB_NAME:-media_db}
       POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432
+      MONGO_URL: ${MONGO_URL:-mongodb://root:mongopass@mongodb:27017}
+      MONGO_DB: ${MONGO_DB:-flowdock_media}
       JWT_SECRET: ${JWT_SECRET:-your-super-secret-key}
       JWT_ALGORITHM: ${JWT_ALGORITHM:-HS256}
-      JWT_EXPIRATION: ${JWT_EXPIRATION:-3600}
       REDIS_HOST: redis
       REDIS_PORT: 6379
-      REDIS_DB: 0
+      REDIS_DB: 1
       RABBITMQ_HOST: rabbitmq
       RABBITMQ_PORT: 5672
       RABBITMQ_USER: ${RABBITMQ_USER:-guest}
       RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-guest}
+      MAX_FILE_SIZE: ${MAX_FILE_SIZE:-104857600}
+      ALLOWED_EXTENSIONS: ${ALLOWED_EXTENSIONS:-pdf,doc,docx,xls,xlsx,ppt,pptx,jpg,jpeg,png,gif,txt,zip,rar}
       APP_ENV: ${APP_ENV:-development}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
     ports:
-      - "8000:8000"
+      - "8001:8000"
     depends_on:
       postgres:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      mongodb:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
@@ -89,4 +111,5 @@ services:
 volumes:
   postgres_data:
   redis_data:
+  mongodb_data:
   rabbitmq_data:

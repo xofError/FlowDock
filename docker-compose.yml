@@ -1,18 +1,23 @@
 
+version: '3.9'
+
 services:
-  # Database
+  # ============================================================================
+  # Infrastructure Services
+  # ============================================================================
+
   postgres:
-    image: postgres:16
+    image: postgres:16-alpine
     container_name: flowdock_postgres
-    restart: always
+    restart: unless-stopped
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: FlowDock
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
+      POSTGRES_DB: ${DB_NAME:-FlowDock}
     ports:
       - "5432:5432"
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      - postgres_data:/var/lib/postgresql/data
     networks:
       - flowdock_network
     healthcheck:
@@ -20,107 +25,70 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
-  # Cache
   redis:
-    image: redis:7
+    image: redis:7-alpine
     container_name: flowdock_redis
-    restart: always
+    restart: unless-stopped
     ports:
       - "6379:6379"
     volumes:
-      - redisdata:/data
+      - redis_data:/data
     networks:
       - flowdock_network
+    command: redis-server --appendonly yes
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
-  # Database Admin UI (Development only)
-  pgadmin:
-    image: dpage/pgadmin4
-    container_name: flowdock_pgadmin
-    restart: always
-    environment:
-      PGADMIN_DEFAULT_EMAIL: admin@pgadmin.com
-      PGADMIN_DEFAULT_PASSWORD: admin
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    container_name: flowdock_rabbitmq
+    restart: unless-stopped
     ports:
-      - "5050:80"
-    networks:
-      - flowdock_network
-    depends_on:
-      postgres:
-        condition: service_healthy
-
-  # Reverse Proxy & Load Balancer
-  # traefik:
-  #   image: traefik:v2.10
-  #   container_name: flowdock_traefik
-  #   restart: always
-  #   command:
-  #     - "--api.insecure=true"
-  #     - "--providers.docker=true"
-  #     - "--providers.docker.exposedbydefault=false"
-  #     - "--entrypoints.web.address=:80"
-  #   ports:
-  #     - "80:80"
-  #     - "8080:8080"  # Traefik Dashboard
-  #   volumes:
-  #     - /var/run/docker.sock:/var/run/docker.sock:ro
-  #   networks:
-  #     - flowdock_network
-  #   depends_on:
-  #     - auth_service
-
-  # Authentication Service
-  auth_service:
-    build:
-      context: ./backend/auth_service
-      dockerfile: Dockerfile
-    container_name: flowdock_auth_service
-    restart: always
+      - "5672:5672"
+      - "15672:15672"
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: FlowDock
-      POSTGRES_HOST: postgres
-      POSTGRES_PORT: 5432
-      JWT_SECRET: "secret"
-      JWT_ALGORITHM: "HS256"
-      REDIS_HOST: redis
-      REDIS_PORT: 6379
-    ports:
-      - "8000:8000"
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-guest}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-guest}
     volumes:
-      - pipcache:/root/.cache/pip
+      - rabbitmq_data:/var/lib/rabbitmq
     networks:
       - flowdock_network
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.auth.rule=Host(`localhost`) && PathPrefix(`/auth`)"
-      - "traefik.http.services.auth.loadbalancer.server.port=8000"
+    healthcheck:
+      test: rabbitmq-diagnostics -q ping
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
-  # -----------------------------------------------------------------
-  # MONGODB (For Media Service - GridFS)
-  # -----------------------------------------------------------------
-  mongo_meta:
-    image: mongo:7
-    container_name: flowdock_mongo
-    restart: always
-    environment:
-      MONGO_INITDB_ROOT_USERNAME: root
-      MONGO_INITDB_ROOT_PASSWORD: mongopass
+  mongodb:
+    image: mongo:7-alpine
+    container_name: flowdock_mongodb
+    restart: unless-stopped
     ports:
       - "27017:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_USER:-root}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD:-mongopass}
     volumes:
-      - mongodata:/data/db
+      - mongodb_data:/data/db
     networks:
       - flowdock_network
     healthcheck:
@@ -128,72 +96,171 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
-  # -----------------------------------------------------------------
-  # MESSAGE BROKER (RabbitMQ) - NEW for Sprint 2
-  # -----------------------------------------------------------------
-  rabbitmq:
-    image: rabbitmq:3-management-alpine
-    container_name: flowdock_rabbitmq
-    restart: always
+  # ============================================================================
+  # Database Administration (Development Only)
+  # ============================================================================
+
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: flowdock_pgadmin
+    restart: unless-stopped
     environment:
-      RABBITMQ_DEFAULT_USER: guest
-      RABBITMQ_DEFAULT_PASS: guest
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:-admin@flowdock.local}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:-admin}
+      SCRIPT_NAME: /pgadmin
     ports:
-      - "5672:5672"        # AMQP
-      - "15672:15672"      # Management Dashboard
-    volumes:
-      - rabbitmqdata:/var/lib/rabbitmq
+      - "5050:80"
     networks:
       - flowdock_network
-    healthcheck:
-      test: ["CMD", "rabbitmq-diagnostics", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+    depends_on:
+      postgres:
+        condition: service_healthy
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
-  # -----------------------------------------------------------------
-  # MEDIA SERVICE (Phase 2) - NEW for Sprint 2
-  # -----------------------------------------------------------------
+  # ============================================================================
+  # Application Services
+  # ============================================================================
+
+  auth_service:
+    build:
+      context: ./backend/auth_service
+      dockerfile: Dockerfile
+    container_name: flowdock_auth_service
+    restart: unless-stopped
+    environment:
+      # Database
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
+      POSTGRES_DB: ${DB_NAME:-FlowDock}
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      
+      # Security
+      JWT_SECRET: ${JWT_SECRET:-your-super-secret-key-change-this}
+      JWT_ALGORITHM: ${JWT_ALGORITHM:-HS256}
+      JWT_EXPIRATION: ${JWT_EXPIRATION:-3600}
+      
+      # Cache
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_DB: ${REDIS_DB:-0}
+      
+      # Message Queue
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USER: ${RABBITMQ_USER:-guest}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-guest}
+      
+      # Application
+      APP_ENV: ${APP_ENV:-development}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    ports:
+      - "8000:8000"
+    networks:
+      - flowdock_network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
   media_service:
     build:
       context: ./backend/media_service
       dockerfile: Dockerfile
     container_name: flowdock_media_service
-    restart: always
+    restart: unless-stopped
     environment:
-      MONGO_URL: "mongodb://root:mongopass@mongo_meta:27017"
-      RABBITMQ_URL: "amqp://guest:guest@rabbitmq:5672/"
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: FlowDock
+      # Database
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
+      POSTGRES_DB: ${DB_NAME:-FlowDock}
       POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432
-      AUTH_SERVICE_URL: "http://auth_service:8000"
-      JWT_SECRET: "secret"
-      JWT_ALGORITHM: "HS256"
+      
+      # MongoDB
+      MONGO_URL: ${MONGO_URL:-mongodb://root:mongopass@mongodb:27017}
+      MONGO_DB: ${MONGO_DB:-flowdock_media}
+      
+      # Security
+      JWT_SECRET: ${JWT_SECRET:-your-super-secret-key-change-this}
+      JWT_ALGORITHM: ${JWT_ALGORITHM:-HS256}
+      
+      # Cache
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_DB: ${REDIS_DB:-1}
+      
+      # Message Queue
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USER: ${RABBITMQ_USER:-guest}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-guest}
+      
+      # File Storage
+      MAX_FILE_SIZE: ${MAX_FILE_SIZE:-104857600}
+      ALLOWED_EXTENSIONS: ${ALLOWED_EXTENSIONS:-pdf,doc,docx,xls,xlsx,ppt,pptx,jpg,jpeg,png,gif,txt,zip,rar}
+      
+      # Application
+      APP_ENV: ${APP_ENV:-development}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
     ports:
       - "8001:8000"
-    volumes:
-      - pipcache:/root/.cache/pip
     networks:
       - flowdock_network
     depends_on:
-      mongo_meta:
+      postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.media.rule=Host(`localhost`) && PathPrefix(`/media`)"
-      - "traefik.http.services.media.loadbalancer.server.port=8000"
+      mongodb:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
 volumes:
-  pgdata:
-  redisdata:
-  mongodata:
-  rabbitmqdata:
-  pipcache:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  rabbitmq_data:
+    driver: local
+  mongodb_data:
+    driver: local
 
 networks:
   flowdock_network:

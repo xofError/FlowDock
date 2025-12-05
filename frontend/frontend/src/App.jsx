@@ -1,11 +1,11 @@
 import { Routes, Route, Navigate } from "react-router-dom";
-import Login from "./pages/Login.jsx";
-import SignUp from "./pages/SignUp.jsx";
-import VerifyEmail from "./pages/VerifyEmail.jsx";
-import TwoFactorAuth from "./pages/TwoFactorAuth.jsx";
-import PassRecovery from "./pages/PassRecovery.jsx";
-import PassRecoveryVerify from "./pages/PassRecoveryVerify.jsx";
-import ResetPassword from "./pages/ResetPassword.jsx";
+import Login from "./pages/auth/Login.jsx";
+import SignUp from "./pages/auth/SignUp.jsx";
+import VerifyEmail from "./pages/auth/VerifyEmail.jsx";
+import TwoFactorAuth from "./pages/auth/TwoFactorAuth.jsx";
+import PassRecovery from "./pages/auth/PassRecovery.jsx";
+import PassRecoveryVerify from "./pages/auth/PassRecoverVerify.jsx";
+import ResetPassword from "./pages/auth/ResetPassword.jsx";
 
 function App() {
   return (

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import MainLayout from "../layout/MainLayout.jsx";
+import MainLayout from "../../layout/MainLayout.jsx";
 
 export default function PassRecovery() {
   const [email, setEmail] = useState("");

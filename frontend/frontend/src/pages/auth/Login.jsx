@@ -1,6 +1,6 @@
 import { Link } from "react-router-dom";
 import { useState } from "react";
-import MainLayout from "../layout/MainLayout.jsx";
+import MainLayout from "../../layout/MainLayout.jsx";
 
 export default function Login() {
   const [email, setEmail] = useState("");
