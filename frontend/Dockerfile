@@ -13,7 +13,7 @@ RUN npm ci
 COPY . .
 
 # Build the application
-RUN npm run build
+RUN npm dev run
 
 # Production Stage
 FROM node:18-alpine

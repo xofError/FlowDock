@@ -8,7 +8,7 @@ from typing import List
 
 class Settings:
     """Application settings and environment variables"""
-    
+    JWT_SECRET= "secret"
     # Service info
     SERVICE_NAME: str = "FlowDock Media Service"
     SERVICE_VERSION: str = "2.0.0"

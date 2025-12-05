@@ -10,13 +10,15 @@ class LoginRequest(BaseModel):
 
 
 class TokenResponse(BaseModel):
-    """Response containing an access token only.
+    """Response containing an access token and user info.
 
     Refresh tokens should not be returned in JSON responses for
     production; they are set as HttpOnly cookies instead.
     """
     access_token: str
     token_type: str = "bearer"
+    user_id: str
+    totp_required: bool = False
 
 
 class RefreshRequest(BaseModel):

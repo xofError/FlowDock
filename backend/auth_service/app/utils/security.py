@@ -8,7 +8,7 @@ from uuid import UUID
 from jose import jwt, JWTError
 from passlib.context import CryptContext
 
-JWT_SECRET = "secret"
+JWT_SECRET = os.getenv("JWT_SECRET", "secret")
 JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
 
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "15"))

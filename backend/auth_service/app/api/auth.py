@@ -137,7 +137,11 @@ def login(data: LoginRequest, response: Response):
         max_age=max_age,
     )
 
-    return TokenResponse(access_token=access)
+    return TokenResponse(
+        access_token=access,
+        user_id=str(user.id),
+        totp_required=False
+    )
 
 
 @router.post("/refresh", response_model=TokenResponse)
@@ -185,7 +189,11 @@ def refresh(response: Response, refresh_token: str = Cookie(None), data: Refresh
         max_age=max_age,
     )
 
-    return TokenResponse(access_token=access)
+    return TokenResponse(
+        access_token=access,
+        user_id=str(user.id),
+        totp_required=False
+    )
 
 
 @router.post("/logout")
@@ -335,7 +343,11 @@ async def oauth_callback(provider: str, request: Request, response: Response):
         max_age=max_age,
     )
 
-    return TokenResponse(access_token=access)
+    return TokenResponse(
+        access_token=access,
+        user_id=str(user.id),
+        totp_required=False
+    )
 
 
 @router.post("/forgot-password")

@@ -1,13 +1,52 @@
 
-version: '3.9'
-
 services:
+  # ============================================================================
+  # Reverse Proxy & Load Balancer
+  # ============================================================================
+
+  traefik:
+    image: traefik:v2.10
+    container_name: flowdock_traefik
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - flowdock_network
+    ports:
+      - "80:80"
+      - "443:443"
+      - "8080:8080"  # Dashboard (http://localhost:8080/dashboard/)
+    environment:
+      - TRAEFIK_API_DASHBOARD=true
+      - TRAEFIK_ENTRYPOINTS_WEB_ADDRESS=:80
+      - TRAEFIK_PROVIDERS_DOCKER=true
+      - TRAEFIK_PROVIDERS_DOCKER_EXPOSEDBYDEFAULT=false
+      - TRAEFIK_PROVIDERS_DOCKER_NETWORK=flowdock_network
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - traefik_data:/data
+    command:
+      - "--api.insecure=true"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--entrypoints.web.address=:80"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.traefik.rule=Host(`localhost`) && PathPrefix(`/dashboard`, `/api`)"
+      - "traefik.http.routers.traefik.entrypoints=web"
+      - "traefik.http.services.traefik.loadbalancer.server.port=8080"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
   # ============================================================================
   # Infrastructure Services
   # ============================================================================
 
   postgres:
-    image: postgres:16-alpine
+    image: postgres:16
     container_name: flowdock_postgres
     restart: unless-stopped
     environment:
@@ -32,7 +71,7 @@ services:
         max-file: "3"
 
   redis:
-    image: redis:7-alpine
+    image: redis:7
     container_name: flowdock_redis
     restart: unless-stopped
     ports:
@@ -79,7 +118,7 @@ services:
         max-file: "3"
 
   mongodb:
-    image: mongo:7-alpine
+    image: mongo:7
     container_name: flowdock_mongodb
     restart: unless-stopped
     ports:
@@ -186,6 +225,11 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.auth.rule=Host(`localhost`) && PathPrefix(`/auth`)"
+      - "traefik.http.routers.auth.entrypoints=web"
+      - "traefik.http.services.auth.loadbalancer.server.port=8000"
 
   media_service:
     build:
@@ -251,6 +295,51 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.media.rule=Host(`localhost`) && PathPrefix(`/media`)"
+      - "traefik.http.routers.media.entrypoints=web"
+      - "traefik.http.services.media.loadbalancer.server.port=8000"
+
+  # ============================================================================
+  # Frontend
+  # ============================================================================
+
+  # frontend:
+  #   build:
+  #     context: ./frontend
+  #     dockerfile: Dockerfile
+  #   container_name: flowdock_frontend
+  #   restart: unless-stopped
+  #   networks:
+  #     - flowdock_network
+  #   depends_on:
+  #     - auth_service
+  #     - media_service
+  #     - traefik
+  #   environment:
+  #     # API URLs - Point to Traefik gateway
+  #     - VITE_AUTH_API_URL=http://localhost/auth
+  #     - VITE_MEDIA_API_URL=http://localhost/media
+  #   labels:
+  #     - "traefik.enable=true"
+  #     - "traefik.http.routers.frontend.rule=Host(`localhost`) && PathPrefix(`/`) && !PathPrefix(`/auth`, `/media`, `/dashboard`, `/api`)"
+  #     - "traefik.http.routers.frontend.entrypoints=web"
+  #     - "traefik.http.services.frontend.loadbalancer.server.port=5173"
+  #     # Enable middleware for SPA (catch-all routing)
+  #     - "traefik.http.middlewares.frontend-redirect.redirectregex.regex=^http://localhost/(?!auth|media|dashboard|api).*$$"
+  #     - "traefik.http.middlewares.frontend-redirect.redirectregex.replacement=http://localhost/"
+  #   healthcheck:
+  #     test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:5173"]
+  #     interval: 30s
+  #     timeout: 10s
+  #     retries: 3
+  #     start_period: 30s
+  #   logging:
+  #     driver: "json-file"
+  #     options:
+  #       max-size: "10m"
+  #       max-file: "3"
 
 volumes:
   postgres_data:
@@ -260,6 +349,8 @@ volumes:
   rabbitmq_data:
     driver: local
   mongodb_data:
+    driver: local
+  traefik_data:
     driver: local
 
 networks:
