@@ -45,7 +45,12 @@ export const useAuth = () => {
     try {
       const response = await api.login(email, password, totpCode);
 
-      // Store tokens
+      // If TOTP is required, don't store tokens yet - just return the response
+      if (response.totp_required) {
+        return response;
+      }
+
+      // Store tokens only if login is successful (not TOTP required)
       api.setTokens(response.access_token, response.refresh_token);
 
       // Store user ID for later use
@@ -54,11 +59,9 @@ export const useAuth = () => {
       // Set authenticated state
       setIsAuthenticated(true);
 
-      // Load user data if not TOTP required
-      if (!response.totp_required) {
-        const userData = await api.getCurrentUser(response.user_id);
-        setUser(userData);
-      }
+      // Load user data
+      const userData = await api.getCurrentUser(response.user_id);
+      setUser(userData);
 
       return response;
     } catch (err) {
@@ -149,6 +152,38 @@ export const useAuth = () => {
     }
   }, []);
 
+  const setupTOTP = useCallback(async (email) => {
+    setLoading(true);
+    setError(null);
+
+    try {
+      const response = await api.setupTOTP(email);
+      return response;
+    } catch (err) {
+      const errorMessage = err.message || "TOTP setup failed";
+      setError(errorMessage);
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const verifyTOTP = useCallback(async (email, code) => {
+    setLoading(true);
+    setError(null);
+
+    try {
+      const response = await api.verifyTOTP(email, code);
+      return response;
+    } catch (err) {
+      const errorMessage = err.message || "TOTP verification failed";
+      setError(errorMessage);
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
   return {
     user,
     loading,
@@ -161,6 +196,8 @@ export const useAuth = () => {
     resetPassword,
     logout,
     loadUser,
+    setupTOTP,
+    verifyTOTP,
   };
 };
 

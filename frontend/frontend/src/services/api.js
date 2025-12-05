@@ -193,19 +193,20 @@ class APIClient {
   /**
    * Setup TOTP (2FA)
    */
-  async setupTOTP() {
+  async setupTOTP(email) {
     return this.request(`${AUTH_API_URL}/auth/totp/setup`, {
       method: "POST",
+      body: JSON.stringify({ email }),
     });
   }
 
   /**
    * Verify TOTP code
    */
-  async verifyTOTP(token) {
+  async verifyTOTP(email, code) {
     return this.request(`${AUTH_API_URL}/auth/totp/verify`, {
       method: "POST",
-      body: JSON.stringify({ totp_code: token }),
+      body: JSON.stringify({ email, code }),
     });
   }
 

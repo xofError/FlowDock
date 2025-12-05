@@ -24,6 +24,7 @@ from app.services import auth_service as svc_auth
 from app.utils import security, totp
 from app.utils import email as email_utils
 from app.services import auth_service
+from authlib.integrations.starlette_client import OAuth
 
 router = APIRouter()
 
@@ -35,7 +36,7 @@ def get_oauth_client():
     global _oauth_client
     if _oauth_client is None:
         try:
-            from authlib.integrations.starlette_client import OAuth
+
             _oauth_client = OAuth()
             _oauth_client.register(
                 name="google",
@@ -112,7 +113,12 @@ def login(data: LoginRequest, response: Response):
     if user.twofa_enabled:
         # Require provided TOTP code for users with 2FA enabled
         if not data.totp_code:
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="TOTP required")
+            # Return a response indicating TOTP is required (instead of throwing error)
+            return TokenResponse(
+                access_token="",
+                user_id=str(user.id),
+                totp_required=True
+            )
         ok = totp.verify_totp(user.totp_secret, data.totp_code)
         if not ok:
             # Could increment a failure counter / rate limit here

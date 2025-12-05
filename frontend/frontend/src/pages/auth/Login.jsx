@@ -9,10 +9,9 @@ export default function Login() {
   
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [totpCode, setTotpCode] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
-  const [totpRequired, setTotpRequired] = useState(false);
-  const [totpCode, setTotpCode] = useState("");
 
   const handleSignIn = async (e) => {
     e.preventDefault();
@@ -20,19 +19,8 @@ export default function Login() {
     setIsLoading(true);
 
     try {
-      const response = await login(email, password, totpRequired ? totpCode : null);
-      
-      if (totpRequired && totpCode) {
-        // TOTP verified, redirect to dashboard
-        navigate("/dashboard");
-      } else if (response.totp_required) {
-        // TOTP required, show input for code (don't redirect yet)
-        setTotpRequired(true);
-        setPassword(""); // Clear password field
-      } else {
-        // Login successful, redirect
-        navigate("/dashboard");
-      }
+      const response = await login(email, password, totpCode || null);
+      navigate("/dashboard");
     } catch (err) {
       setError(err.message || "Login failed. Please try again.");
     } finally {
@@ -63,46 +51,41 @@ export default function Login() {
 
         {/* Form */}
         <form className="flex flex-col px-2" onSubmit={handleSignIn}>
-          {!totpRequired ? (
-            <>
-              <input
-                name="email"
-                type="email"
-                placeholder="Email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-                disabled={isLoading}
-                style={{ height: "38px", marginBottom: "16px" }}
-                className="w-full rounded-lg bg-[#e7edf3] px-4 text-[#0d141b] placeholder:text-[#4c739a] text-base focus:outline-none border-none disabled:opacity-50"
-              />
+          <input
+            name="email"
+            type="email"
+            placeholder="Email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            required
+            disabled={isLoading}
+            style={{ height: "38px", marginBottom: "16px" }}
+            className="w-full rounded-lg bg-[#e7edf3] px-4 text-[#0d141b] placeholder:text-[#4c739a] text-base focus:outline-none border-none disabled:opacity-50"
+          />
 
-              <input
-                name="password"
-                type="password"
-                placeholder="Password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-                disabled={isLoading}
-                style={{ height: "38px", marginBottom: "32px" }}
-                className="w-full rounded-lg bg-[#e7edf3] px-4 text-[#0d141b] placeholder:text-[#4c739a] text-base focus:outline-none border-none disabled:opacity-50"
-              />
-            </>
-          ) : (
-            <input
-              name="totpCode"
-              type="text"
-              placeholder="Enter 6-digit code"
-              value={totpCode}
-              onChange={(e) => setTotpCode(e.target.value.slice(0, 6))}
-              required
-              disabled={isLoading}
-              style={{ height: "38px", marginBottom: "32px" }}
-              className="w-full rounded-lg bg-[#e7edf3] px-4 text-[#0d141b] placeholder:text-[#4c739a] text-base focus:outline-none border-none disabled:opacity-50"
-              maxLength="6"
-            />
-          )}
+          <input
+            name="password"
+            type="password"
+            placeholder="Password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            required
+            disabled={isLoading}
+            style={{ height: "38px", marginBottom: "16px" }}
+            className="w-full rounded-lg bg-[#e7edf3] px-4 text-[#0d141b] placeholder:text-[#4c739a] text-base focus:outline-none border-none disabled:opacity-50"
+          />
+
+          <input
+            name="totpCode"
+            type="text"
+            placeholder="2FA Code (optional)"
+            value={totpCode}
+            onChange={(e) => setTotpCode(e.target.value.slice(0, 6))}
+            disabled={isLoading}
+            style={{ height: "38px", marginBottom: "32px" }}
+            className="w-full rounded-lg bg-[#e7edf3] px-4 text-[#0d141b] placeholder:text-[#4c739a] text-base focus:outline-none border-none disabled:opacity-50"
+            maxLength="6"
+          />
 
           {/* Buttons with proper gap */}
           <div className="flex flex-col">
@@ -112,20 +95,18 @@ export default function Login() {
               style={{ height: "38px", marginBottom: "16px", opacity: isLoading ? 0.7 : 1 }}
               className="w-full rounded-lg bg-[#1380ec] text-white text-lg font-bold flex items-center justify-center transition-all"
             >
-              {isLoading ? "Loading..." : totpRequired ? "Verify Code" : "Sign In"}
+              {isLoading ? "Loading..." : "Sign In"}
             </button>
 
-            {!totpRequired && (
-              <button
-                type="button"
-                onClick={handleGoogleSignIn}
-                disabled={isLoading}
-                style={{ height: "38px" }}
-                className="w-full rounded-lg bg-[#E7EDF3] text-[#0D141B] text-lg font-bold flex items-center justify-center transition-all"
-              >
-                Sign in with Google
-              </button>
-            )}
+            <button
+              type="button"
+              onClick={handleGoogleSignIn}
+              disabled={isLoading}
+              style={{ height: "38px" }}
+              className="w-full rounded-lg bg-[#E7EDF3] text-[#0D141B] text-lg font-bold flex items-center justify-center transition-all"
+            >
+              Sign in with Google
+            </button>
           </div>
         </form>
 
