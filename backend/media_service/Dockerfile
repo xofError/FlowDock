@@ -14,7 +14,7 @@ RUN apt-get update \
 # Copy requirements and install with BuildKit cache mount
 COPY requirements.txt .
 RUN --mount=type=cache,target=/root/.cache/pip \
-    pip install --no-cache-dir -r requirements.txt
+    pip install -r requirements.txt
 
 # Copy application code
 COPY app/ ./app/

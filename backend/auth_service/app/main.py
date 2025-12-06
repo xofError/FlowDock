@@ -34,10 +34,6 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"Could not create test user: {e}")
     
-    # Startup: Start RabbitMQ file event consumer
-    logger.info("Starting RabbitMQ file event consumer...")
-    start_file_event_consumer_background()
-    
     yield
     # Shutdown: Nothing to do
 
