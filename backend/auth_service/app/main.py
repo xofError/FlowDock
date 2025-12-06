@@ -5,11 +5,13 @@ from contextlib import asynccontextmanager
 import os
 import logging
 
-from app.api import auth as auth_router
-from app.api import users as users_router
-from app.database import Base, engine
-from app.models import *
-from app.services.user_store import create_test_user
+from app.presentation.api import auth as auth_router
+from app.presentation.api import users as users_router
+from app.database import Base, engine, SessionLocal
+from app.infrastructure.database.models import UserModel, SessionModel, RecoveryTokenModel
+from app.application.user_util_service import UserUtilService
+from app.infrastructure.database.repositories import PostgresUserRepository
+from app.infrastructure.security.security import ArgonPasswordHasher
 from app.services.rabbitmq_consumer_integration import start_file_event_consumer_background
 
 logger = logging.getLogger(__name__)
@@ -21,8 +23,15 @@ async def lifespan(app: FastAPI):
     # Startup: Create tables
     Base.metadata.create_all(bind=engine)
     try:
-        # create_test_user is a convenience helper for local/dev only
-        create_test_user()
+        # Create test user using clean architecture service
+        db = SessionLocal()
+        try:
+            user_repo = PostgresUserRepository(db)
+            password_hasher = ArgonPasswordHasher()
+            user_util_service = UserUtilService(user_repo, password_hasher)
+            user_util_service.create_test_user()
+        finally:
+            db.close()
     except Exception as e:
         logger.warning(f"Could not create test user: {e}")
     
