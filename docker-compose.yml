@@ -90,6 +90,13 @@ services:
       JWT_ALGORITHM: "HS256"
       REDIS_HOST: redis
       REDIS_PORT: 6379
+      # Email Configuration
+      SMTP_HOST: "smtp.gmail.com"
+      SMTP_PORT: "587"
+      SMTP_USER: "flowdockproduction@gmail.com"
+      SMTP_PASSWORD: ${GMAIL_PASSWORD:-your_app_password_here}
+      SMTP_FROM_EMAIL: "flowdockproduction@gmail.com"
+      SMTP_FROM_NAME: "FlowDock"
     ports:
       - "8000:8000"
     volumes:

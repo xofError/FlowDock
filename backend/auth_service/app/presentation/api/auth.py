@@ -14,17 +14,18 @@ from starlette.responses import RedirectResponse
 import httpx
 from app.core.config import settings
 
-from app.schemas.auth import (
-    LoginRequest,
-    TokenResponse,
-    RefreshRequest,
-    LogoutRequest,
-    TotpSetupRequest,
-    TotpVerifyRequest,
-    RegisterRequest,
-    VerifyEmailOTPRequest,
+from app.application.dtos import (
+    LoginRequestDTO,
+    TokenResponseDTO,
+    RefreshRequestDTO,
+    LogoutRequestDTO,
+    TotpSetupRequestDTO,
+    TotpVerifyRequestDTO,
+    RegisterRequestDTO,
+    VerifyEmailOTPRequestDTO,
+    ForgotPasswordRequestDTO,
+    ResetPasswordRequestDTO,
 )
-from app.schemas.recovery import RequestPasswordReset, ResetPasswordRequest
 from app.application.services import AuthService
 from app.application.twofa_service import TwoFAService
 from app.presentation.dependencies import (
@@ -39,7 +40,6 @@ from app.infrastructure.security.security import JWTTokenGenerator
 from app.infrastructure.security.token_store import RefreshTokenStore
 from app.infrastructure.email.email import IEmailService
 from authlib.integrations.starlette_client import OAuth
-from sqlalchemy.orm import Session
 
 router = APIRouter()
 
@@ -73,7 +73,7 @@ def get_oauth_client():
 
 @router.post("/register", status_code=status.HTTP_201_CREATED)
 def register(
-    data: RegisterRequest,
+    data: RegisterRequestDTO,
     service: AuthService = Depends(get_auth_service),
     email_service: IEmailService = Depends(get_email_service),
 ):
@@ -95,7 +95,7 @@ def register(
 
 @router.post("/verify-email")
 def verify_email(
-    data: VerifyEmailOTPRequest,
+    data: VerifyEmailOTPRequestDTO,
     service: AuthService = Depends(get_auth_service),
 ):
     """Verify email using OTP."""
@@ -109,9 +109,9 @@ def verify_email(
 # ============ Authentication (Login/Logout) ============
 
 
-@router.post("/login", response_model=TokenResponse)
+@router.post("/login", response_model=TokenResponseDTO)
 def login(
-    data: LoginRequest,
+    data: LoginRequestDTO,
     response: Response,
     service: AuthService = Depends(get_auth_service),
     twofa_service: TwoFAService = Depends(get_twofa_service),
@@ -133,7 +133,7 @@ def login(
         # Handle TOTP if enabled
         if user.twofa_enabled:
             if not data.totp_code:
-                return TokenResponse(
+                return TokenResponseDTO(
                     access_token="",
                     user_id=str(user.id),
                     totp_required=True,
@@ -167,7 +167,7 @@ def login(
             max_age=max_age,
         )
 
-        return TokenResponse(
+        return TokenResponseDTO(
             access_token=access_token,
             user_id=str(user.id),
             totp_required=False,
@@ -180,7 +180,7 @@ def login(
 def logout(
     response: Response,
     refresh_token: str = Cookie(None),
-    data: LogoutRequest = None,
+    data: LogoutRequestDTO = None,
     token_store: RefreshTokenStore = Depends(get_refresh_token_store),
     token_gen: JWTTokenGenerator = Depends(get_token_generator),
 ):
@@ -202,14 +202,14 @@ def logout(
 # ============ Token Refresh ============
 
 
-@router.post("/refresh", response_model=TokenResponse)
+@router.post("/refresh", response_model=TokenResponseDTO)
 def refresh(
     response: Response,
     refresh_token: str = Cookie(None),
-    data: RefreshRequest = None,
+    data: RefreshRequestDTO = None,
     token_store: RefreshTokenStore = Depends(get_refresh_token_store),
     token_gen: JWTTokenGenerator = Depends(get_token_generator),
-    db: Session = Depends(get_db),
+    db=Depends(get_db),
 ):
     """Refresh access token and rotate refresh token."""
     from app.infrastructure.database.repositories import PostgresUserRepository
@@ -279,7 +279,7 @@ def refresh(
         max_age=max_age,
     )
 
-    return TokenResponse(
+    return TokenResponseDTO(
         access_token=access_token,
         user_id=str(user.id),
         totp_required=False,
@@ -291,7 +291,7 @@ def refresh(
 
 @router.post("/totp/setup")
 def totp_setup(
-    data: TotpSetupRequest,
+    data: TotpSetupRequestDTO,
     twofa_service: TwoFAService = Depends(get_twofa_service),
 ):
     """Initiate TOTP setup for a user."""
@@ -304,7 +304,7 @@ def totp_setup(
 
 @router.post("/totp/verify")
 def totp_verify(
-    data: TotpVerifyRequest,
+    data: TotpVerifyRequestDTO,
     twofa_service: TwoFAService = Depends(get_twofa_service),
 ):
     """Verify TOTP code and enable 2FA."""
@@ -370,7 +370,7 @@ async def oauth_callback(
 
 @router.post("/forgot-password")
 async def forgot_password(
-    data: RequestPasswordReset,
+    data: ForgotPasswordRequestDTO,
     service: AuthService = Depends(get_auth_service),
     email_service: IEmailService = Depends(get_email_service),
 ):
@@ -417,7 +417,7 @@ def verify_reset_token(
 
 @router.post("/reset-password")
 def reset_password(
-    data: ResetPasswordRequest,
+    data: ResetPasswordRequestDTO,
     service: AuthService = Depends(get_auth_service),
 ):
     """Confirm password reset."""

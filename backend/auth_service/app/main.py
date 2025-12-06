@@ -12,7 +12,6 @@ from app.infrastructure.database.models import UserModel, SessionModel, Recovery
 from app.application.user_util_service import UserUtilService
 from app.infrastructure.database.repositories import PostgresUserRepository
 from app.infrastructure.security.security import ArgonPasswordHasher
-from app.services.rabbitmq_consumer_integration import start_file_event_consumer_background
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
@@ -73,3 +72,8 @@ app.include_router(users_router.router, tags=["users"])
 @app.get("/")
 async def root():
     return {"message": "Auth service is running"}
+
+
+@app.get("/health")
+async def health():
+    return {"status": "ok"}

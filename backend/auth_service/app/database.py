@@ -3,10 +3,9 @@ from sqlalchemy.orm import sessionmaker, declarative_base
 import os
 
 DATABASE_URL = (
-    f"postgresql://{os.getenv('POSTGRES_USER')}:{os.getenv('POSTGRES_PASSWORD')}"
-    f"@{os.getenv('POSTGRES_HOST')}:{os.getenv('POSTGRES_PORT')}/{os.getenv('POSTGRES_DB')}"
+    f"postgresql://{os.getenv('POSTGRES_USER', 'postgres')}:{os.getenv('POSTGRES_PASSWORD', 'postgres')}"
+    f"@{os.getenv('POSTGRES_HOST', 'localhost')}:{os.getenv('POSTGRES_PORT', '5432')}/{os.getenv('POSTGRES_DB', 'FlowDock')}"
 )
-# DATABASE_URL = ("postgresql://postgres:postgres@localhost:5432/FlowDock")
 engine = create_engine(DATABASE_URL, future=True)
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
