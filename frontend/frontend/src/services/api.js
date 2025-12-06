@@ -14,7 +14,7 @@ const MEDIA_API_URL = import.meta.env.VITE_MEDIA_API_URL || "http://localhost:80
 class APIClient {
   constructor() {
     this.authToken = localStorage.getItem("access_token");
-    this.refreshToken = localStorage.getItem("refresh_token");
+    // Don't store refresh token - it's in HttpOnly cookie automatically
   }
 
   /**
@@ -23,11 +23,7 @@ class APIClient {
   setTokens(accessToken, refreshToken = null) {
     this.authToken = accessToken;
     localStorage.setItem("access_token", accessToken);
-
-    if (refreshToken) {
-      this.refreshToken = refreshToken;
-      localStorage.setItem("refresh_token", refreshToken);
-    }
+    // Refresh token is in HttpOnly cookie - browser sends it automatically with credentials
   }
 
   /**
@@ -35,9 +31,8 @@ class APIClient {
    */
   clearTokens() {
     this.authToken = null;
-    this.refreshToken = null;
     localStorage.removeItem("access_token");
-    localStorage.removeItem("refresh_token");
+    // HttpOnly cookie will be cleared by server when refresh token expires
   }
 
   /**
@@ -54,14 +49,18 @@ class APIClient {
       headers["Authorization"] = `Bearer ${this.authToken}`;
     }
 
+    // Include credentials for all requests (important for refresh token cookie)
+    const fetchOptions = {
+      ...options,
+      headers,
+      credentials: "include",
+    };
+
     try {
-      const response = await fetch(url, {
-        ...options,
-        headers,
-      });
+      const response = await fetch(url, fetchOptions);
 
       // Handle 401 - try to refresh token
-      if (response.status === 401 && this.refreshToken) {
+      if (response.status === 401) {
         const refreshed = await this.refreshAccessToken();
         if (refreshed) {
           // Retry the original request with new token
@@ -69,41 +68,48 @@ class APIClient {
         } else {
           // Refresh failed, clear tokens
           this.clearTokens();
-          window.location.href = "/login";
+          window.location.href = "/#/login";
         }
       }
 
       // Handle other errors
       if (!response.ok) {
-        const error = await response.json().catch(() => ({}));
+        let error = {};
+        try {
+          error = await response.json();
+        } catch (e) {
+          // Response wasn't JSON
+          error = { detail: response.statusText };
+        }
         throw new Error(error.detail || `HTTP ${response.status}`);
       }
 
       return await response.json();
     } catch (error) {
-      console.error(`API Error: ${url}`, error);
-      throw error;
+      // Provide better error context
+      const errorMsg = error.message || error.toString();
+      console.error(`API Error: ${url}`, { errorMsg, url, options });
+      throw new Error(errorMsg);
     }
   }
 
   /**
-   * Refresh access token using refresh token
+   * Refresh access token using refresh token (in HttpOnly cookie)
    */
   async refreshAccessToken() {
-    if (!this.refreshToken) return false;
-
     try {
       const response = await fetch(`${AUTH_API_URL}/auth/refresh`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ refresh_token: this.refreshToken }),
+        credentials: "include", // Browser automatically sends HttpOnly cookie
+        body: JSON.stringify({}), // No need to send token - it's in the cookie
       });
 
       if (response.ok) {
         const data = await response.json();
-        this.setTokens(data.access_token, this.refreshToken);
+        this.setTokens(data.access_token);
         return true;
       }
 

@@ -20,7 +20,15 @@ export default function Login() {
 
     try {
       const response = await login(email, password, totpCode || null);
-      navigate("/dashboard");
+      
+      // Check if TOTP is required
+      if (response.totp_required) {
+        setError("2FA code required. Please enter your 6-digit code.");
+        // Don't redirect, let user enter TOTP on this same page
+      } else {
+        // Login successful, redirect to dashboard
+        navigate("/dashboard");
+      }
     } catch (err) {
       setError(err.message || "Login failed. Please try again.");
     } finally {
