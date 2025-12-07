@@ -1,7 +1,17 @@
+// Run dev server (PowerShell):
+// cd D:\tch4x\4xC\FlowDock-main\FlowDock-main\frontend\frontend
+// npm install autoprefixer postcss tailwindcss
+// npm install
+// npm run dev
+// If you still see postcss/autoprefixer errors, create/move postcss.config.cjs to this frontend directory with:
+// module.exports = { plugins: { tailwindcss: {}, autoprefixer: {}, } }
+
 import { Link, useNavigate } from "react-router-dom";
 import { useState } from "react";
 import MainLayout from "../../layout/MainLayout.jsx";
 import useAuth from "../../hooks/useAuth.js";
+import Button from "../../components/Button.jsx";
+import GoogleIcon from "../../resources/icons/social-google-plus-svgrepo-com.svg";
 import { AUTH_API_URL } from "../../services/api.js";
 
 export default function Login() {
@@ -44,12 +54,15 @@ export default function Login() {
 
   return (
     <MainLayout>
-      <div className="flex flex-col gap-8 pb-10 w-full max-w-sm mx-auto">
-
-        {/* Heading */}
-        <h2 className="text-[#0d141b] text-[28px] font-bold leading-tight text-center pt-4">
-          Welcome back
-        </h2>
+      <div className="flex flex-col gap-8 pb-10 justify-center" style={{ width: "320px", margin: "0 auto" }}>
+        <div>
+          <h2
+            className="text-[#0d141b] text-[28px] font-bold leading-tight text-center"
+            style={{ marginTop: "1.5cm" }}
+          >
+            Welcome back
+          </h2>
+        </div>
 
         {/* Error Message */}
         {error && (
@@ -59,7 +72,7 @@ export default function Login() {
         )}
 
         {/* Form */}
-        <form className="flex flex-col px-2" onSubmit={handleSignIn}>
+        <form className="flex flex-col gap-3 px-2" onSubmit={handleSignIn}>
           <input
             name="email"
             type="email"
@@ -68,8 +81,8 @@ export default function Login() {
             onChange={(e) => setEmail(e.target.value)}
             required
             disabled={isLoading}
-            style={{ height: "38px", marginBottom: "16px" }}
-            className="w-full rounded-lg bg-[#e7edf3] px-4 text-[#0d141b] placeholder:text-[#4c739a] text-base focus:outline-none border-none disabled:opacity-50"
+            style={{ height: "44px", marginTop: 12, borderRadius: "12px", paddingLeft: "16px" }}
+            className="rounded-lg bg-[#e7edf3] px-4 text-[#0d141b] placeholder:text-[#4c739a] text-base focus:outline-none border border-[#d0dce8] disabled:opacity-50"
           />
 
           <input
@@ -80,8 +93,8 @@ export default function Login() {
             onChange={(e) => setPassword(e.target.value)}
             required
             disabled={isLoading}
-            style={{ height: "38px", marginBottom: "16px" }}
-            className="w-full rounded-lg bg-[#e7edf3] px-4 text-[#0d141b] placeholder:text-[#4c739a] text-base focus:outline-none border-none disabled:opacity-50"
+            style={{ height: "44px", marginTop: 12, borderRadius: "12px", paddingLeft: "16px" }}
+            className="rounded-lg bg-[#e7edf3] px-4 text-[#0d141b] placeholder:text-[#4c739a] text-base focus:outline-none border border-[#d0dce8] disabled:opacity-50"
           />
 
           <input
@@ -91,43 +104,44 @@ export default function Login() {
             value={totpCode}
             onChange={(e) => setTotpCode(e.target.value.slice(0, 6))}
             disabled={isLoading}
-            style={{ height: "38px", marginBottom: "32px" }}
-            className="w-full rounded-lg bg-[#e7edf3] px-4 text-[#0d141b] placeholder:text-[#4c739a] text-base focus:outline-none border-none disabled:opacity-50"
+            style={{ height: "44px", marginTop: 12, borderRadius: "12px", paddingLeft: "16px" }}
+            className="rounded-lg bg-[#e7edf3] px-4 text-[#0d141b] placeholder:text-[#4c739a] text-base focus:outline-none border border-[#d0dce8] disabled:opacity-50"
             maxLength="6"
           />
 
           {/* Buttons with proper gap */}
-          <div className="flex flex-col">
-            <button
-              type="submit"
-              disabled={isLoading}
-              style={{ height: "38px", marginBottom: "16px", opacity: isLoading ? 0.7 : 1 }}
-              className="w-full rounded-lg bg-[#1380ec] text-white text-lg font-bold flex items-center justify-center transition-all"
-            >
-              {isLoading ? "Loading..." : "Sign In"}
-            </button>
+          <div className="flex flex-col gap-3" style={{ marginTop: 24 }}>
+            <Button type="submit" loading={isLoading} loadingText="Loading..." disabled={isLoading}>
+              Sign In
+            </Button>
 
-            <button
-              type="button"
-              onClick={handleGoogleSignIn}
-              disabled={isLoading}
-              style={{ height: "38px" }}
-              className="w-full rounded-lg bg-[#E7EDF3] text-[#0D141B] text-lg font-bold flex items-center justify-center transition-all"
-            >
-              Sign in with Google
-            </button>
+            <div style={{ marginTop: "12px" }}>
+              <Button 
+                type="button"
+                variant="secondary"
+                loading={isLoading}
+                loadingText="Redirecting..."
+                onClick={handleGoogleSignIn}
+                disabled={isLoading}
+                className="flex items-center justify-center"
+              >
+                <span>Sign in with</span>
+                <span style={{ marginLeft: "4px", marginRight: "4px" }}> </span>
+                <img src={GoogleIcon} alt="Google" style={{ height: "18px", width: "18px" }} />
+              </Button>
+            </div>
           </div>
         </form>
 
         {/* Forgot password */}
-        <div className="text-center mt-3">
+        <div className="text-center">
           <Link to="/pass-recovery" className="text-[#4c739a] text-sm underline">
             Forgot password?
           </Link>
         </div>
 
         {/* Sign Up link */}
-        <p className="text-center mt-4 text-sm">
+        <p className="text-center text-sm">
           Don't have an account?{" "}
           <Link to="/signup" className="text-blue-600 underline">
             Sign Up

@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import MainLayout from "../../layout/MainLayout.jsx";
 import useAuth from "../../hooks/useAuth.js";
+import Button from "../../components/Button.jsx";
 
 export default function VerifyTOTP() {
   const navigate = useNavigate();
@@ -18,7 +19,7 @@ export default function VerifyTOTP() {
   if (!email || !password) {
     return (
       <MainLayout>
-        <div className="flex flex-col gap-6 pb-10 w-full max-w-sm mx-auto">
+        <div className="flex flex-col gap-6 pb-10 justify-center" style={{ width: "320px", margin: "0 auto" }}>
           <h2 className="text-[#0d141b] text-[28px] font-bold text-center pt-4">
             Session Expired
           </h2>
@@ -78,7 +79,7 @@ export default function VerifyTOTP() {
 
   return (
     <MainLayout>
-      <div className="flex flex-col gap-6 pb-10 w-full max-w-sm mx-auto">
+      <div className="flex flex-col gap-6 pb-10 justify-center" style={{ width: "320px", margin: "0 auto" }}>
         
         <h2 className="text-[#0d141b] text-[28px] font-bold leading-tight text-center pt-4">
           Enter Authentication Code
@@ -95,7 +96,7 @@ export default function VerifyTOTP() {
         </p>
 
         <form onSubmit={handleSubmit} className="flex flex-col px-2">
-          <div className="flex gap-2 justify-center mb-8">
+          <div className="flex gap-2 justify-center mb-8" style={{ marginTop: 12 }}>
             {totp.map((digit, index) => (
               <input
                 key={index}
@@ -112,14 +113,9 @@ export default function VerifyTOTP() {
             ))}
           </div>
 
-          <button
-            type="submit"
-            disabled={authLoading}
-            style={{ height: "38px", opacity: authLoading ? 0.7 : 1 }}
-            className="w-full rounded-lg bg-[#1380ec] text-white text-lg font-bold flex items-center justify-center transition-all"
-          >
-            {authLoading ? "Verifying..." : "Verify"}
-          </button>
+          <Button type="submit" loading={authLoading} loadingText="Verifying..." disabled={authLoading}>
+            Verify
+          </Button>
         </form>
 
         <button
