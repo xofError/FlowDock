@@ -171,8 +171,13 @@ class AuthService:
 
     # ============ Login ============
 
-    def authenticate_user(self, email: str, password: str) -> User:
+    def authenticate_user(self, email: str, password: str, ip_address: Optional[str] = None) -> User:
         """Authenticate a user by email and password.
+
+        Args:
+            email: User email
+            password: User password
+            ip_address: Client IP address (optional)
 
         Raises:
             ValueError: If credentials are invalid
@@ -192,6 +197,10 @@ class AuthService:
         # Verify password
         if not self.password_hasher.verify(password, user.password_hash):
             raise ValueError("Invalid credentials")
+
+        # Set login metadata
+        user.last_login_ip = ip_address
+        user.last_login_at = datetime.now(timezone.utc)
 
         return user
 

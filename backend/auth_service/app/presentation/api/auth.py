@@ -10,6 +10,7 @@ import os
 import logging
 from fastapi import APIRouter, HTTPException, status, Depends, Response, Cookie, Request
 from datetime import datetime, timezone
+from sqlalchemy.orm import Session
 
 from starlette.responses import RedirectResponse
 from app.core.config import settings
@@ -91,16 +92,21 @@ def verify_email(
 @router.post("/login", response_model=TokenResponseDTO)
 def login(
     data: LoginRequestDTO,
+    request: Request,
     response: Response,
     service: AuthService = Depends(get_auth_service),
     twofa_service: TwoFAService = Depends(get_twofa_service),
     token_store: RefreshTokenStore = Depends(get_refresh_token_store),
     token_gen: JWTTokenGenerator = Depends(get_token_generator),
+    db: Session = Depends(get_db),
 ):
     """Authenticate user and issue tokens."""
     try:
-        # Authenticate user
-        user = service.authenticate_user(data.email, data.password)
+        # Extract client IP
+        client_ip = request.client.host if request.client else None
+        
+        # Authenticate user and set login metadata
+        user = service.authenticate_user(data.email, data.password, client_ip)
 
         # Check if email is verified
         if not user.verified:
@@ -134,6 +140,11 @@ def login(
 
         # Store refresh token in Redis
         token_store.store(refresh_hash, user.email, expiry)
+
+        # Update user with login information in database
+        from app.infrastructure.database.repositories import PostgresUserRepository
+        user_repo = PostgresUserRepository(db)
+        user_repo.update(user)
 
         # Set refresh token as HttpOnly cookie
         now = datetime.now(timezone.utc)
