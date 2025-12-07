@@ -2,6 +2,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { useState } from "react";
 import MainLayout from "../../layout/MainLayout.jsx";
 import useAuth from "../../hooks/useAuth.js";
+import { AUTH_API_URL } from "../../services/api.js";
 
 export default function Login() {
   const navigate = useNavigate();
@@ -38,7 +39,7 @@ export default function Login() {
 
   const handleGoogleSignIn = () => {
     // Redirect to backend OAuth login endpoint
-    window.location.href = `http://localhost:8000/auth/oauth/google/login`;
+    window.location.href = `${AUTH_API_URL}/auth/oauth/google/login`;
   };
 
   return (

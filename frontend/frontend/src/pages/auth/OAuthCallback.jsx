@@ -1,11 +1,14 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import MainLayout from "../../layout/MainLayout.jsx";
+import { useAuthContext } from "../../context/AuthContext.jsx";
 
 export default function OAuthCallback() {
   const navigate = useNavigate();
+  const { setAuth } = useAuthContext();
   const [searchParams] = useSearchParams();
   const [error, setError] = useState(null);
+  const [isProcessing, setIsProcessing] = useState(true);
 
   useEffect(() => {
     const handleCallback = async () => {
@@ -14,34 +17,47 @@ export default function OAuthCallback() {
         const errorParam = searchParams.get("error");
         if (errorParam) {
           setError(decodeURIComponent(errorParam));
+          setIsProcessing(false);
           return;
         }
 
-        // The backend OAuth callback should have set the tokens
-        // Check if we have access_token in the response
+        // Extract tokens from URL parameters
         const accessToken = searchParams.get("access_token");
         const userId = searchParams.get("user_id");
-        const totpRequired = searchParams.get("totp_required") === "true";
 
         if (accessToken && userId) {
-          // Store tokens from URL params
+          // Store tokens
           localStorage.setItem("access_token", accessToken);
           localStorage.setItem("user_id", userId);
           
-          // Redirect to dashboard
-          setTimeout(() => navigate("/dashboard"), 500);
+          // Update auth context
+          if (setAuth) {
+            setAuth({
+              isAuthenticated: true,
+              user: { id: userId },
+              accessToken: accessToken,
+            });
+          }
+          
+          // Small delay to ensure storage is updated, then redirect
+          setTimeout(() => {
+            navigate("/dashboard", { replace: true });
+          }, 500);
         } else {
-          // If no tokens in URL, the backend might have used cookies
-          // Try to redirect to dashboard anyway
-          setTimeout(() => navigate("/dashboard"), 500);
+          // Check if backend used HttpOnly cookies and just redirect
+          // The refresh token should be in the HttpOnly cookie automatically
+          setTimeout(() => {
+            navigate("/dashboard", { replace: true });
+          }, 500);
         }
       } catch (err) {
-        setError(err.message || "OAuth callback failed");
+        setError(err.message || "OAuth callback processing failed");
+        setIsProcessing(false);
       }
     };
 
     handleCallback();
-  }, [navigate, searchParams]);
+  }, [navigate, searchParams, setAuth]);
 
   return (
     <MainLayout>
@@ -62,7 +78,7 @@ export default function OAuthCallback() {
               Back to Login
             </button>
           </>
-        ) : (
+        ) : isProcessing ? (
           <>
             <h2 className="text-[#0d141b] text-[28px] font-bold text-center pt-4">
               Signing you in...
@@ -71,7 +87,7 @@ export default function OAuthCallback() {
               Please wait while we complete your authentication.
             </p>
           </>
-        )}
+        ) : null}
       </div>
     </MainLayout>
   );

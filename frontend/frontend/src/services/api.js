@@ -3,13 +3,14 @@
  * Handles all HTTP requests to Auth Service and Media Service
  */
 
-// Get API URLs from environment variables (set in docker-compose.yml)
+// Get API URLs from environment variables or use defaults
+// For development with localhost: http://localhost:8000
+// For docker with traefik: http://auth.localhost or http://localhost/auth
 const AUTH_API_URL = import.meta.env.VITE_AUTH_API_URL || "http://localhost:8000";
 const MEDIA_API_URL = import.meta.env.VITE_MEDIA_API_URL || "http://localhost:8001";
 
-// For Traefik routing:
-// const AUTH_API_URL = "http://localhost/auth";
-// const MEDIA_API_URL = "http://localhost/media";
+// Export URLs for use in other modules (like OAuth)
+export { AUTH_API_URL, MEDIA_API_URL };
 
 class APIClient {
   constructor() {

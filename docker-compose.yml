@@ -54,24 +54,25 @@ services:
         condition: service_healthy
 
   # Reverse Proxy & Load Balancer
-  # traefik:
-  #   image: traefik:v2.10
-  #   container_name: flowdock_traefik
-  #   restart: always
-  #   command:
-  #     - "--api.insecure=true"
-  #     - "--providers.docker=true"
-  #     - "--providers.docker.exposedbydefault=false"
-  #     - "--entrypoints.web.address=:80"
-  #   ports:
-  #     - "80:80"
-  #     - "8080:8080"  # Traefik Dashboard
-  #   volumes:
-  #     - /var/run/docker.sock:/var/run/docker.sock:ro
-  #   networks:
-  #     - flowdock_network
-  #   depends_on:
-  #     - auth_service
+  traefik:
+    image: traefik:v2.10
+    container_name: flowdock_traefik
+    restart: always
+    command:
+      - "--api.insecure=true"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--entrypoints.web.address=:80"
+    ports:
+      - "80:80"
+      - "8080:8080"  # Traefik Dashboard
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - flowdock_network
+    depends_on:
+      auth_service:
+        condition: service_healthy
 
   # Authentication Service
   auth_service:
@@ -90,6 +91,17 @@ services:
       JWT_ALGORITHM: "HS256"
       REDIS_HOST: redis
       REDIS_PORT: 6379
+      # Email Configuration
+      SMTP_HOST: "smtp.gmail.com"
+      SMTP_PORT: "587"
+      SMTP_USER: "flowdockproduction@gmail.com"
+      SMTP_PASSWORD: "hmlz qbkb rbbb npja"
+      SMTP_FROM_EMAIL: "flowdockproduction@gmail.com"
+      SMTP_FROM_NAME: "FlowDock"
+      GOOGLE_CLIENT_ID: ""
+      GOOGLE_CLIENT_SECRET: ""
+      BACKEND_URL: "http://localhost:8000"
+      FRONTEND_URL: "http://localhost:5173"
     ports:
       - "8000:8000"
     volumes:
@@ -103,7 +115,8 @@ services:
         condition: service_healthy
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.auth.rule=Host(`localhost`) && PathPrefix(`/auth`)"
+      - "traefik.http.routers.auth.rule=Host(`auth.localhost`)"
+      - "traefik.http.routers.auth.entrypoints=web"
       - "traefik.http.services.auth.loadbalancer.server.port=8000"
 
   # -----------------------------------------------------------------
@@ -126,7 +139,7 @@ services:
       test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
       interval: 10s
       timeout: 5s
-      retries: 5
+      retries: 3
 
   # -----------------------------------------------------------------
   # MESSAGE BROKER (RabbitMQ) - NEW for Sprint 2
@@ -149,7 +162,7 @@ services:
       test: ["CMD", "rabbitmq-diagnostics", "ping"]
       interval: 10s
       timeout: 5s
-      retries: 5
+      retries: 3
 
   # -----------------------------------------------------------------
   # MEDIA SERVICE (Phase 2) - NEW for Sprint 2
@@ -180,11 +193,11 @@ services:
     depends_on:
       mongo_meta:
         condition: service_healthy
-      rabbitmq:
-        condition: service_healthy
+      # rabbitmq:
+      #   condition: service_healthy
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.media.rule=Host(`localhost`) && PathPrefix(`/media`)"
+      - "traefik.http.routers.media.rule=Host(`media.localhost`)"
       - "traefik.http.services.media.loadbalancer.server.port=8000"
 
 volumes:
