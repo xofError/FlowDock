@@ -12,6 +12,7 @@ import MainLayout from "../../layout/MainLayout.jsx";
 import useAuth from "../../hooks/useAuth.js";
 import Button from "../../components/Button.jsx";
 import GoogleIcon from "../../resources/icons/social-google-plus-svgrepo-com.svg";
+import { AUTH_API_URL } from "../../services/api.js";
 
 export default function Login() {
   const navigate = useNavigate();
@@ -48,7 +49,7 @@ export default function Login() {
 
   const handleGoogleSignIn = () => {
     // Redirect to backend OAuth login endpoint
-    window.location.href = `http://localhost:8000/auth/oauth/google/login`;
+    window.location.href = `${AUTH_API_URL}/auth/oauth/google/login`;
   };
 
   return (

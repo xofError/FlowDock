@@ -13,6 +13,7 @@ import MainLayout from "../../layout/MainLayout.jsx";
 import useAuth from "../../hooks/useAuth.js";
 import Button from "../../components/Button.jsx";
 import GoogleIcon from "../../resources/icons/social-google-plus-svgrepo-com.svg";
+import { AUTH_API_URL } from "../../services/api.js";
 
 export default function SignUp() {
   const navigate = useNavigate();
@@ -181,7 +182,7 @@ export default function SignUp() {
                     loading={authLoading}
                     loadingText="Redirecting..."
                     onClick={() => {
-                      window.location.href = `${import.meta.env.VITE_AUTH_API_URL}/auth/oauth/google/login`;
+                      window.location.href = `${AUTH_API_URL}/auth/oauth/google/login;
                     }}
                     disabled={authLoading}
                     className="flex items-center justify-center"
