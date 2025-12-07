@@ -45,8 +45,8 @@ export const useAuth = () => {
     try {
       const response = await api.login(email, password, totpCode);
 
-      // If TOTP is required, don't store tokens yet - just return the response
-      if (response.totp_required) {
+      // If TOTP is required, don't store tokens - just return the response
+      if (response.totp_required || !response.access_token) {
         return response;
       }
 
@@ -168,12 +168,12 @@ export const useAuth = () => {
     }
   }, []);
 
-  const verifyTOTP = useCallback(async (email, code) => {
+  const verifyTOTP = useCallback(async (email, code, totpSecret) => {
     setLoading(true);
     setError(null);
 
     try {
-      const response = await api.verifyTOTP(email, code);
+      const response = await api.verifyTOTP(email, code, totpSecret);
       return response;
     } catch (err) {
       const errorMessage = err.message || "TOTP verification failed";

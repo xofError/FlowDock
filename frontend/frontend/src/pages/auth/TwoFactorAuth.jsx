@@ -13,6 +13,7 @@ export default function TwoFactorAuth() {
   const [email, setEmail] = useState("");
   const [step, setStep] = useState("setup"); // setup, qr, verify, or complete
   const [qrUri, setQrUri] = useState("");
+  const [totpSecret, setTotpSecret] = useState("");
   const [totp, setTotp] = useState(Array(6).fill(""));
   const [error, setError] = useState(null);
   const [recoveryCodes, setRecoveryCodes] = useState([]);
@@ -30,6 +31,7 @@ export default function TwoFactorAuth() {
   const handleSetupTOTP = async (emailAddress) => {
     try {
       const response = await setupTOTP(emailAddress);
+      setTotpSecret(response.totp_secret);
       setQrUri(response.totp_uri);
       setStep("qr");
     } catch (err) {
@@ -68,7 +70,7 @@ export default function TwoFactorAuth() {
 
     try {
       const code = totp.join("");
-      const response = await verifyTOTP(email, code);
+      const response = await verifyTOTP(email, code, totpSecret);
       setRecoveryCodes(response.recovery_codes || []);
       setStep("complete");
       setTimeout(() => navigate("/login"), 3000);

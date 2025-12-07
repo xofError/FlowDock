@@ -25,10 +25,34 @@ export default function SignUp() {
   const [verificationCode, setVerificationCode] = useState(["", "", "", "", "", ""]);
   const [email, setEmail] = useState("");
   const [error, setError] = useState(null);
+  const [passwordStrength, setPasswordStrength] = useState(0);
+
+  const calculatePasswordStrength = (password) => {
+    if (!password) return 0;
+    
+    let strength = 0;
+    if (password.length >= 8) strength++;
+    if (password.length >= 12) strength++;
+    if (/[a-z]/.test(password) && /[A-Z]/.test(password)) strength++;
+    if (/\d/.test(password)) strength++;
+    if (/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(password)) strength++;
+    
+    return Math.min(strength, 4); // Return 0-4
+  };
+
+  const getPasswordStrengthLabel = (strength) => {
+    const labels = ["", "Weak", "Fair", "Good", "Strong"];
+    const colors = ["", "text-red-600", "text-orange-600", "text-yellow-600", "text-green-600"];
+    return { label: labels[strength], color: colors[strength] };
+  };
 
   const handleChange = (e) => {
     const { name, value } = e.target;
     setFormData((prev) => ({ ...prev, [name]: value }));
+    
+    if (name === "password") {
+      setPasswordStrength(calculatePasswordStrength(value));
+    }
   };
 
   const handleSubmit = async (e) => {
@@ -92,7 +116,7 @@ export default function SignUp() {
       // Check if user enabled 2FA during signup
       if (enable2FA) {
         // Navigate to 2FA setup page with email (TwoFactorAuth.jsx will handle the rest)
-        navigate("/setup-2fa", { state: { email } });
+        navigate("/2fa", { state: { email } });
       } else {
         // No 2FA: show complete and redirect to login
         setStep("complete");
@@ -132,6 +156,7 @@ export default function SignUp() {
                 onChange={handleChange}
                 disabled={authLoading}
                 required
+                autoComplete="name"
                 style={{ height: "44px", marginTop: 12, borderRadius: "12px", paddingLeft: "16px" }}
                 className="rounded-lg bg-[#e7edf3] px-4 text-[#0d141b] placeholder:text-[#4c739a] text-base focus:outline-none border border-[#d0dce8] disabled:opacity-50"
               />
@@ -143,21 +168,56 @@ export default function SignUp() {
                 onChange={handleChange}
                 disabled={authLoading}
                 required
+                autoComplete="email"
                 style={{ height: "44px", marginTop: 12, borderRadius: "12px", paddingLeft: "16px" }}
                 className="rounded-lg bg-[#e7edf3] px-4 text-[#0d141b] placeholder:text-[#4c739a] text-base focus:outline-none border border-[#d0dce8] disabled:opacity-50"
               />
               <input
                 name="password"
                 type="password"
-                placeholder="Password (min 6 characters)"
+                placeholder="Password (min 8 characters)"
                 value={formData.password}
                 onChange={handleChange}
                 disabled={authLoading}
                 required
                 minLength={6}
+                autoComplete="new-password"
                 style={{ height: "44px", marginTop: 12, borderRadius: "12px", paddingLeft: "16px" }}
                 className="rounded-lg bg-[#e7edf3] px-4 text-[#0d141b] placeholder:text-[#4c739a] text-base focus:outline-none border border-[#d0dce8] disabled:opacity-50"
               />
+
+              {formData.password && (
+                <div className="mt-2 flex flex-col gap-2">
+                  <div className="flex gap-1">
+                    {[...Array(4)].map((_, i) => (
+                      <div
+                        key={i}
+                        className={`h-2 flex-1 rounded-full ${
+                          i < passwordStrength ? (
+                            passwordStrength === 1 ? "bg-red-500" :
+                            passwordStrength === 2 ? "bg-orange-500" :
+                            passwordStrength === 3 ? "bg-yellow-500" :
+                            "bg-green-500"
+                          ) : "bg-gray-300"
+                        }`}
+                      />
+                    ))}
+                  </div>
+                  {passwordStrength > 0 && (
+                    <p className={`text-xs font-medium ${getPasswordStrengthLabel(passwordStrength).color}`}>
+                      Password strength: {getPasswordStrengthLabel(passwordStrength).label}
+                    </p>
+                  )}
+                  {passwordStrength < 3 && (
+                    <ul className="text-xs text-gray-600 mt-1 ml-2">
+                      {formData.password.length < 8 && <li>• Use at least 8 characters</li>}
+                      {!/[a-z]/.test(formData.password) || !/[A-Z]/.test(formData.password) && <li>• Mix uppercase and lowercase letters</li>}
+                      {!/\d/.test(formData.password) && <li>• Add numbers</li>}
+                      {!/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(formData.password) && <li>• Include special characters (!@#$% etc)</li>}
+                    </ul>
+                  )}
+                </div>
+              )}
 
               <label className="flex items-center gap-2 text-sm pt-2 whitespace-nowrap">
                 <input
@@ -182,7 +242,7 @@ export default function SignUp() {
                     loading={authLoading}
                     loadingText="Redirecting..."
                     onClick={() => {
-                      window.location.href = `${AUTH_API_URL}/auth/oauth/google/login;
+                      window.location.href = `${AUTH_API_URL}/auth/oauth/google/login`;
                     }}
                     disabled={authLoading}
                     className="flex items-center justify-center"

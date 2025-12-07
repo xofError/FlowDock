@@ -112,12 +112,13 @@ def login(
         # Handle TOTP if enabled
         if user.twofa_enabled:
             if not data.totp_code:
+                # Return response indicating TOTP is required (don't generate tokens yet)
                 return TokenResponseDTO(
                     access_token="",
                     user_id=str(user.id),
                     totp_required=True,
                 )
-            # Verify TOTP
+            # Verify TOTP code
             if not twofa_service.verify_totp_code(data.email, data.totp_code):
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
@@ -286,16 +287,42 @@ def totp_verify(
     data: TotpVerifyRequestDTO,
     twofa_service: TwoFAService = Depends(get_twofa_service),
 ):
-    """Verify TOTP code and enable 2FA."""
+    """Verify TOTP code.
+    
+    Supports two flows:
+    1. Setup verification: When enabling 2FA, verifies code against provided secret and generates recovery codes
+    2. Login verification: When logging in with 2FA enabled, verifies code against stored secret
+    """
     try:
-        # This endpoint requires the TOTP secret to be provided by the client
-        # In a real scenario, the client would have generated the secret from /totp/setup
-        # and we'd retrieve it from user session or request. For now, raising error.
-        raise HTTPException(
-            status_code=status.HTTP_501_NOT_IMPLEMENTED,
-            detail="TOTP verification requires frontend integration",
-        )
+        # Setup verification: totp_secret is provided
+        if data.totp_secret:
+            recovery_codes = twofa_service.verify_totp_and_enable_2fa(
+                email=data.email,
+                totp_secret=data.totp_secret,
+                totp_code=data.code,
+            )
+
+            logger.info(f"2FA enabled for user: {data.email}")
+
+            return {
+                "detail": "2FA enabled successfully",
+                "recovery_codes": recovery_codes,
+            }
+        
+        # Login verification: retrieve secret from database
+        else:
+            is_valid = twofa_service.verify_totp_code(data.email, data.code)
+            if not is_valid:
+                raise ValueError("Invalid TOTP code")
+            
+            logger.info(f"TOTP code verified for user: {data.email}")
+            
+            return {
+                "detail": "TOTP verified successfully",
+            }
+    
     except ValueError as e:
+        logger.warning(f"TOTP verification failed for {data.email}: {e}")
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 
