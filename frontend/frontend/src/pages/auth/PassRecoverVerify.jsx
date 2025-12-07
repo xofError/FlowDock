@@ -10,7 +10,7 @@ export default function PassRecoverVerify() {
   if (!email) {
     return (
       <MainLayout>
-        <div className="flex flex-col gap-6 pb-10 w-full max-w-sm mx-auto">
+        <div className="flex flex-col gap-6 pb-10 justify-center" style={{ width: "320px", margin: "0 auto" }}>
           <h2 className="text-[#0D141B] text-[28px] font-bold text-center pt-4">Error</h2>
           <p className="text-center text-red-600">Please request a password recovery first.</p>
           <Link to="/pass-recovery" className="text-center text-blue-600 underline">
@@ -23,7 +23,7 @@ export default function PassRecoverVerify() {
 
   return (
     <MainLayout>
-      <div className="flex flex-col gap-6 pb-10 w-full max-w-sm mx-auto">
+      <div className="flex flex-col gap-6 pb-10 justify-center" style={{ width: "320px", margin: "0 auto" }}>
         <div className="text-center mb-4">
           <div className="text-5xl mb-4">✓</div>
           <h2 className="text-[#0D141B] text-[28px] font-bold">Check your email</h2>
