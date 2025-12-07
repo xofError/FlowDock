@@ -13,7 +13,7 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
     networks:
-      - flowdock_network
+      - flowdock_internal
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 10s
@@ -30,7 +30,7 @@ services:
     volumes:
       - redisdata:/data
     networks:
-      - flowdock_network
+      - flowdock_internal
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -48,15 +48,17 @@ services:
     ports:
       - "5050:80"
     networks:
-      - flowdock_network
+      - flowdock_internal
     depends_on:
       postgres:
         condition: service_healthy
 
-  # Reverse Proxy & Load Balancer
+  # -----------------------------------------------------------------
+  # REVERSE PROXY & LOAD BALANCER (Traefik)
+  # -----------------------------------------------------------------
   traefik:
     image: traefik:v2.10
-    container_name: flowdock_traefik
+    container_name: flowdock_gateway
     restart: always
     command:
       - "--api.insecure=true"
@@ -65,14 +67,38 @@ services:
       - "--entrypoints.web.address=:80"
     ports:
       - "80:80"
-      - "8080:8080"  # Traefik Dashboard
+      - "8080:8080"  # Traefik Dashboard at http://localhost:8080
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     networks:
-      - flowdock_network
+      - flowdock_public
     depends_on:
       auth_service:
         condition: service_healthy
+
+  # -----------------------------------------------------------------
+  # FRONTEND (React)
+  # -----------------------------------------------------------------
+  frontend:
+    build:
+      context: ./frontend/frontend
+      dockerfile: ../Dockerfile
+    container_name: flowdock_frontend
+    restart: always
+    environment:
+      # Browser talks to Traefik (port 80), not backend directly
+      - VITE_AUTH_API_URL=/auth
+      - VITE_MEDIA_API_URL=/media
+    labels:
+      - "traefik.enable=true"
+      # Route: catch-all for the main domain (lowest priority)
+      - "traefik.http.routers.frontend.rule=PathPrefix(`/`)"
+      - "traefik.http.routers.frontend.priority=1"
+      - "traefik.http.services.frontend.loadbalancer.server.port=5173"
+    networks:
+      - flowdock_public
+    depends_on:
+      - auth_service
 
   # Authentication Service
   auth_service:
@@ -107,7 +133,8 @@ services:
     volumes:
       - pipcache:/root/.cache/pip
     networks:
-      - flowdock_network
+      - flowdock_public
+      - flowdock_internal
     depends_on:
       postgres:
         condition: service_healthy
@@ -115,9 +142,15 @@ services:
         condition: service_healthy
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.auth.rule=Host(`auth.localhost`)"
-      - "traefik.http.routers.auth.entrypoints=web"
+      # Route: Requests starting with /auth go here (higher priority than frontend catch-all)
+      - "traefik.http.routers.auth.rule=PathPrefix(`/auth`)"
+      - "traefik.http.routers.auth.priority=10"
       - "traefik.http.services.auth.loadbalancer.server.port=8000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
 
   # -----------------------------------------------------------------
   # MONGODB (For Media Service - GridFS)
@@ -200,13 +233,43 @@ services:
       - "traefik.http.routers.media.rule=Host(`media.localhost`)"
       - "traefik.http.services.media.loadbalancer.server.port=8000"
 
+  # -----------------------------------------------------------------
+  # MONITORING & OBSERVABILITY (Prometheus)
+  # -----------------------------------------------------------------
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: flowdock_prometheus
+    restart: always
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+    ports:
+      - "9090:9090"
+    networks:
+      - flowdock_internal
+    depends_on:
+      - auth_service
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.prometheus.rule=PathPrefix(`/prometheus`)"
+      - "traefik.http.services.prometheus.loadbalancer.server.port=9090"
+
 volumes:
   pgdata:
   redisdata:
   mongodata:
   rabbitmqdata:
   pipcache:
+  prometheus_data:
 
 networks:
+  flowdock_public:
+    driver: bridge
+  flowdock_internal:
+    driver: bridge
+    internal: true
   flowdock_network:
     driver: bridge
