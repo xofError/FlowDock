@@ -45,13 +45,24 @@ services:
     environment:
       PGADMIN_DEFAULT_EMAIL: admin@pgadmin.com
       PGADMIN_DEFAULT_PASSWORD: admin
+      PGADMIN_CONFIG_ENHANCED_COOKIE_PROTECTION: "False"
+      PGADMIN_CONFIG_COOKIE_DEFAULT_SECURE: "False"
+      PGADMIN_CONFIG_COOKIE_SAMESITE: "'Lax'"
+      GUNICORN_TIMEOUT: "120"
+      SCRIPT_NAME: /pgadmin
     ports:
       - "5050:80"
     networks:
+      - flowdock_public
       - flowdock_internal
     depends_on:
       postgres:
         condition: service_healthy
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.pgadmin.rule=PathPrefix(`/pgadmin`)"
+      - "traefik.http.routers.pgadmin.priority=9"
+      - "traefik.http.services.pgadmin.loadbalancer.server.port=80"
 
   # -----------------------------------------------------------------
   # REVERSE PROXY & LOAD BALANCER (Traefik)
@@ -246,16 +257,51 @@ services:
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
       - '--storage.tsdb.path=/prometheus'
+      - '--web.route-prefix=/'
+      - '--web.external-url=http://localhost/prometheus/'
     ports:
       - "9090:9090"
     networks:
+      - flowdock_public
       - flowdock_internal
     depends_on:
       - auth_service
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.prometheus.rule=PathPrefix(`/prometheus`)"
+      - "traefik.http.routers.prometheus.priority=9"
       - "traefik.http.services.prometheus.loadbalancer.server.port=9090"
+
+  # -----------------------------------------------------------------
+  # VISUALIZATION (Grafana)
+  # -----------------------------------------------------------------
+  grafana:
+    image: grafana/grafana:latest
+    container_name: flowdock_grafana
+    restart: always
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_SECURITY_ADMIN_USER: admin
+      GF_INSTALL_PLUGINS: grafana-clock-panel
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_SERVER_ROOT_URL: http://localhost/grafana
+      GF_SERVER_SERVE_FROM_SUB_PATH: "true"
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning/datasources:/etc/grafana/provisioning/datasources
+      - ./grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards
+    networks:
+      - flowdock_public
+      - flowdock_internal
+    depends_on:
+      - prometheus
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.grafana.rule=PathPrefix(`/grafana`)"
+      - "traefik.http.routers.grafana.priority=9"
+      - "traefik.http.services.grafana.loadbalancer.server.port=3000"
 
 volumes:
   pgdata:
@@ -264,6 +310,7 @@ volumes:
   rabbitmqdata:
   pipcache:
   prometheus_data:
+  grafana_data:
 
 networks:
   flowdock_public:
