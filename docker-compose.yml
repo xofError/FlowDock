@@ -1,5 +1,24 @@
 services:
-  # Database
+  # -----------------------------------------------------------------
+  # REVERSE PROXY (Nginx - NEW)
+  # -----------------------------------------------------------------
+  nginx:
+    image: nginx:latest
+    container_name: flowdock_gateway
+    restart: always
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    networks:
+      - flowdock_public
+    depends_on:
+      - frontend
+      - auth_service
+
+  # -----------------------------------------------------------------
+  # DATABASE & CACHE
+  # -----------------------------------------------------------------
   postgres:
     image: postgres:16
     container_name: flowdock_postgres
@@ -20,7 +39,6 @@ services:
       timeout: 5s
       retries: 5
 
-  # Cache
   redis:
     image: redis:7
     container_name: flowdock_redis
@@ -30,6 +48,7 @@ services:
     volumes:
       - redisdata:/data
     networks:
+      - flowdock_public
       - flowdock_internal
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
@@ -37,7 +56,6 @@ services:
       timeout: 5s
       retries: 5
 
-  # Database Admin UI (Development only)
   pgadmin:
     image: dpage/pgadmin4
     container_name: flowdock_pgadmin
@@ -57,36 +75,9 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.pgadmin.rule=PathPrefix(`/pgadmin`)"
-      - "traefik.http.routers.pgadmin.priority=9"
-      - "traefik.http.services.pgadmin.loadbalancer.server.port=80"
-      - "traefik.http.middlewares.pgadmin-stripprefix.stripprefix.prefixes=/pgadmin"
-      - "traefik.http.routers.pgadmin.middlewares=pgadmin-stripprefix"
 
   # -----------------------------------------------------------------
-  # REVERSE PROXY & LOAD BALANCER (Traefik)
-  # -----------------------------------------------------------------
-  traefik:
-    image: traefik:v2.10
-    container_name: flowdock_gateway
-    restart: always
-    command:
-      - "--api.insecure=true"
-      - "--providers.docker=true"
-      - "--providers.docker.exposedbydefault=false"
-      - "--entrypoints.web.address=:80"
-    ports:
-      - "80:80"
-      - "8080:8080"  # Traefik Dashboard at http://localhost:8080
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-    networks:
-      - flowdock_public
-
-  # -----------------------------------------------------------------
-  # FRONTEND (React)
+  # FRONTEND & BACKEND
   # -----------------------------------------------------------------
   frontend:
     build:
@@ -95,22 +86,14 @@ services:
     container_name: flowdock_frontend
     restart: always
     environment:
-      # Browser talks to Traefik (port 80), not backend directly
+      # Nginx routes /auth -> auth_service
       - VITE_AUTH_API_URL=/auth
       - VITE_MEDIA_API_URL=/media
-    labels:
-      - "traefik.docker.network=flowdock_public"
-      - "traefik.enable=true"
-      # Route: catch-all for the main domain (lowest priority)
-      - "traefik.http.routers.frontend.rule=PathPrefix(`/`)"
-      - "traefik.http.routers.frontend.priority=1"
-      - "traefik.http.services.frontend.loadbalancer.server.port=5173"
     networks:
       - flowdock_public
     depends_on:
       - auth_service
 
-  # Authentication Service
   auth_service:
     build:
       context: ./backend/auth_service
@@ -127,7 +110,6 @@ services:
       JWT_ALGORITHM: "HS256"
       REDIS_HOST: redis
       REDIS_PORT: 6379
-      # Email Configuration
       SMTP_HOST: "smtp.gmail.com"
       SMTP_PORT: "587"
       SMTP_USER: "flowdockproduction@gmail.com"
@@ -150,14 +132,6 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.auth.rule=PathPrefix(`/auth`)"
-      - "traefik.http.routers.auth.priority=10"
-      - "traefik.http.services.auth.loadbalancer.server.port=8000"
-      - "traefik.http.services.auth.loadbalancer.server.scheme=http"
-      - "traefik.http.middlewares.auth-stripprefix.stripprefix.prefixes=/auth"
-      - "traefik.http.routers.auth.middlewares=auth-stripprefix"  # <--- FIX
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 15s
@@ -166,88 +140,7 @@ services:
       start_period: 30s
 
   # -----------------------------------------------------------------
-  # MONGODB (For Media Service - GridFS)
-  # -----------------------------------------------------------------
-  # mongo_meta:
-  #   image: mongo:7
-  #   container_name: flowdock_mongo
-  #   restart: always
-  #   environment:
-  #     MONGO_INITDB_ROOT_USERNAME: root
-  #     MONGO_INITDB_ROOT_PASSWORD: mongopass
-  #   ports:
-  #     - "27017:27017"
-  #   volumes:
-  #     - mongodata:/data/db
-  #   networks:
-  #     - flowdock_network
-  #   healthcheck:
-  #     test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
-  #     interval: 10s
-  #     timeout: 5s
-  #     retries: 3
-
-  # -----------------------------------------------------------------
-  # MESSAGE BROKER (RabbitMQ) - NEW for Sprint 2
-  # -----------------------------------------------------------------
-  # rabbitmq:
-  #   image: rabbitmq:3-management-alpine
-  #   container_name: flowdock_rabbitmq
-  #   restart: always
-  #   environment:
-  #     RABBITMQ_DEFAULT_USER: guest
-  #     RABBITMQ_DEFAULT_PASS: guest
-  #   ports:
-  #     - "5672:5672"        # AMQP
-  #     - "15672:15672"      # Management Dashboard
-  #   volumes:
-  #     - rabbitmqdata:/var/lib/rabbitmq
-  #   networks:
-  #     - flowdock_network
-  #   healthcheck:
-  #     test: ["CMD", "rabbitmq-diagnostics", "ping"]
-  #     interval: 10s
-  #     timeout: 5s
-  #     retries: 3
-
-  # -----------------------------------------------------------------
-  # MEDIA SERVICE (Phase 2) - NEW for Sprint 2
-  # -----------------------------------------------------------------
-  # media_service:
-  #   build:
-  #     context: ./backend/media_service
-  #     dockerfile: Dockerfile
-  #   container_name: flowdock_media_service
-  #   restart: always
-  #   environment:
-  #     MONGO_URL: "mongodb://root:mongopass@mongo_meta:27017"
-  #     RABBITMQ_URL: "amqp://guest:guest@rabbitmq:5672/"
-  #     POSTGRES_USER: postgres
-  #     POSTGRES_PASSWORD: postgres
-  #     POSTGRES_DB: FlowDock
-  #     POSTGRES_HOST: postgres
-  #     POSTGRES_PORT: 5432
-  #     AUTH_SERVICE_URL: "http://auth_service:8000"
-  #     JWT_SECRET: "secret"
-  #     JWT_ALGORITHM: "HS256"
-  #   ports:
-  #     - "8001:8000"
-  #   volumes:
-  #     - pipcache:/root/.cache/pip
-  #   networks:
-  #     - flowdock_network
-  #   depends_on:
-  #     mongo_meta:
-  #       condition: service_healthy
-  #     # rabbitmq:
-  #     #   condition: service_healthy
-  #   labels:
-  #     - "traefik.enable=true"
-  #     - "traefik.http.routers.media.rule=Host(`media.localhost`)"
-  #     - "traefik.http.services.media.loadbalancer.server.port=8000"
-
-  # -----------------------------------------------------------------
-  # MONITORING & OBSERVABILITY (Prometheus)
+  # MONITORING
   # -----------------------------------------------------------------
   prometheus:
     image: prom/prometheus:latest
@@ -259,7 +152,8 @@ services:
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
       - '--storage.tsdb.path=/prometheus'
-      - '--web.external-url=/prometheus' # <--- ADD THIS
+      - '--web.external-url=/prometheus'
+      - '--web.route-prefix=/'
     ports:
       - "9090:9090"
     networks:
@@ -270,16 +164,7 @@ services:
       interval: 15s
       timeout: 10s
       retries: 3
-    labels:
-      - "traefik.docker.network=flowdock_public"
-      - "traefik.enable=true"
-      - "traefik.http.routers.prometheus.rule=PathPrefix(`/prometheus`)"
-      - "traefik.http.routers.prometheus.priority=9"
-      - "traefik.http.services.prometheus.loadbalancer.server.port=9090"
 
-  # -----------------------------------------------------------------
-  # VISUALIZATION (Grafana)
-  # -----------------------------------------------------------------
   grafana:
     image: grafana/grafana:latest
     container_name: flowdock_grafana
@@ -305,14 +190,6 @@ services:
       interval: 15s
       timeout: 10s
       retries: 3
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.grafana.rule=PathPrefix(`/grafana`)"
-      - "traefik.http.routers.grafana.priority=9"
-      - "traefik.http.services.grafana.loadbalancer.server.port=3000"
-      - "traefik.http.middlewares.grafana-stripprefix.stripprefix.prefixes=/grafana"
-      # APPLY the middleware to the router (THIS WAS MISSING)
-      - "traefik.http.routers.grafana.middlewares=grafana-stripprefix"
 
 volumes:
   pgdata:
