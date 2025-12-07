@@ -72,9 +72,15 @@ class TotpSetupResponseDTO(BaseModel):
 
 
 class TotpVerifyRequestDTO(BaseModel):
-    """DTO for TOTP verification."""
+    """DTO for TOTP verification.
+    
+    Can be used for two flows:
+    1. Setup verification: email, code, and totp_secret provided
+    2. Login verification: email and code only (secret retrieved from database)
+    """
     email: EmailStr
     code: str = Field(..., min_length=6, max_length=6, description="6-digit TOTP code")
+    totp_secret: Optional[str] = Field(None, description="TOTP secret from setup phase (optional for login)")
 
 
 # ============ Password Recovery DTOs ============
@@ -87,7 +93,7 @@ class ForgotPasswordRequestDTO(BaseModel):
 class ResetPasswordRequestDTO(BaseModel):
     """DTO for resetting password."""
     email: EmailStr
-    token: str = Field(..., min_length=6, max_length=6, description="6-digit OTP")
+    token: str = Field(..., min_length=10, description="Password reset token")
     new_password: str = Field(..., min_length=8, description="Strong password required")
 
 

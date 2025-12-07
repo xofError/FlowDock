@@ -88,7 +88,14 @@ class APIClient {
       return await response.json();
     } catch (error) {
       // Provide better error context
-      const errorMsg = error.message || error.toString();
+      let errorMsg = error.message;
+      if (!errorMsg) {
+        if (typeof error === 'object' && error !== null) {
+          errorMsg = JSON.stringify(error);
+        } else {
+          errorMsg = error.toString();
+        }
+      }
       console.error(`API Error: ${url}`, { errorMsg, url, options });
       throw new Error(errorMsg);
     }
@@ -209,11 +216,18 @@ class APIClient {
 
   /**
    * Verify TOTP code
+   * @param {string} email - User email
+   * @param {string} code - 6-digit TOTP code
+   * @param {string} [totpSecret] - TOTP secret (required for setup, optional for login verification)
    */
-  async verifyTOTP(email, code) {
+  async verifyTOTP(email, code, totpSecret) {
+    const body = { email, code };
+    if (totpSecret) {
+      body.totp_secret = totpSecret;
+    }
     return this.request(`${AUTH_API_URL}/auth/totp/verify`, {
       method: "POST",
-      body: JSON.stringify({ email, code }),
+      body: JSON.stringify(body),
     });
   }
 

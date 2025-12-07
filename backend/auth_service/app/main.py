@@ -41,16 +41,19 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Auth Service", lifespan=lifespan)
 
 # Configure CORS origins via environment variable ALLOWED_ORIGINS (comma-separated)
-allowed_origins = os.getenv("ALLOWED_ORIGINS", "*")
+allowed_origins = os.getenv("ALLOWED_ORIGINS", "http://localhost:5173")
 if allowed_origins.strip() == "*":
+    # When using wildcard, we can't use credentials=True (browser restriction)
     cors_origins = ["*"]
+    allow_credentials = False
 else:
     cors_origins = [u.strip() for u in allowed_origins.split(",") if u.strip()]
+    allow_credentials = True
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=cors_origins,  # In production, set this to your frontend's URL(s)
-    allow_credentials=True,
+    allow_origins=cors_origins,
+    allow_credentials=allow_credentials,
     allow_methods=["*"],
     allow_headers=["*"],
 )

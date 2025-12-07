@@ -81,6 +81,7 @@ export default function Login() {
             onChange={(e) => setEmail(e.target.value)}
             required
             disabled={isLoading}
+            autoComplete="email"
             style={{ height: "44px", marginTop: 12, borderRadius: "12px", paddingLeft: "16px" }}
             className="rounded-lg bg-[#e7edf3] px-4 text-[#0d141b] placeholder:text-[#4c739a] text-base focus:outline-none border border-[#d0dce8] disabled:opacity-50"
           />
@@ -93,6 +94,7 @@ export default function Login() {
             onChange={(e) => setPassword(e.target.value)}
             required
             disabled={isLoading}
+            autoComplete="current-password"
             style={{ height: "44px", marginTop: 12, borderRadius: "12px", paddingLeft: "16px" }}
             className="rounded-lg bg-[#e7edf3] px-4 text-[#0d141b] placeholder:text-[#4c739a] text-base focus:outline-none border border-[#d0dce8] disabled:opacity-50"
           />
