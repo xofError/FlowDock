@@ -12,6 +12,7 @@ from app.application.services import AuthService, RedisService
 from app.application.twofa_service import TwoFAService
 from app.application.user_util_service import UserUtilService
 from app.application.quota_service import StorageQuotaService
+from app.application.oauth_service import OAuthService
 from app.infrastructure.database.repositories import (
     PostgresUserRepository,
     PostgresRecoveryTokenRepository,
@@ -160,3 +161,21 @@ def get_storage_quota_service(
     user_repo = user_repo or PostgresUserRepository(db)
 
     return StorageQuotaService(user_repo=user_repo)
+
+
+def get_oauth_service(
+    db=None,
+    user_repo=None,
+    password_hasher=None,
+):
+    """FastAPI dependency: get configured OAuthService."""
+    if db is None:
+        db = next(get_db())
+
+    user_repo = user_repo or PostgresUserRepository(db)
+    password_hasher = password_hasher or ArgonPasswordHasher()
+
+    return OAuthService(
+        user_repository=user_repo,
+        password_hasher=password_hasher,
+    )

@@ -7,11 +7,11 @@ business logic to the application layer.
 """
 
 import os
+import logging
 from fastapi import APIRouter, HTTPException, status, Depends, Response, Cookie, Request
 from datetime import datetime, timezone
 
 from starlette.responses import RedirectResponse
-import httpx
 from app.core.config import settings
 
 from app.application.dtos import (
@@ -28,6 +28,7 @@ from app.application.dtos import (
 )
 from app.application.services import AuthService
 from app.application.twofa_service import TwoFAService
+from app.application.oauth_service import OAuthService
 from app.presentation.dependencies import (
     get_auth_service,
     get_db,
@@ -35,37 +36,15 @@ from app.presentation.dependencies import (
     get_token_generator,
     get_refresh_token_store,
     get_email_service,
+    get_oauth_service,
 )
 from app.infrastructure.security.security import JWTTokenGenerator
 from app.infrastructure.security.token_store import RefreshTokenStore
 from app.infrastructure.email.email import IEmailService
-from authlib.integrations.starlette_client import OAuth
+from app.infrastructure.oauth import get_oauth_client, validate_oauth_provider, validate_oauth_config
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
-
-# OAuth client (initialized once at module load, reused for all requests)
-_oauth_client = None
-
-
-def get_oauth_client():
-    """Lazy-load and cache the OAuth client."""
-    global _oauth_client
-    if _oauth_client is None:
-        try:
-            _oauth_client = OAuth()
-            _oauth_client.register(
-                name="google",
-                client_id=settings.google_client_id,
-                client_secret=settings.google_client_secret,
-                server_metadata_url="https://accounts.google.com/.well-known/openid-configuration",
-                authorize_url="https://accounts.google.com/o/oauth2/v2/auth",
-                access_token_url="https://oauth2.googleapis.com/token",
-                userinfo_url="https://www.googleapis.com/oauth2/v1/userinfo",
-                client_kwargs={"scope": "email profile"},
-            )
-        except Exception as e:
-            raise RuntimeError(f"Failed to initialize OAuth client: {e}")
-    return _oauth_client
 
 
 # ============ Registration & Email Verification ============
@@ -326,28 +305,28 @@ def totp_verify(
 @router.get("/oauth/{provider}/login")
 async def oauth_login(provider: str, request: Request):
     """Begin OAuth login for a provider. Currently only 'google' is supported."""
-    if provider != "google":
+    try:
+        validate_oauth_provider(provider)
+        validate_oauth_config(provider)
+    except ValueError as e:
+        logger.warning(f"OAuth validation failed: {e}")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Unsupported provider",
-        )
-
-    if not settings.google_client_id or not settings.google_client_secret:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="OAuth provider not configured",
+            detail=str(e),
         )
 
     try:
         oauth = get_oauth_client()
-    except Exception as exc:
+    except RuntimeError as e:
+        logger.error(f"OAuth client initialization failed: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="OAuth dependency unavailable",
+            detail="OAuth provider unavailable",
         )
 
-    redirect_uri = request.url_for("oauth_callback", provider=provider)
-    return await oauth.google.authorize_redirect(request, str(redirect_uri))
+    # Build redirect URI using configured backend URL
+    redirect_uri = f"{settings.backend_url}/auth/oauth/{provider}/callback"
+    return await oauth.google.authorize_redirect(request, redirect_uri)
 
 
 @router.get("/oauth/{provider}/callback", name="oauth_callback")
@@ -355,14 +334,101 @@ async def oauth_callback(
     provider: str,
     request: Request,
     response: Response,
-    service: AuthService = Depends(get_auth_service),
+    oauth_service: OAuthService = Depends(get_oauth_service),
+    token_gen: JWTTokenGenerator = Depends(get_token_generator),
+    token_store: RefreshTokenStore = Depends(get_refresh_token_store),
+    db=Depends(get_db),
 ):
-    """Handle OAuth provider callback."""
-    # TODO: Implement OAuth callback
-    raise HTTPException(
-        status_code=status.HTTP_501_NOT_IMPLEMENTED,
-        detail="OAuth callback needs implementation",
-    )
+    """Handle OAuth provider callback and authenticate user."""
+    try:
+        validate_oauth_provider(provider)
+    except ValueError as e:
+        logger.warning(f"Invalid OAuth provider in callback: {e}")
+        return RedirectResponse(
+            url=f"{settings.frontend_url}/#/login?error=invalid_provider",
+            status_code=302,
+        )
+
+    # Exchange authorization code for access token
+    try:
+        oauth = get_oauth_client()
+        oauth_token = await oauth.google.authorize_access_token(request)
+    except Exception as e:
+        logger.error(f"OAuth token exchange failed: {e}")
+        return RedirectResponse(
+            url=f"{settings.frontend_url}/#/login?error=authentication_failed",
+            status_code=302,
+        )
+
+    # Get user info from OAuth provider
+    try:
+        userinfo = oauth_token.get("userinfo")
+        if not userinfo:
+            # Fallback: fetch user info if not in token
+            userinfo = await oauth_service.get_google_userinfo(oauth_token["access_token"])
+        
+        if not userinfo:
+            raise ValueError("Unable to retrieve user information from OAuth provider")
+
+        email = userinfo.get("email")
+        name = userinfo.get("name", "")
+        sub = oauth_token.get("sub", "")
+
+        # Get or create user (domain entity)
+        user = oauth_service.get_or_create_user_from_oauth(
+            email=email,
+            name=name,
+            oauth_provider=provider,
+            oauth_sub=sub,
+        )
+
+        # Persist new user if it doesn't have an ID (it's new)
+        if user.id is None:
+            user = oauth_service.save_user(user)
+
+        logger.info(f"OAuth authentication successful for user: {user.email}")
+
+    except Exception as e:
+        logger.error(f"OAuth user processing failed: {e}")
+        error_msg = "User authentication failed"
+        return RedirectResponse(
+            url=f"{settings.frontend_url}/#/login?error={error_msg}",
+            status_code=302,
+        )
+
+    # Generate JWT tokens
+    try:
+        access_token = token_gen.create_access_token(user.id)
+        refresh_token_plain, refresh_token_hash, expiry = token_gen.create_refresh_token(user.id)
+        
+        # Store refresh token hash with user email and expiry
+        token_store.store(refresh_token_hash, user.email, expiry)
+
+        # Create redirect response with tokens
+        redirect_response = RedirectResponse(
+            url=f"{settings.frontend_url}/#/dashboard?access_token={access_token}&user_id={user.id}",
+            status_code=302,
+        )
+        
+        # Set refresh token as HttpOnly cookie
+        redirect_response.set_cookie(
+            "refresh_token",
+            refresh_token_plain,
+            httponly=True,
+            secure=False,  # Set to True for HTTPS in production
+            samesite="lax",
+            max_age=30 * 24 * 60 * 60,  # 30 days
+        )
+        
+        return redirect_response
+
+    except Exception as e:
+        logger.error(f"Token generation failed: {e}")
+        return RedirectResponse(
+            url=f"{settings.frontend_url}/#/login?error=token_generation_failed",
+            status_code=302,
+        )
+
 
 
 # ============ Password Recovery ============

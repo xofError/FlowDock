@@ -3,6 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { QRCodeSVG } from "qrcode.react";
 import MainLayout from "../../layout/MainLayout.jsx";
 import useAuth from "../../hooks/useAuth.js";
+import { AUTH_API_URL } from "../../services/api.js";
 
 export default function SignUp() {
   const navigate = useNavigate();
@@ -211,7 +212,7 @@ export default function SignUp() {
                 <button
                   type="button"
                   onClick={() => {
-                    window.location.href = `${import.meta.env.VITE_AUTH_API_URL}/auth/oauth/google/login`;
+                    window.location.href = `${AUTH_API_URL}/auth/oauth/google/login`;
                   }}
                   disabled={authLoading}
                   style={{ height: "38px" }}

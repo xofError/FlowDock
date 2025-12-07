@@ -10,6 +10,9 @@ class Settings(BaseSettings):
     google_client_id: str = ""
     google_client_secret: str = ""
     
+    # Backend URL for OAuth redirect (used in production/docker)
+    backend_url: str = "http://localhost:8000"
+    
     # Frontend redirect URL after OAuth
     frontend_url: str = "http://localhost:5173"
     
