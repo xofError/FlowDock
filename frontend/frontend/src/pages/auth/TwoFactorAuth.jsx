@@ -1,31 +1,35 @@
-import { useState } from "react";
-import { useNavigate, Link } from "react-router-dom";
+import { useState, useEffect } from "react";
+import { useNavigate, useLocation, Link } from "react-router-dom";
 import { QRCodeSVG } from "qrcode.react";
 import MainLayout from "../../layout/MainLayout.jsx";
 import useAuth from "../../hooks/useAuth.js";
+import Button from "../../components/Button.jsx";
 
 export default function TwoFactorAuth() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { setupTOTP, verifyTOTP, loading: authLoading, error: authError } = useAuth();
   
   const [email, setEmail] = useState("");
-  const [step, setStep] = useState("input"); // input, qr, verify, or complete
+  const [step, setStep] = useState("setup"); // setup, qr, verify, or complete
   const [qrUri, setQrUri] = useState("");
   const [totp, setTotp] = useState(Array(6).fill(""));
   const [error, setError] = useState(null);
   const [recoveryCodes, setRecoveryCodes] = useState([]);
 
-  const handleEmailSubmit = async (e) => {
-    e.preventDefault();
-    setError(null);
-
-    if (!email) {
-      setError("Please enter your email");
-      return;
+  useEffect(() => {
+    // Get email from navigation state or redirect back
+    if (location.state?.email) {
+      setEmail(location.state.email);
+      handleSetupTOTP(location.state.email);
+    } else {
+      navigate("/signup");
     }
+  }, [location.state, navigate]);
 
+  const handleSetupTOTP = async (emailAddress) => {
     try {
-      const response = await setupTOTP(email);
+      const response = await setupTOTP(emailAddress);
       setQrUri(response.totp_uri);
       setStep("qr");
     } catch (err) {
@@ -76,9 +80,9 @@ export default function TwoFactorAuth() {
 
   return (
     <MainLayout>
-      <div className="flex flex-col gap-6 pb-10 w-full max-w-sm mx-auto">
+      <div className="flex flex-col gap-6 pb-10 justify-center" style={{ width: "320px", margin: "0 auto" }}>
         
-        {step === "input" && (
+        {step === "setup" && (
           <>
             <h2 className="text-[#0D141B] text-[28px] font-bold text-center pt-4">
               Enable Two-Factor Authentication
@@ -91,34 +95,7 @@ export default function TwoFactorAuth() {
             )}
 
             <p className="text-center text-sm text-[#4c739a] px-2">
-              Two-factor authentication adds an extra layer of security to your account. You'll need an authenticator app like Google Authenticator or Microsoft Authenticator.
-            </p>
-
-            <form onSubmit={handleEmailSubmit} className="flex flex-col px-2">
-              <input
-                type="email"
-                placeholder="Enter your email"
-                value={email}
-                onChange={e => setEmail(e.target.value)}
-                disabled={authLoading}
-                required
-                style={{ height: "38px", marginBottom: "32px" }}
-                className="w-full rounded-lg px-4 bg-[#e7edf3] text-[#0D141B] placeholder:text-[#4c739a] focus:outline-none border-none disabled:opacity-50"
-              />
-              <button
-                type="submit"
-                disabled={authLoading}
-                style={{ height: "38px", opacity: authLoading ? 0.7 : 1 }}
-                className="w-full bg-[#1380EC] text-white rounded-lg font-bold flex items-center justify-center transition-all"
-              >
-                {authLoading ? "Setting up..." : "Continue"}
-              </button>
-            </form>
-
-            <p className="text-center mt-4 text-sm">
-              <Link to="/login" className="text-blue-600 underline">
-                Back to Login
-              </Link>
+              Scanning QR code...
             </p>
           </>
         )}
@@ -144,7 +121,7 @@ export default function TwoFactorAuth() {
               </div>
             </div>
 
-            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 mb-4">
+            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
               <p className="text-xs text-yellow-800">
                 <strong>Can't scan?</strong> Enter this key manually in your authenticator app:
               </p>
@@ -153,13 +130,12 @@ export default function TwoFactorAuth() {
               </p>
             </div>
 
-            <button
+            <Button
+              type="button"
               onClick={() => setStep("verify")}
-              style={{ height: "38px" }}
-              className="w-full bg-[#1380EC] text-white rounded-lg font-bold flex items-center justify-center transition-all"
             >
               I've Scanned the QR Code
-            </button>
+            </Button>
           </>
         )}
 
@@ -179,8 +155,8 @@ export default function TwoFactorAuth() {
               Enter the 6-digit code from your authenticator app.
             </p>
 
-            <form onSubmit={handleVerifyTotp} className="flex flex-col px-2">
-              <div className="flex gap-2 justify-center mb-8">
+            <form onSubmit={handleVerifyTotp} className="flex flex-col gap-3 px-2">
+              <div className="flex gap-2 justify-center">
                 {totp.map((digit, index) => (
                   <input
                     key={index}
@@ -192,19 +168,19 @@ export default function TwoFactorAuth() {
                     disabled={authLoading}
                     maxLength="1"
                     style={{ height: "48px", width: "48px" }}
-                    className="rounded-lg bg-[#e7edf3] text-[#0d141b] text-center text-xl font-bold focus:outline-none border-none disabled:opacity-50"
+                    className="rounded-lg bg-[#e7edf3] text-[#0d141b] text-center text-xl font-bold focus:outline-none border border-[#d0dce8] disabled:opacity-50"
                   />
                 ))}
               </div>
 
-              <button
-                type="submit"
-                disabled={authLoading}
-                style={{ height: "38px", opacity: authLoading ? 0.7 : 1 }}
-                className="w-full bg-[#1380EC] text-white rounded-lg font-bold flex items-center justify-center transition-all"
+              <Button
+                  type="submit"
+                  loading={authLoading}
+                  loadingText="Verifying..."
+                  disabled={authLoading}
               >
-                {authLoading ? "Verifying..." : "Verify"}
-              </button>
+                Verify
+              </Button>
             </form>
 
             <button
@@ -212,7 +188,7 @@ export default function TwoFactorAuth() {
                 setStep("qr");
                 setTotp(Array(6).fill(""));
               }}
-              className="text-center text-blue-600 underline text-sm mt-4"
+              className="text-center text-blue-600 underline text-sm"
             >
               Back to QR Code
             </button>
@@ -221,12 +197,12 @@ export default function TwoFactorAuth() {
 
         {step === "complete" && (
           <>
-            <div className="text-center mb-4">
+            <div className="text-center py-8">
               <div className="text-5xl mb-4">✓</div>
-              <h2 className="text-[#0D141B] text-[28px] font-bold">Two-Factor Enabled!</h2>
+              <h2 className="text-[#0D141B] text-[28px] font-bold mb-4">Two-Factor Enabled!</h2>
             </div>
 
-            <div className="bg-green-50 border border-green-200 rounded-lg p-4 mb-4">
+            <div className="bg-green-50 border border-green-200 rounded-lg p-4">
               <p className="text-sm text-green-800 mb-3">
                 <strong>Save your recovery codes:</strong>
               </p>
@@ -240,7 +216,7 @@ export default function TwoFactorAuth() {
               </p>
             </div>
 
-            <p className="text-center text-sm text-[#4c739a]">
+            <p className="text-center text-sm text-[#4c739a] mt-4">
               Two-factor authentication is now enabled. You'll be asked for a code from your authenticator app on your next login.
             </p>
 
