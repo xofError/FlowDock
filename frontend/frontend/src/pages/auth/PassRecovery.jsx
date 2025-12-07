@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import MainLayout from "../../layout/MainLayout.jsx";
 import useAuth from "../../hooks/useAuth.js";
+import Button from "../../components/Button.jsx";
 
 export default function PassRecovery() {
   const navigate = useNavigate();
@@ -23,6 +24,7 @@ export default function PassRecovery() {
     try {
       await requestPasswordReset(email);
       setSuccess(true);
+      // Route to PassRecoveryVerify with email state
       setTimeout(() => navigate("/pass-recovery-verify", { state: { email } }), 2000);
     } catch (err) {
       setError(err.message || "Failed to send recovery email");
@@ -31,8 +33,8 @@ export default function PassRecovery() {
 
   return (
     <MainLayout>
-      <div className="flex flex-col gap-6 pb-10 w-full max-w-sm mx-auto">
-        <h2 className="text-[#0D141B] text-[28px] font-bold text-center pt-4">Password Recovery</h2>
+      <div className="flex flex-col gap-6 pb-10 justify-center" style={{ width: "320px", margin: "0 auto" }}>
+        <h2 className="text-[#0D141B] text-[28px] font-bold text-center" style={{ marginTop: "1.5cm" }}>Password Recovery</h2>
 
         {(error || authError) && (
           <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-lg" role="alert">
@@ -58,17 +60,12 @@ export default function PassRecovery() {
             onChange={e => setEmail(e.target.value)}
             disabled={authLoading}
             required
-            style={{ height: "38px", marginBottom: "32px" }}
+            style={{ height: "38px", marginTop: 12, marginBottom: "32px", borderRadius: "12px", paddingLeft: "16px" }}
             className="w-full rounded-lg px-4 bg-[#e7edf3] text-[#0D141B] placeholder:text-[#4c739a] focus:outline-none border-none disabled:opacity-50"
           />
-          <button
-            type="submit"
-            disabled={authLoading}
-            style={{ height: "38px", opacity: authLoading ? 0.7 : 1 }}
-            className="w-full bg-[#1380EC] text-white rounded-lg font-bold flex items-center justify-center transition-all"
-          >
-            {authLoading ? "Sending..." : "Send Reset Code"}
-          </button>
+          <Button type="submit" loading={authLoading} loadingText="Sending..." disabled={authLoading}>
+            Send Reset Code
+          </Button>
         </form>
 
         <p className="text-center mt-4 text-sm">
