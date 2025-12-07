@@ -1,10 +1,12 @@
 # Build Stage
-FROM node:18-alpine as builder
+FROM node:20-alpine as builder
 
 WORKDIR /app
 
 # Copy package files
 COPY package*.json ./
+COPY vite.config.js ./
+COPY eslint.config.js ./
 
 # Install dependencies
 RUN npm ci
@@ -13,10 +15,10 @@ RUN npm ci
 COPY . .
 
 # Build the application
-RUN npm dev run
+RUN npm run build
 
 # Production Stage
-FROM node:18-alpine
+FROM node:20-alpine
 
 WORKDIR /app
 

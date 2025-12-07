@@ -3,11 +3,29 @@
  * Handles all HTTP requests to Auth Service and Media Service
  */
 
-// Get API URLs from environment variables or use defaults
-// For development with localhost: http://localhost:8000
-// For docker with traefik: http://auth.localhost or http://localhost/auth
-const AUTH_API_URL = import.meta.env.VITE_AUTH_API_URL || "http://localhost:8000";
-const MEDIA_API_URL = import.meta.env.VITE_MEDIA_API_URL || "http://localhost:8001";
+// API URLs Configuration
+// When running behind Traefik (Docker), use relative paths
+// When running locally without Traefik, use direct backend URLs
+const getApiUrls = () => {
+  // Check if we're running in Docker with Traefik
+  const isDevelopment = window.location.hostname === 'localhost' && window.location.port === '5173';
+  
+  if (isDevelopment) {
+    // Local development without Traefik - direct backend URLs
+    return {
+      AUTH_API_URL: import.meta.env.VITE_AUTH_API_URL || "http://localhost:8000",
+      MEDIA_API_URL: import.meta.env.VITE_MEDIA_API_URL || "http://localhost:8001",
+    };
+  } else {
+    // Production/Docker with Traefik - use relative paths through gateway
+    return {
+      AUTH_API_URL: import.meta.env.VITE_AUTH_API_URL || "/auth",
+      MEDIA_API_URL: import.meta.env.VITE_MEDIA_API_URL || "/media",
+    };
+  }
+};
+
+const { AUTH_API_URL, MEDIA_API_URL } = getApiUrls();
 
 // Export URLs for use in other modules (like OAuth)
 export { AUTH_API_URL, MEDIA_API_URL };
