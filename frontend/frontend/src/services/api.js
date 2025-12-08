@@ -7,27 +7,19 @@
 // When running behind Traefik (Docker), use relative paths
 // When running locally without Traefik, use direct backend URLs
 const getApiUrls = () => {
-  // Check if window exists (Node test environment won't have it)
-  if (typeof window === 'undefined') {
-    return {
-      AUTH_API_URL: "http://localhost:8000",
-      MEDIA_API_URL: "http://localhost:8001",
-    };
-  }
-
   // Check if we're running in Docker with Traefik
   const isDevelopment = window.location.hostname === 'localhost' && window.location.port === '5173';
   
   if (isDevelopment) {
     // Local development without Traefik - direct backend URLs
     return {
-      AUTH_API_URL: import.meta.env.VITE_AUTH_API_URL || "http://localhost:8000",
-      MEDIA_API_URL: import.meta.env.VITE_MEDIA_API_URL || "http://localhost:8001",
+      AUTH_API_URL:  "http://flowdock_auth_service:8000",
+      MEDIA_API_URL:  "http://mongo:8001",
     };
   } else {
     // Production/Docker with Traefik - use relative paths through gateway
     return {
-      AUTH_API_URL: import.meta.env.VITE_AUTH_API_URL || "/auth",
+      AUTH_API_URL:  "",
       MEDIA_API_URL: import.meta.env.VITE_MEDIA_API_URL || "/media",
     };
   }
