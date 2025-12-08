@@ -1,20 +1,4 @@
 services:
-  # -----------------------------------------------------------------
-  # REVERSE PROXY (Nginx - NEW)
-  # -----------------------------------------------------------------
-  nginx:
-    image: nginx:latest
-    container_name: flowdock_gateway
-    restart: always
-    ports:
-      - "80:80"
-    volumes:
-      - ./nginx.conf:/etc/nginx/nginx.conf:ro
-    networks:
-      - flowdock_public
-    depends_on:
-      - frontend
-      - auth_service
 
   # -----------------------------------------------------------------
   # DATABASE & CACHE
@@ -208,3 +192,6 @@ networks:
     internal: true
   flowdock_network:
     driver: bridge
+  nginx_network:
+    external: true
+    #
