@@ -13,13 +13,13 @@ const getApiUrls = () => {
   if (isDevelopment) {
     // Local development without Traefik - direct backend URLs
     return {
-      AUTH_API_URL: import.meta.env.VITE_AUTH_API_URL || "http://localhost:8000",
-      MEDIA_API_URL: import.meta.env.VITE_MEDIA_API_URL || "http://localhost:8001",
+      AUTH_API_URL:  "http://flowdock_auth_service:8000",
+      MEDIA_API_URL:  "http://mongo:8001",
     };
   } else {
     // Production/Docker with Traefik - use relative paths through gateway
     return {
-      AUTH_API_URL: import.meta.env.VITE_AUTH_API_URL || "/auth",
+      AUTH_API_URL:  "",
       MEDIA_API_URL: import.meta.env.VITE_MEDIA_API_URL || "/media",
     };
   }

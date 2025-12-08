@@ -58,7 +58,7 @@ logger.info("Prometheus metrics enabled at /metrics")
 
 # Configure CORS origins via environment variable ALLOWED_ORIGINS (comma-separated)
 # Default allows both local development (5173) and Docker/Traefik (localhost:80)
-allowed_origins = os.getenv("ALLOWED_ORIGINS", "http://localhost:5173,http://localhost,http://127.0.0.1")
+allowed_origins = os.getenv("ALLOWED_ORIGINS", "*")
 if allowed_origins.strip() == "*":
     # When using wildcard, we can't use credentials=True (browser restriction)
     cors_origins = ["*"]
