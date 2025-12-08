@@ -1,0 +1,82 @@
+@startuml
+title File Upload Flow (Presigned URL, Metadata, ClamAV, Kafka, MinIO)
+
+start
+
+:User clicks "Upload File" in client;
+:Client calls API Gateway (Traefik) -> /upload/initiate with JWT;
+
+partition "Traefik Gateway" {
+  :TLS terminate;
+  :Forward X-Forwarded-For, UA;
+  :Rate-limit check (edge) -> Redis;
+  if (rate limit exceeded?) then (yes)
+    :Return 429;
+    stop
+  endif
+}
+
+partition "Auth Service" {
+  :Validate access JWT;
+  if (invalid?) then (no)
+    :Return 401;
+    stop
+  endif
+  :Authorize 'upload' scope;
+}
+
+partition "Metadata Service" {
+  :Validate metadata (name, size, mime, user_id, quota);
+  if (quota exceeded?) then (yes)
+    :Return 403 quota exceeded;
+    stop
+  endif
+  :Create metadata record status=UPLOADING (file_id, owner, size, created_at);
+  :Reserve storage quota (optimistic);
+}
+
+partition "File Service" {
+  :Request presigned PUT URL from Storage Backend (MinIO/S3) for object path;
+  :Return presigned URL + upload_id (for multipart);
+}
+
+partition "Client" {
+  :Upload file to object storage using presigned URL (direct to S3/MinIO);
+  if (multipart?) then (yes)
+    :Perform multipart upload & complete;
+  endif
+  :On success -> call API Gateway /upload/complete (with file_id, etag, checksum);
+}
+
+partition "File Service" {
+  :Receive upload completion callback or client confirmation;
+  :Verify etag/checksum if provided;
+  if (checksum mismatch?) then (yes)
+    :Mark metadata status=FAILED;
+    :Emit event file.upload.failed to Kafka (reason=checksum_mismatch);
+    :Return 400 upload verification failed;
+    stop
+  endif
+  :Move metadata status=SCANNING_PENDING;
+  :Emit event file.uploaded to Kafka (file_id, owner, storage_path);
+}
+
+partition "Scan Worker" {
+  :Consume file.uploaded event;
+  :Fetch object from storage (stream) and scan with ClamAV (or ClamAV REST);
+  if (infected?) then (yes)
+    :Emit file.scanned (infected) to Kafka;
+    :Call File Service -> mark metadata status=INFECTED;
+    :Move object to quarantine bucket/path;
+    :Notify Notification Service & Admins;
+    stop
+  else (no)
+    :Emit file.scanned (clean) to Kafka;
+    :Call File Service -> mark metadata status=AVAILABLE, store hash;
+    :Update user's storage_used;
+    :Publish file.available event (for notifications, sync);
+  endif
+}
+
+stop
+@enduml
