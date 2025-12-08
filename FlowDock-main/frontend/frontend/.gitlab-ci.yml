@@ -1,0 +1,37 @@
+stages:
+  - test
+  - build
+  - deploy
+
+test:
+  stage: test
+  image: node:18
+  script:
+    - npm install
+    - npm run lint
+    - npm test -- --run
+    - npm run test:coverage
+
+build:
+  stage: build
+  image: node:18
+  script:
+    - npm install
+    - npm run build
+  artifacts:
+    paths:
+      - dist/
+    expire_in: 1 day
+
+deploy:
+  stage: deploy
+  image: node:18
+  script:
+    - npm install
+    - npm run build
+    - echo "Deploying to production..."
+  only:
+    - main
+  environment:
+    name: production
+    url: https://your-domain.com

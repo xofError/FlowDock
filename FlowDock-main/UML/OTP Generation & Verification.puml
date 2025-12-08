@@ -1,0 +1,47 @@
+@startuml
+title OTP Generation & Verification (Redis + Email/Telegram)
+
+start
+:User requests OTP (login, signup, recovery);
+
+partition "Traefik" {
+    :Forward request to Auth Service;
+}
+
+partition "Rate Limiter (Redis)" {
+    :INCR otp_req:<user_id>;
+    if (Too many?) then (yes)
+        :Return 429;
+        stop
+    endif
+    :Set TTL on rate-limit key;
+}
+
+partition "Auth Service" {
+    :Generate OTP (6-digit);
+}
+
+partition "Redis" {
+    :SETEX otp:<purpose>:<user_id> ttl_seconds otp_value;
+}
+
+partition "Notification Service" {
+    :Send OTP via Email or Telegram API;
+}
+
+:User submits OTP for verification;
+
+partition "Redis" {
+    :GET otp:<purpose>:<user_id>;
+    if (Match?) then (yes)
+        :DEL otp key;
+    else (no)
+        :Return invalid OTP;
+        stop
+    endif
+}
+
+:Return success;
+
+stop
+@enduml
