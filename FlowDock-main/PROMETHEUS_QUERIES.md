@@ -44,6 +44,8 @@ histogram_quantile(0.99, rate(http_request_duration_seconds_bucket[5m]))
 **Latency by Endpoint**
 ```promql
 histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m])) by (handler)
+updated: front-final
+
 ```
 
 ### 3. Error Rate
