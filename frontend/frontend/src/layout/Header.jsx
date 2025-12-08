@@ -1,4 +1,3 @@
-
 import { Link, useNavigate } from "react-router-dom";
 import logo from "../resources/images/logo.svg";
 import { useState } from "react";
@@ -18,8 +17,8 @@ export default function Header() {
       style={{ 
         paddingLeft: "2.5cm", 
         paddingRight: "2.5cm", 
-        paddingTop: "0.9cm", 
-        paddingBottom: "0.9cm", 
+        paddingTop: "3.84mm", 
+        paddingBottom: "3.84mm", 
         borderBottom: "1px solid #d0d7e0",
         backgroundColor: "#ffffff"
       }}

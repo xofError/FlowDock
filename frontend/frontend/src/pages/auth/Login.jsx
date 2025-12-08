@@ -31,15 +31,16 @@ export default function Login() {
 
     try {
       const response = await login(email, password, totpCode || null);
-      
-      // Check if TOTP is required
-      if (response.totp_required) {
-        setError("2FA code required. Please enter your 6-digit code.");
-        // Don't redirect, let user enter TOTP on this same page
-      } else {
-        // Login successful, redirect to dashboard
-        navigate("/dashboard");
+
+      // If server requires TOTP verification step
+      if (response && response.totp_required) {
+        navigate("/verify-totp", { state: { email, password } });
+        setIsLoading(false);
+        return;
       }
+
+      // Successful login -> api.setTokens is handled in useAuth
+      navigate("/dashboard");
     } catch (err) {
       setError(err.message || "Login failed. Please try again.");
     } finally {

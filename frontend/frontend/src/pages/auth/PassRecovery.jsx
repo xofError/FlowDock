@@ -24,8 +24,7 @@ export default function PassRecovery() {
     try {
       await requestPasswordReset(email);
       setSuccess(true);
-      // Route to PassRecoveryVerify with email state
-      setTimeout(() => navigate("/pass-recovery-verify", { state: { email } }), 2000);
+      setTimeout(() => navigate("/pass-recovery-verify", { state: { email } }), 1500);
     } catch (err) {
       setError(err.message || "Failed to send recovery email");
     }

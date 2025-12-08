@@ -81,7 +81,7 @@ export default function VerifyTOTP() {
     <MainLayout>
       <div className="flex flex-col gap-6 pb-10 justify-center" style={{ width: "320px", margin: "0 auto" }}>
         
-        <h2 className="text-[#0d141b] text-[28px] font-bold leading-tight text-center pt-4">
+        <h2 className="text-[#0d141b] text-[28px] font-bold leading-tight text-center" style={{ marginTop: "1.5cm" }}>
           Enter Authentication Code
         </h2>
 
@@ -96,7 +96,7 @@ export default function VerifyTOTP() {
         </p>
 
         <form onSubmit={handleSubmit} className="flex flex-col px-2">
-          <div className="flex gap-2 justify-center mb-8" style={{ marginTop: 12 }}>
+          <div className="flex gap-2 justify-center" style={{ gap: "3mm", marginTop: "24px", marginBottom: "24px" }}>
             {totp.map((digit, index) => (
               <input
                 key={index}
@@ -107,8 +107,8 @@ export default function VerifyTOTP() {
                 onKeyDown={(e) => handleTotpKeyDown(index, e)}
                 disabled={authLoading}
                 maxLength="1"
-                style={{ height: "48px", width: "48px" }}
-                className="rounded-lg bg-[#e7edf3] text-[#0d141b] text-center text-xl font-bold focus:outline-none border-none disabled:opacity-50"
+                style={{ height: "48px", width: "48px", borderRadius: "12px", paddingLeft: "4px" }}
+                className="rounded-lg bg-[#e7edf3] text-[#0d141b] text-center text-xl font-bold focus:outline-none border border-[#d0dce8] disabled:opacity-50"
               />
             ))}
           </div>
@@ -117,13 +117,6 @@ export default function VerifyTOTP() {
             Verify
           </Button>
         </form>
-
-        <button
-          onClick={() => navigate("/login")}
-          className="text-center text-blue-600 underline text-sm mt-4"
-        >
-          Back to Login
-        </button>
       </div>
     </MainLayout>
   );

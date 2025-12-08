@@ -69,8 +69,8 @@ export default function ResetPassword() {
 
   return (
     <MainLayout>
-      <div className="flex flex-col gap-6 pb-10 justify-center" style={{ width: "320px", margin: "0 auto" }}>
-        <h2 className="text-[#0D141B] text-[28px] font-bold text-center pt-4">Reset Password</h2>
+      <div className="flex flex-col gap-6 pb-10 justify-center" style={{ width: "420px", margin: "0 auto" }}>
+        <h2 className="text-[#0D141B] text-[28px] font-bold text-center" style={{ marginTop: "1.5cm" }}>Reset Password</h2>
 
         {(error || authError) && (
           <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-lg" role="alert">

@@ -16,7 +16,7 @@ export default function MainLayout({ children }) {
     >
       <Header />
       <main className="flex-1 flex justify-center items-start py-10 px-4">
-        <div className="w-full max-w-xs">
+        <div className="w-full">
           {children}
         </div>
       </main>

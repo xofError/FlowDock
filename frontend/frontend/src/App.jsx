@@ -8,6 +8,7 @@ import TwoFactorAuth from "./pages/auth/TwoFactorAuth.jsx";
 import PassRecovery from "./pages/auth/PassRecovery.jsx";
 import PassRecoveryVerify from "./pages/auth/PassRecoverVerify.jsx";
 import ResetPassword from "./pages/auth/ResetPassword.jsx";
+import AdminUserManagement from "./pages/AdminUserManagement.jsx"; 
 
 function App() {
   return (
@@ -26,6 +27,9 @@ function App() {
       <Route path="/pass-recovery" element={<PassRecovery />} />
       <Route path="/pass-recovery-verify" element={<PassRecoveryVerify />} />
       <Route path="/reset-password" element={<ResetPassword />} />
+
+      {/* Admin user management */}
+      <Route path="/admin/users" element={<AdminUserManagement />} />
 
       {/* Two-Factor Authentication after signup */}
       <Route path="/2fa" element={<TwoFactorAuth />} />

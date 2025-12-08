@@ -17,16 +17,30 @@ export default function TwoFactorAuth() {
   const [totp, setTotp] = useState(Array(6).fill(""));
   const [error, setError] = useState(null);
   const [recoveryCodes, setRecoveryCodes] = useState([]);
+  const [userConfirmedCodes, setUserConfirmedCodes] = useState(false);
 
   useEffect(() => {
     // Get email from navigation state or redirect back
     if (location.state?.email) {
-      setEmail(location.state.email);
-      handleSetupTOTP(location.state.email);
+      const emailFromState = location.state.email;
+      setEmail(emailFromState);
+
+      // Call real API to create TOTP setup (get totp_uri / totp_secret)
+      (async () => {
+        try {
+          const resp = await setupTOTP(emailFromState);
+          // expect { totp_uri, totp_secret, recovery_codes? }
+          setTotpSecret(resp.totp_secret || "");
+          setQrUri(resp.totp_uri || `otpauth://totp/FlowDock:${emailFromState}?secret=${resp.totp_secret || ""}&issuer=FlowDock`);
+          setStep("qr");
+        } catch (err) {
+          setError(err.message || "Failed to setup TOTP");
+        }
+      })();
     } else {
       navigate("/signup");
     }
-  }, [location.state, navigate]);
+  }, [location.state, navigate, setupTOTP]);
 
   const handleSetupTOTP = async (emailAddress) => {
     try {
@@ -71,22 +85,27 @@ export default function TwoFactorAuth() {
     try {
       const code = totp.join("");
       const response = await verifyTOTP(email, code, totpSecret);
+      // Use recovery codes from response if provided
       setRecoveryCodes(response.recovery_codes || []);
       setStep("complete");
-      setTimeout(() => navigate("/login"), 3000);
     } catch (err) {
       setError(err.message || "Invalid TOTP code");
       setTotp(Array(6).fill(""));
     }
   };
 
+  const handleCodesConfirmed = () => {
+    // User has confirmed they saved the codes
+    navigate("/login");
+  };
+
   return (
     <MainLayout>
-      <div className="flex flex-col gap-6 pb-10 justify-center" style={{ width: "320px", margin: "0 auto" }}>
+      <div className="flex flex-col gap-8 pb-10 justify-center" style={{ width: "420px", margin: "0 auto" }}>
         
         {step === "setup" && (
           <>
-            <h2 className="text-[#0D141B] text-[28px] font-bold text-center pt-4">
+            <h2 className="text-[#0D141B] text-[28px] font-bold text-center" style={{ marginTop: "1.5cm" }}>
               Enable Two-Factor Authentication
             </h2>
 
@@ -104,7 +123,7 @@ export default function TwoFactorAuth() {
 
         {step === "qr" && (
           <>
-            <h2 className="text-[#0D141B] text-[28px] font-bold text-center pt-4">
+            <h2 className="text-[#0D141B] text-[28px] font-bold text-center" style={{ marginTop: "1.5cm" }}>
               Scan QR Code
             </h2>
 
@@ -113,21 +132,21 @@ export default function TwoFactorAuth() {
             </p>
 
             <div className="flex justify-center py-4">
-              <div className="border-2 border-[#e7edf3] rounded-lg p-2 bg-white">
+              <div style={{ padding: "16px" }}>
                 <QRCodeSVG 
                   value={qrUri} 
-                  size={250}
+                  size={200}
                   level="H"
                   includeMargin={true}
                 />
               </div>
             </div>
 
-            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
-              <p className="text-xs text-yellow-800">
+            <div className="bg-yellow-50 rounded-lg p-3 flex flex-col items-center justify-center text-center" style={{ marginTop: "24px" }}>
+              <p className="text-xs text-yellow-800 mb-2">
                 <strong>Can't scan?</strong> Enter this key manually in your authenticator app:
               </p>
-              <p className="text-xs text-yellow-900 font-mono mt-2 break-all">
+              <p className="text-xs text-yellow-900 font-mono break-all">
                 {qrUri.match(/secret=([^&]*)/)?.[1] || ""}
               </p>
             </div>
@@ -135,6 +154,7 @@ export default function TwoFactorAuth() {
             <Button
               type="button"
               onClick={() => setStep("verify")}
+              style={{ marginTop: "24px", marginBottom: "24px" }}
             >
               I've Scanned the QR Code
             </Button>
@@ -143,7 +163,7 @@ export default function TwoFactorAuth() {
 
         {step === "verify" && (
           <>
-            <h2 className="text-[#0D141B] text-[28px] font-bold text-center pt-4">
+            <h2 className="text-[#0D141B] text-[28px] font-bold text-center" style={{ marginTop: "1.5cm" }}>
               Verify TOTP Code
             </h2>
 
@@ -158,7 +178,7 @@ export default function TwoFactorAuth() {
             </p>
 
             <form onSubmit={handleVerifyTotp} className="flex flex-col gap-3 px-2">
-              <div className="flex gap-2 justify-center">
+              <div className="flex gap-2 justify-center" style={{ gap: "3mm", marginTop: "24px", marginBottom: "24px" }}>
                 {totp.map((digit, index) => (
                   <input
                     key={index}
@@ -169,7 +189,7 @@ export default function TwoFactorAuth() {
                     onKeyDown={(e) => handleTotpKeyDown(index, e)}
                     disabled={authLoading}
                     maxLength="1"
-                    style={{ height: "48px", width: "48px" }}
+                    style={{ height: "48px", width: "48px", borderRadius: "12px", paddingLeft: "4px" }}
                     className="rounded-lg bg-[#e7edf3] text-[#0d141b] text-center text-xl font-bold focus:outline-none border border-[#d0dce8] disabled:opacity-50"
                   />
                 ))}
@@ -180,20 +200,11 @@ export default function TwoFactorAuth() {
                   loading={authLoading}
                   loadingText="Verifying..."
                   disabled={authLoading}
+                  style={{ marginTop: "24px" }}
               >
                 Verify
               </Button>
             </form>
-
-            <button
-              onClick={() => {
-                setStep("qr");
-                setTotp(Array(6).fill(""));
-              }}
-              className="text-center text-blue-600 underline text-sm"
-            >
-              Back to QR Code
-            </button>
           </>
         )}
 
@@ -208,22 +219,42 @@ export default function TwoFactorAuth() {
               <p className="text-sm text-green-800 mb-3">
                 <strong>Save your recovery codes:</strong>
               </p>
+              <p className="text-xs text-green-700 mb-2">
+                Write down these codes and store them in a safe place. You can use them to recover your account if you lose access to your authenticator app.
+              </p>
               <div className="bg-white rounded p-3 font-mono text-xs space-y-1 max-h-40 overflow-y-auto">
                 {recoveryCodes.map((code, i) => (
                   <div key={i} className="text-green-900">{code}</div>
                 ))}
               </div>
-              <p className="text-xs text-green-700 mt-2">
-                Store these codes in a safe place. You can use them to recover your account if you lose access to your authenticator app.
-              </p>
             </div>
 
-            <p className="text-center text-sm text-[#4c739a] mt-4">
-              Two-factor authentication is now enabled. You'll be asked for a code from your authenticator app on your next login.
-            </p>
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3" style={{ marginTop: "20px" }}>
+              <label className="flex items-center gap-2 text-sm cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={userConfirmedCodes}
+                  onChange={(e) => setUserConfirmedCodes(e.target.checked)}
+                  className="w-4 h-4 flex-shrink-0"
+                />
+                <span className="text-blue-800">
+                  I have safely written down and stored my recovery codes
+                </span>
+              </label>
+            </div>
 
-            <p className="text-center text-xs text-gray-600 mt-4">
-              Redirecting to login in a few seconds...
+            <Button
+              type="button"
+              onClick={handleCodesConfirmed}
+              disabled={!userConfirmedCodes}
+              style={{ marginTop: "24px", marginBottom: "16px" }}
+              className={!userConfirmedCodes ? "opacity-50 cursor-not-allowed" : ""}
+            >
+              Continue to Sign In
+            </Button>
+
+            <p className="text-center text-xs text-gray-600">
+              Make sure you have saved your recovery codes before proceeding.
             </p>
           </>
         )}

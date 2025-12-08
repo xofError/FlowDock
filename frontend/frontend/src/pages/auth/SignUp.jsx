@@ -70,9 +70,18 @@ export default function SignUp() {
     }
 
     try {
-      await register(formData.email, formData.name, formData.password);
+      // Use real API register
+      const response = await register(formData.email, formData.name, formData.password);
       setEmail(formData.email);
-      setStep("verify"); // Go to email verification
+
+      // If user chose 2FA, go to TOTP setup page
+      if (enable2FA) {
+        navigate("/2fa", { state: { email: formData.email } });
+        return;
+      }
+
+      // Otherwise continue to verification step (email verification)
+      setStep("verify");
     } catch (err) {
       setError(err.message || "Registration failed");
     }
@@ -111,14 +120,13 @@ export default function SignUp() {
     }
 
     try {
+      // Call real verifyEmail
       await verifyEmail(email, code);
-      
-      // Check if user enabled 2FA during signup
+
+      // If 2FA was requested at signup (unlikely here), navigate to 2fa; else complete
       if (enable2FA) {
-        // Navigate to 2FA setup page with email (TwoFactorAuth.jsx will handle the rest)
         navigate("/2fa", { state: { email } });
       } else {
-        // No 2FA: show complete and redirect to login
         setStep("complete");
         setTimeout(() => navigate("/login"), 2000);
       }
@@ -129,7 +137,7 @@ export default function SignUp() {
 
   return (
     <MainLayout>
-      <div className="flex flex-col gap-8 pb-10 justify-center" style={{ width: "360px", margin: "0 auto" }}>
+      <div className="flex flex-col gap-8 pb-10 justify-center" style={{ width: step === "form" ? "320px" : "420px", margin: "0 auto" }}>
         {step === "form" && (
           <>
             <div>
@@ -175,7 +183,7 @@ export default function SignUp() {
               <input
                 name="password"
                 type="password"
-                placeholder="Password (min 8 characters)"
+                placeholder="Password (min 6 characters)"
                 value={formData.password}
                 onChange={handleChange}
                 disabled={authLoading}
@@ -209,26 +217,28 @@ export default function SignUp() {
                     </p>
                   )}
                   {passwordStrength < 3 && (
-                    <ul className="text-xs text-gray-600 mt-1 ml-2">
-                      {formData.password.length < 8 && <li>• Use at least 8 characters</li>}
-                      {!/[a-z]/.test(formData.password) || !/[A-Z]/.test(formData.password) && <li>• Mix uppercase and lowercase letters</li>}
-                      {!/\d/.test(formData.password) && <li>• Add numbers</li>}
-                      {!/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(formData.password) && <li>• Include special characters (!@#$% etc)</li>}
+                    <ul className="text-xs text-gray-600 mt-1 ml-2 list-none">
+                      {formData.password.length < 6 && <li className="before:content-['•'] before:mr-2">Use at least 6 characters</li>}
+                      {(!/[a-z]/.test(formData.password) || !/[A-Z]/.test(formData.password)) && <li className="before:content-['•'] before:mr-2">Mix uppercase and lowercase letters</li>}
+                      {!/\d/.test(formData.password) && <li className="before:content-['•'] before:mr-2">Add numbers</li>}
+                      {!/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(formData.password) && <li className="before:content-['•'] before:mr-2">Include special characters (!@#$% etc)</li>}
                     </ul>
                   )}
                 </div>
               )}
 
-              <label className="flex items-center gap-2 text-sm pt-2 whitespace-nowrap">
-                <input
-                  type="checkbox"
-                  checked={enable2FA}
-                  onChange={(e) => setEnable2FA(e.target.checked)}
-                  disabled={authLoading}
-                  className="w-4 h-4"
-                />
-                <span className="text-[#0d141b] whitespace-nowrap">Enable two-factor authentication (optional)</span>
-              </label>
+              <div style={{ height: "24px", display: "flex", alignItems: "center" }}>
+                <label className="flex items-center gap-2 text-sm" style={{ marginTop: "4mm" }}>
+                  <input
+                    type="checkbox"
+                    checked={enable2FA}
+                    onChange={(e) => setEnable2FA(e.target.checked)}
+                    disabled={authLoading}
+                    className="w-4 h-4 flex-shrink-0"
+                  />
+                  <span className="text-[#0d141b]">Enable two-factor authentication </span>
+                </label>
+              </div>
 
               <div className="flex flex-col gap-3" style={{ marginTop: 24 }}>
                 <Button type="submit" loading={authLoading} loadingText="Creating Account..." disabled={authLoading}>
@@ -266,7 +276,7 @@ export default function SignUp() {
 
         {step === "verify" && (
           <>
-            <h2 className="text-[#0d141b] text-[28px] font-bold leading-tight text-center pt-4">
+            <h2 className="text-[#0d141b] text-[28px] font-bold leading-tight text-center pt-4" style={{ marginTop: "1.5cm" }}>
               Verify your email
             </h2>
 
@@ -281,7 +291,7 @@ export default function SignUp() {
             </p>
 
             <form className="flex flex-col gap-3 px-2" onSubmit={handleVerifyEmail}>
-              <div className="flex gap-2 justify-center mb-4">
+              <div className="flex justify-center" style={{ gap: "3mm", marginTop: "24px", marginBottom: "24px" }}>
                 {verificationCode.map((digit, index) => (
                   <input
                     key={index}

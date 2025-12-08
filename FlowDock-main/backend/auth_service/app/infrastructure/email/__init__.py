@@ -1,1 +1,0 @@
-# Infrastructure - Email service
