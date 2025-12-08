@@ -4,25 +4,14 @@
  */
 
 // API URLs Configuration
-// When running behind Traefik (Docker), use relative paths
-// When running locally without Traefik, use direct backend URLs
+// ALWAYS use relative paths - let the browser make requests to the same origin
+// The gateway (Nginx) will route them to the appropriate backend service
+// This works for both local development and production deployments
 const getApiUrls = () => {
-  // Check if we're running in Docker with Traefik
-  const isDevelopment = window.location.hostname === 'localhost' && window.location.port === '5173';
-  
-  if (isDevelopment) {
-    // Local development without Traefik - direct backend URLs
-    return {
-      AUTH_API_URL:  "http://flowdock_auth_service:8000",
-      MEDIA_API_URL:  "http://mongo:8001",
-    };
-  } else {
-    // Production/Docker with Traefik - use relative paths through gateway
-    return {
-      AUTH_API_URL:  "",
-      MEDIA_API_URL: import.meta.env.VITE_MEDIA_API_URL || "/media",
-    };
-  }
+  return {
+    AUTH_API_URL: "",  // Relative paths: /auth/login, /auth/register, etc.
+    MEDIA_API_URL: import.meta.env.VITE_MEDIA_API_URL || "/media",
+  };
 };
 
 const { AUTH_API_URL, MEDIA_API_URL } = getApiUrls();
