@@ -1,0 +1,30 @@
+@startuml
+title Activity Logging Flow (User actions -> Kafka -> Activity Service -> MongoDB/Elastic)
+
+start
+
+:Any service emits activity event (upload/download/share/auth-login/password-change);
+
+partition "Service Producers" {
+  :Serialize event (type, user_id, file_id, ip, ua, ts, meta);
+  :Publish to Kafka topic activity.events;
+}
+
+partition "Kafka" {
+  :Ensure topic partitioning by user_id or file_id for ordering;
+  :Retain per retention policy;
+}
+
+partition "Activity Service (Consumer)" {
+  :Consume activity.events;
+  :Validate and enrich events (geo/ip -> location, user-agent -> device);
+  :Write to MongoDB audit collection (or Elastic for search);
+  :Also emit derived metrics to metrics-topic (prometheus/grafana pipeline);
+}
+
+partition "Admin UI" {
+  :Query Activity Service API to show logs, with filters and RBAC;
+}
+
+stop
+@enduml

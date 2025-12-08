@@ -1,0 +1,54 @@
+@startuml
+title File Upload (Local Disk Storage + ClamAV + Metadata DB)
+
+start
+
+:User selects file and submits upload request;
+
+partition "Traefik" {
+    :Forward multipart request to File Service;
+}
+
+partition "Auth Service (Middleware)" {
+    :Validate JWT access token;
+    if (Token valid?) then (yes)
+        :Extract user_id;
+    else (no)
+        :Return 401;
+        stop
+    endif
+}
+
+partition "File Service" {
+    :Validate filename, size, MIME;
+    if (Invalid metadata?) then (yes)
+        :Return 400;
+        stop
+    endif
+
+    :Generate internal filename (uuid);
+    :Compute temp path: /tmp/uploads/<uuid>;
+    :Stream file to temp path;
+}
+
+partition "ClamAV Service" {
+    :SCAN temp file;
+    if (Infected?) then (yes)
+        :Return threat info;
+        stop
+    endif
+}
+
+partition "File Metadata DB" {
+    :INSERT file metadata (user_id, original_name, uuid_name, size, mime, created_at);
+}
+
+partition "Disk Storage" {
+    :Move temp file → /data/files/<uuid>;
+    :Ensure atomic rename;
+}
+
+:Return upload success + file_id;
+
+stop
+@enduml

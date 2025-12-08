@@ -1,0 +1,42 @@
+@startuml
+title Rate-Limiting Pipeline (Redis: IP + User + Action Limits)
+
+start
+
+:Incoming request;
+
+partition "Traefik" {
+    :Forward request to service;
+}
+
+partition "Rate-Limiter (Redis)" {
+    :Compute keys:
+    - ip_key = rl:ip:<ip>
+    - user_key = rl:user:<user_id>
+    - action_key = rl:action:<route>:<ip or user>
+
+    :INCR ip_key; SETEX if new;
+    if (ip exceeds limit?) then (yes)
+        :Return 429;
+        stop
+    endif
+
+    if (Authenticated?) then (yes)
+        :INCR user_key;
+        if (user exceeds limit?) then (yes)
+            :Return 429;
+            stop
+        endif
+    endif
+
+    :INCR action_key;
+    if (action exceeded?) then (yes)
+        :Return 429;
+        stop
+    endif
+}
+
+:Forward to target microservice;
+
+stop
+@enduml

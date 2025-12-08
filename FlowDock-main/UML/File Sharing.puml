@@ -1,0 +1,57 @@
+@startuml
+title File Sharing Flow (Permissions + Expiry + Password)
+
+start
+
+:User creates sharing link;
+
+partition "Auth" {
+    :Validate access token;
+}
+
+partition "File DB" {
+    :Check file exists and belongs to user;
+}
+
+:User specifies permissions (view, download), optional password, expiry;
+
+partition "Share DB" {
+    :INSERT share_record(file_id, token_uuid, expires_at, password_hash, permissions);
+}
+
+:Return share URL /share/<token>;
+
+stop
+
+== ACCESS FLOW ==
+
+start
+
+:Visitor opens /share/<token>;
+
+partition "Share DB" {
+    :Fetch share record;
+    if (Not found or expired?) then (yes)
+        :Return 404/410;
+        stop
+    endif
+}
+
+if (Password protected?) then (yes)
+    :Prompt for password;
+    if (Password mismatch?) then (yes)
+        :Return 401;
+        stop
+    endif
+endif
+
+partition "Disk Storage" {
+    :Stream file to user (if permissions allow);
+}
+
+partition "Activity Log" {
+    :Record shared-download event;
+}
+
+stop
+@enduml
