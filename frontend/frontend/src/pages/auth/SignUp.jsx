@@ -70,18 +70,13 @@ export default function SignUp() {
     }
 
     try {
-      // Use real API register
-      const response = await register(formData.email, formData.name, formData.password);
+      setError(null);
+      // Call register (mocked) so backend flow is simulated
+      await register(formData.email, formData.name, formData.password);
+
+      // After successful registration proceed to verification step
       setEmail(formData.email);
-
-      // If user chose 2FA, go to TOTP setup page
-      if (enable2FA) {
-        navigate("/2fa", { state: { email: formData.email } });
-        return;
-      }
-
-      // Otherwise continue to verification step (email verification)
-      setStep("verify");
+      setStep("verify"); // Go to email verification
     } catch (err) {
       setError(err.message || "Registration failed");
     }
@@ -120,16 +115,18 @@ export default function SignUp() {
     }
 
     try {
-      // Call real verifyEmail
+      // Call verifyEmail API (mocked in useAuth)
       await verifyEmail(email, code);
 
-      // If 2FA was requested at signup (unlikely here), navigate to 2fa; else complete
+      // If 2FA was chosen during signup, navigate to 2FA setup
       if (enable2FA) {
         navigate("/2fa", { state: { email } });
-      } else {
-        setStep("complete");
-        setTimeout(() => navigate("/login"), 2000);
+        return;
       }
+
+      // No 2FA: show complete and redirect to login
+      setStep("complete");
+      setTimeout(() => navigate("/login"), 2000);
     } catch (err) {
       setError(err.message || "Verification failed");
     }
@@ -218,10 +215,10 @@ export default function SignUp() {
                   )}
                   {passwordStrength < 3 && (
                     <ul className="text-xs text-gray-600 mt-1 ml-2 list-none">
-                      {formData.password.length < 6 && <li className="before:content-['•'] before:mr-2">Use at least 6 characters</li>}
-                      {(!/[a-z]/.test(formData.password) || !/[A-Z]/.test(formData.password)) && <li className="before:content-['•'] before:mr-2">Mix uppercase and lowercase letters</li>}
-                      {!/\d/.test(formData.password) && <li className="before:content-['•'] before:mr-2">Add numbers</li>}
-                      {!/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(formData.password) && <li className="before:content-['•'] before:mr-2">Include special characters (!@#$% etc)</li>}
+                      {formData.password.length < 6 && <li>• Use at least 6 characters</li>}
+                      {(!/[a-z]/.test(formData.password) || !/[A-Z]/.test(formData.password)) && <li>• Mix uppercase and lowercase letters</li>}
+                      {!/\d/.test(formData.password) && <li>• Add numbers</li>}
+                      {!/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(formData.password) && <li>• Include special characters (!@#$% etc)</li>}
                     </ul>
                   )}
                 </div>
