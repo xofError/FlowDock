@@ -30,6 +30,11 @@ class PostgresUserRepository(IUserRepository):
         db_user = self.db.query(UserModel).filter(UserModel.id == user_id).first()
         return self._to_entity(db_user) if db_user else None
 
+    def get_all(self) -> list:
+        """Get all users."""
+        db_users = self.db.query(UserModel).all()
+        return [self._to_entity(db_user) for db_user in db_users]
+
     def save(self, user: User) -> User:
         """Create a new user."""
         db_user = UserModel(

@@ -4,9 +4,9 @@
  */
 
 import { useEffect, useRef } from "react";
-import { useAuthContext } from "../context/AuthContext";
-import useFileOperations from "../hooks/useFileOperations";
-import MainLayout from "../layout/MainLayout";
+import { useAuthContext } from "../../context/AuthContext";
+import useFileOperations from "../../hooks/useFileOperations";
+import MainLayout from "../../layout/MainLayout";
 
 export default function Dashboard() {
   const { user, logout } = useAuthContext();

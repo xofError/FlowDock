@@ -119,22 +119,27 @@ def get_user_by_id(
 
 @router.get("/api/users")
 def list_users_paginated(
-    skip: int = 0,
-    limit: int = 10,
     db: Session = Depends(get_db),
+    user_repo = Depends(get_user_repository),
 ):
     """
-    List users with pagination (internal use only).
+    List all users (internal use only).
     
-    Args:
-        skip: Number of users to skip
-        limit: Number of users to return
-        
     Returns:
         List of UserDetailResponse
     """
-    # TODO: Implement proper pagination with repository
-    raise HTTPException(
-        status_code=status.HTTP_501_NOT_IMPLEMENTED,
-        detail="List users endpoint not yet implemented",
-    )
+    users = user_repo.get_all()
+    
+    return [
+        UserDetailResponse(
+            id=str(user.id),
+            email=user.email,
+            full_name=user.full_name,
+            verified=user.verified,
+            twofa_enabled=user.twofa_enabled,
+            storage_used=user.storage_used,
+            storage_limit=user.storage_limit,
+            created_at=user.created_at,
+        )
+        for user in users
+    ]
