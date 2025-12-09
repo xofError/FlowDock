@@ -1,11 +1,3 @@
-// Run dev server (PowerShell):
-// cd D:\tch4x\4xC\FlowDock-main\FlowDock-main\frontend\frontend
-// npm install autoprefixer postcss tailwindcss
-// npm install
-// npm run dev
-// If you still see postcss/autoprefixer errors, create/move postcss.config.cjs to this frontend directory with:
-// module.exports = { plugins: { tailwindcss: {}, autoprefixer: {}, } }
-
 import { Link, useNavigate } from "react-router-dom";
 import { useState } from "react";
 import MainLayout from "../../layout/MainLayout.jsx";
@@ -30,16 +22,16 @@ export default function Login() {
     setIsLoading(true);
 
     try {
+      // Call the real login function which may return totp_required
       const response = await login(email, password, totpCode || null);
 
-      // If server requires TOTP verification step
-      if (response && response.totp_required) {
+      // If backend requires TOTP, navigate to the verify-TOTP page with credentials
+      if (response?.totp_required) {
         navigate("/verify-totp", { state: { email, password } });
-        setIsLoading(false);
         return;
       }
 
-      // Successful login -> api.setTokens is handled in useAuth
+      // Otherwise login succeeded (tokens stored by useAuth), go to dashboard
       navigate("/dashboard");
     } catch (err) {
       setError(err.message || "Login failed. Please try again.");
@@ -118,7 +110,7 @@ export default function Login() {
               Sign In
             </Button>
 
-            <div style={{ marginTop: "12px" }}>
+            <div style={{ marginTop: "12px", display: "flex", flexDirection: "column", gap: "8px" }}>
               <Button 
                 type="button"
                 variant="secondary"
@@ -132,12 +124,24 @@ export default function Login() {
                 <span style={{ marginLeft: "4px", marginRight: "4px" }}> </span>
                 <img src={GoogleIcon} alt="Google" style={{ height: "18px", width: "18px" }} />
               </Button>
+
+              <Button
+                type="button"
+                variant="secondary"
+                loading={isLoading}
+                loadingText="Redirecting..."
+                onClick={() => navigate("/signin-email")}
+                disabled={isLoading}
+                className="flex items-center justify-center"
+              >
+                Sign In with Passcode
+              </Button>
             </div>
           </div>
         </form>
 
         {/* Forgot password */}
-        <div className="text-center">
+        <div className="text-center" style={{ marginTop: "2mm" }}>
           <Link to="/pass-recovery" className="text-[#4c739a] text-sm underline">
             Forgot password?
           </Link>
