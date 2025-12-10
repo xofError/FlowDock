@@ -19294,3 +19294,9 @@ backend/auth_service/app/core/__pycache__/__init__.cpython-313.pyc
 backend/auth_service/app/core/__pycache__/config.cpython-313.pyc
 backend/auth_service/app/core/__pycache__/__init__.cpython-313.pyc
 backend/auth_service/app/presentation/__pycache__/dependencies.cpython-313.pyc
+backend/auth_service/app/core/__pycache__/config.cpython-313.pyc
+backend/auth_service/app/core/config.py
+backend/auth_service/app/core/__pycache__/config.cpython-313.pyc
+docker-compose.yml
+nginx.conf
+docker-compose.yml

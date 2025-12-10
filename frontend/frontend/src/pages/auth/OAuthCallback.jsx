@@ -5,7 +5,7 @@ import { useAuthContext } from "../../context/AuthContext.jsx";
 
 export default function OAuthCallback() {
   const navigate = useNavigate();
-  const { setAuth } = useAuthContext();
+  const { handleOAuthCallback } = useAuthContext();
   const [searchParams] = useSearchParams();
   const [error, setError] = useState(null);
   const [isProcessing, setIsProcessing] = useState(true);
@@ -26,38 +26,26 @@ export default function OAuthCallback() {
         const userId = searchParams.get("user_id");
 
         if (accessToken && userId) {
-          // Store tokens
-          localStorage.setItem("access_token", accessToken);
-          localStorage.setItem("user_id", userId);
+          // Use the OAuth callback handler
+          await handleOAuthCallback(accessToken, userId);
           
-          // Update auth context
-          if (setAuth) {
-            setAuth({
-              isAuthenticated: true,
-              user: { id: userId },
-              accessToken: accessToken,
-            });
-          }
-          
-          // Small delay to ensure storage is updated, then redirect
+          // Redirect to dashboard
           setTimeout(() => {
             navigate("/dashboard", { replace: true });
-          }, 500);
+          }, 300);
         } else {
-          // Check if backend used HttpOnly cookies and just redirect
-          // The refresh token should be in the HttpOnly cookie automatically
-          setTimeout(() => {
-            navigate("/dashboard", { replace: true });
-          }, 500);
+          setError("No authentication tokens received from OAuth provider");
+          setIsProcessing(false);
         }
       } catch (err) {
+        console.error("OAuth callback error:", err);
         setError(err.message || "OAuth callback processing failed");
         setIsProcessing(false);
       }
     };
 
     handleCallback();
-  }, [navigate, searchParams, setAuth]);
+  }, [navigate, searchParams, handleOAuthCallback]);
 
   return (
     <MainLayout>

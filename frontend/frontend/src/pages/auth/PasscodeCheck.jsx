@@ -2,15 +2,14 @@ import { useState, useEffect } from "react";
 import { useNavigate, useLocation, Link } from "react-router-dom";
 import MainLayout from "../../layout/MainLayout.jsx";
 import Button from "../../components/Button.jsx";
-import { api } from "../../services/api.js";
-import useAuth from "../../hooks/useAuth.js";
+import { useAuthContext } from "../../context/AuthContext.jsx";
 
 export default function PasscodeCheck() {
   const navigate = useNavigate();
   const location = useLocation();
   const initialEmail = location.state?.email || "";
   const nextTarget = location.state?.next || null;
-  const { loadUser } = useAuth();
+  const { loadUser, verifyPasscode } = useAuthContext();
 
   const [code, setCode] = useState(["", "", "", "", "", ""]);
   const [loading, setLoading] = useState(false);
@@ -51,17 +50,12 @@ export default function PasscodeCheck() {
     }
     try {
       setLoading(true);
-      // Call backend verify-email endpoint which may return tokens when verifying sign-in passcode
-      const response = await api.verifyEmail(initialEmail, joined);
+      // Verify passcode via useAuth hook
+      const response = await verifyPasscode(initialEmail, joined);
 
-      // If backend returned tokens, set them and load user
-      if (response?.access_token) {
-        api.setTokens(response.access_token, response.refresh_token);
-        localStorage.setItem("access_token", response.access_token);
-        if (response.user_id) {
-          localStorage.setItem("user_id", response.user_id);
-          try { await loadUser(response.user_id); } catch (_) { /* ignore */ }
-        }
+      // Load user data
+      if (response?.user_id) {
+        try { await loadUser(response.user_id); } catch (_) { /* ignore */ }
       }
 
       // Navigate to dashboard on success

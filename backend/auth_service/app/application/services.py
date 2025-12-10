@@ -33,6 +33,8 @@ LOGIN_RATE_LIMIT = 5
 LOGIN_RATE_LIMIT_WINDOW = 300
 OTP_RATE_LIMIT = 3
 OTP_RATE_LIMIT_WINDOW = 300
+PASS_CODE_RATE_LIMIT = 3
+PASS_CODE_RATE_LIMIT_WINDOW = 300
 
 
 class RedisService:
@@ -69,6 +71,21 @@ class RedisService:
     def delete_otp(self, email: str) -> None:
         """Delete OTP from Redis (after verification)."""
         key = f"otp:email:{email}"
+        self.client.delete(key)
+
+    def set_passcode(self, email: str, code: str, expires_in_seconds: int = OTP_EXPIRE_SECONDS) -> None:
+        """Store passcode in Redis with expiry."""
+        key = f"passcode:email:{email}"
+        self.client.setex(key, expires_in_seconds, code)
+
+    def get_passcode(self, email: str) -> Optional[str]:
+        """Retrieve passcode from Redis."""
+        key = f"passcode:email:{email}"
+        return self.client.get(key)
+
+    def delete_passcode(self, email: str) -> None:
+        """Delete passcode from Redis (after verification)."""
+        key = f"passcode:email:{email}"
         self.client.delete(key)
 
 
@@ -276,3 +293,73 @@ class AuthService:
         self.recovery_token_repo.mark_as_used(recovery_token.id)
 
         return updated_user
+
+    # ============ Passcode Sign-In ============
+
+    def generate_passcode(self, email: str) -> str:
+        """Generate and store a 6-digit passcode for magic link sign-in.
+
+        Args:
+            email: User email address
+
+        Returns:
+            Generated 6-digit passcode
+
+        Raises:
+            ValueError: If user not found or rate limit exceeded
+        """
+        # Check rate limit
+        if not self.redis_service.check_rate_limit(
+            f"passcode_request:{email}",
+            PASS_CODE_RATE_LIMIT,
+            PASS_CODE_RATE_LIMIT_WINDOW,
+        ):
+            raise ValueError("Too many passcode requests. Try again later.")
+
+        # Verify user exists
+        user = self.user_repo.get_by_email(email)
+        if not user:
+            raise ValueError("User not found")
+
+        # Generate 6-digit passcode
+        passcode = f"{secrets.randbelow(10**6):06d}"
+
+        # Store in Redis
+        self.redis_service.set_passcode(email, passcode)
+
+        return passcode
+
+    def verify_passcode(self, email: str, code: str) -> User:
+        """Verify a passcode and authenticate the user.
+
+        Args:
+            email: User email
+            code: 6-digit passcode
+
+        Returns:
+            Authenticated User object
+
+        Raises:
+            ValueError: If passcode is invalid or expired
+        """
+        # Check rate limit for verification attempts
+        if not self.redis_service.check_rate_limit(
+            f"passcode_verify:{email}",
+            OTP_RATE_LIMIT,
+            OTP_RATE_LIMIT_WINDOW,
+        ):
+            raise ValueError("Too many verification attempts. Try again later.")
+
+        user = self.user_repo.get_by_email(email)
+        if not user:
+            raise ValueError("User not found")
+
+        # Verify passcode
+        stored_passcode = self.redis_service.get_passcode(email)
+        if not stored_passcode or stored_passcode != code:
+            raise ValueError("Invalid or expired passcode")
+
+        # Delete passcode to prevent reuse
+        self.redis_service.delete_passcode(email)
+
+        return user

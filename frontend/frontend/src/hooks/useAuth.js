@@ -184,6 +184,70 @@ export const useAuth = () => {
     }
   }, []);
 
+  const generatePasscode = useCallback(async (email) => {
+    setLoading(true);
+    setError(null);
+
+    try {
+      const response = await api.generatePasscode(email);
+      return response;
+    } catch (err) {
+      const errorMessage = err.message || "Failed to generate passcode";
+      setError(errorMessage);
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const verifyPasscode = useCallback(async (email, code) => {
+    setLoading(true);
+    setError(null);
+
+    try {
+      const response = await api.verifyPasscode(email, code);
+      
+      // If response has tokens, set them and store user ID
+      if (response.access_token) {
+        api.setTokens(response.access_token, response.refresh_token);
+        if (response.user_id) {
+          localStorage.setItem("user_id", response.user_id);
+        }
+      }
+      
+      setIsAuthenticated(true);
+      return response;
+    } catch (err) {
+      const errorMessage = err.message || "Passcode verification failed";
+      setError(errorMessage);
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const handleOAuthCallback = useCallback(async (accessToken, userId) => {
+    try {
+      // Store tokens in API and localStorage
+      api.setTokens(accessToken, null); // refresh token is in HttpOnly cookie
+      localStorage.setItem("access_token", accessToken);
+      localStorage.setItem("user_id", userId);
+      
+      // Set authenticated state
+      setIsAuthenticated(true);
+      
+      // Load user data
+      const userData = await api.getCurrentUser(userId);
+      setUser(userData);
+      
+      return userData;
+    } catch (err) {
+      const errorMessage = err.message || "OAuth setup failed";
+      setError(errorMessage);
+      throw err;
+    }
+  }, []);
+
   return {
     user,
     loading,
@@ -198,6 +262,9 @@ export const useAuth = () => {
     loadUser,
     setupTOTP,
     verifyTOTP,
+    generatePasscode,
+    verifyPasscode,
+    handleOAuthCallback,
   };
 };
 

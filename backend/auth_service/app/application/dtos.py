@@ -103,6 +103,19 @@ class VerifyResetTokenRequestDTO(BaseModel):
     token: str
 
 
+# ============ Passcode (Magic Link) Sign-In DTOs ============
+
+class GeneratePasscodeRequestDTO(BaseModel):
+    """DTO for requesting a passcode to be sent to email."""
+    email: EmailStr
+
+
+class VerifyPasscodeRequestDTO(BaseModel):
+    """DTO for verifying a passcode."""
+    email: EmailStr
+    code: str = Field(..., min_length=6, max_length=6, description="6-digit passcode")
+
+
 # ============ User DTOs ============
 
 class UserResponseDTO(BaseModel):

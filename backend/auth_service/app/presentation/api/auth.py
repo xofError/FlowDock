@@ -26,6 +26,8 @@ from app.application.dtos import (
     VerifyEmailOTPRequestDTO,
     ForgotPasswordRequestDTO,
     ResetPasswordRequestDTO,
+    GeneratePasscodeRequestDTO,
+    VerifyPasscodeRequestDTO,
 )
 from app.application.services import AuthService
 from app.application.twofa_service import TwoFAService
@@ -528,5 +530,91 @@ def reset_password(
     try:
         service.confirm_password_reset(data.email, data.token, data.new_password)
         return {"detail": "password updated"}
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+
+# ============ Passcode Sign-In (Magic Link) ============
+
+
+@router.post("/generate-passcode")
+def generate_passcode(
+    data: GeneratePasscodeRequestDTO,
+    service: AuthService = Depends(get_auth_service),
+    email_service: IEmailService = Depends(get_email_service),
+):
+    """Generate a 6-digit passcode and send it to user's email.
+    
+    Rate limited: max 3 requests per 5 minutes per email.
+    """
+    try:
+        # Generate passcode
+        passcode = service.generate_passcode(data.email)
+
+        # Send via email
+        subject = "Your FlowDock Sign-In Code"
+        body = f"Your sign-in code is: {passcode}\n\nIt expires in 15 minutes."
+        email_service.send(data.email, subject, body)
+
+        return {"detail": "passcode sent to email"}
+    except ValueError as e:
+        # Prevent email enumeration - return success anyway
+        return {"detail": "passcode sent to email"}
+
+
+@router.post("/verify-passcode", response_model=TokenResponseDTO)
+def verify_passcode(
+    data: VerifyPasscodeRequestDTO,
+    request: Request,
+    response: Response,
+    service: AuthService = Depends(get_auth_service),
+    token_store: RefreshTokenStore = Depends(get_refresh_token_store),
+    token_gen: JWTTokenGenerator = Depends(get_token_generator),
+    db: Session = Depends(get_db),
+):
+    """Verify a 6-digit passcode and authenticate the user.
+    
+    Returns access token and sets refresh token cookie.
+    """
+    try:
+        # Verify passcode
+        user = service.verify_passcode(data.email, data.code)
+
+        # Update login metadata
+        ip_address = request.client.host if request.client else None
+        user.last_login_ip = ip_address
+        user.last_login_at = datetime.now(timezone.utc)
+
+        # Revoke all previous tokens for this user (single-session enforcement)
+        token_store.revoke_all_by_user(user.email)
+
+        # Create tokens
+        access_token = token_gen.create_access_token(user.id)
+        refresh_token, refresh_hash, expiry = token_gen.create_refresh_token(user.id)
+
+        # Store refresh token in Redis
+        token_store.store(refresh_hash, user.email, expiry)
+
+        # Update user with login information in database
+        from app.infrastructure.database.repositories import PostgresUserRepository
+        user_repo = PostgresUserRepository(db)
+        user_repo.update(user)
+
+        # Set refresh token cookie
+        response.set_cookie(
+            key="refresh_token",
+            value=refresh_token,
+            httponly=True,
+            secure=True,
+            samesite="Strict",
+            max_age=int(expiry.timestamp() - datetime.now(timezone.utc).timestamp()),
+        )
+
+        return TokenResponseDTO(
+            access_token=access_token,
+            token_type="bearer",
+            user_id=str(user.id),
+            totp_required=False,
+        )
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))

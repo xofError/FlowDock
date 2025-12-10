@@ -1,14 +1,14 @@
 import { Link, useNavigate } from "react-router-dom";
 import { useState } from "react";
 import MainLayout from "../../layout/MainLayout.jsx";
-import useAuth from "../../hooks/useAuth.js";
+import { useAuthContext } from "../../context/AuthContext.jsx";
 import Button from "../../components/Button.jsx";
 import GoogleIcon from "../../resources/icons/social-google-plus-svgrepo-com.svg";
 import { AUTH_API_URL } from "../../services/api.js";
 
 export default function Login() {
   const navigate = useNavigate();
-  const { login } = useAuth();
+  const { login } = useAuthContext();
   
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -130,7 +130,7 @@ export default function Login() {
                 variant="secondary"
                 loading={isLoading}
                 loadingText="Redirecting..."
-                onClick={() => navigate("/signin-email")}
+                onClick={() => navigate("/sign-in-email")}
                 disabled={isLoading}
                 className="flex items-center justify-center"
               >

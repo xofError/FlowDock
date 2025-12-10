@@ -2,11 +2,11 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import MainLayout from "../../layout/MainLayout.jsx";
 import Button from "../../components/Button.jsx";
-import useAuth from "../../hooks/useAuth.js";
+import { useAuthContext } from "../../context/AuthContext.jsx";
 
 export default function SignInEmail() {
   const navigate = useNavigate();
-  const { requestPasswordReset } = useAuth();
+  const { generatePasscode, error: authError } = useAuthContext();
   const [email, setEmail] = useState("");
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -20,12 +20,12 @@ export default function SignInEmail() {
     }
     setLoading(true);
     try {
-      // ask backend to send a passcode/magic link (using password-reset endpoint as the closest available)
-      await requestPasswordReset(email);
-      // navigate to passcode check that will verify the code and sign in
+      // Generate passcode via useAuth hook
+      await generatePasscode(email);
+      // Navigate to passcode check page
       navigate("/passcode-check", { state: { email, next: "dashboard" } });
     } catch (err) {
-      setError(err?.message || "Failed to send sign-in code");
+      setError(authError || err?.message || "Failed to send sign-in code");
     } finally {
       setLoading(false);
     }

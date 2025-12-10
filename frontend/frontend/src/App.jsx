@@ -1,19 +1,19 @@
 import React, { useEffect } from "react";
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { Routes, Route, Navigate } from "react-router-dom";
 import Login from "./pages/auth/Login.jsx";
 import SignUp from "./pages/auth/SignUp.jsx";
 import VerifyEmail from "./pages/auth/VerifyEmail.jsx";
-import SignInEmail from "./pages/auth/SignInEmail.jsx";
-import PasscodeCheck from "./pages/auth/PasscodeCheck.jsx";
 import VerifyTOTP from "./pages/auth/VerifyTOTP.jsx";
 import OAuthCallback from "./pages/auth/OAuthCallback.jsx";
 import TwoFactorAuth from "./pages/auth/TwoFactorAuth.jsx";
 import PassRecovery from "./pages/auth/PassRecovery.jsx";
 import PassRecoveryVerify from "./pages/auth/PassRecoverVerify.jsx";
 import ResetPassword from "./pages/auth/ResetPassword.jsx";
+import SignInEmail from "./pages/auth/SignInEmail.jsx";
+import PasscodeCheck from "./pages/auth/PasscodeCheck.jsx";
 import AdminUserManagement from "./pages/AdminUserManagement.jsx";
 import Dashboard from "./pages/dashboard/Dashboard.jsx";
-import useAuth from "./hooks/useAuth.js";
+import { useAuthContext } from "./context/AuthContext.jsx";
 
 // Simple Error Boundary to avoid blank page and show error details
 class ErrorBoundary extends React.Component {
@@ -53,16 +53,15 @@ class ErrorBoundary extends React.Component {
   }
 }
 
-// Protected Route - checks if user is authenticated
-function ProtectedRoute({ element }) {
-  // rely on auth hook state (keeps single source of truth)
-  const { isAuthenticated } = useAuth();
+// Protected Route - checks if user is authenticated via context
+function ProtectedRoute({ children }) {
+  const { isAuthenticated } = useAuthContext();
 
   if (!isAuthenticated) {
     return <Navigate to="/login" replace />;
   }
 
-  return element;
+  return children;
 }
 
 function App() {
@@ -73,43 +72,38 @@ function App() {
   }, []);
 
   return (
-    // Ensure Router context exists even if entry file didn't wrap
-    <BrowserRouter>
-      <ErrorBoundary>
-        <Routes>
-          {/* Redirect root to login */}
-          <Route path="/" element={<Navigate to="/login" />} />
+    <ErrorBoundary>
+      <Routes>
+        {/* Redirect root to login */}
+        <Route path="/" element={<Navigate to="/login" />} />
 
-          {/* Passcode check (sent from SignInEmail) */}
-          <Route path="/passcode-check" element={<PasscodeCheck />} />
+        {/* Public pages */}
+        <Route path="/login" element={<Login />} />
+        <Route path="/signup" element={<SignUp />} />
+        <Route path="/verify-email" element={<VerifyEmail />} />
+        <Route path="/verify-totp" element={<VerifyTOTP />} />
+        <Route path="/auth/callback" element={<OAuthCallback />} />
 
-          {/* Simple email-only sign-in page */}
-          <Route path="/signin-email" element={<SignInEmail />} />
+        {/* Passcode/Magic link sign-in flow */}
+        <Route path="/sign-in-email" element={<SignInEmail />} />
+        <Route path="/passcode-check" element={<PasscodeCheck />} />
 
-          {/* Public pages */}
-          <Route path="/login" element={<Login />} />
-          <Route path="/signup" element={<SignUp />} />
-          <Route path="/verify-email" element={<VerifyEmail />} />
-          <Route path="/verify-totp" element={<VerifyTOTP />} />
-          <Route path="/auth/callback" element={<OAuthCallback />} />
+        {/* Password recovery flow */}
+        <Route path="/pass-recovery" element={<PassRecovery />} />
+        <Route path="/pass-recovery-verify" element={<PassRecoveryVerify />} />
+        <Route path="/reset-password" element={<ResetPassword />} />
 
-          {/* Password recovery flow */}
-          <Route path="/pass-recovery" element={<PassRecovery />} />
-          <Route path="/pass-recovery-verify" element={<PassRecoveryVerify />} />
-          <Route path="/reset-password" element={<ResetPassword />} />
+        {/* Protected pages */}
+        <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+        <Route path="/admin/users" element={<ProtectedRoute><AdminUserManagement /></ProtectedRoute>} />
 
-          {/* Protected pages */}
-          <Route path="/dashboard" element={<ProtectedRoute element={<Dashboard />} />} />
-          <Route path="/admin/users" element={<ProtectedRoute element={<AdminUserManagement />} />} />
+        {/* Two-Factor Authentication after signup */}
+        <Route path="/2fa" element={<TwoFactorAuth />} />
 
-          {/* Two-Factor Authentication after signup */}
-          <Route path="/2fa" element={<TwoFactorAuth />} />
-
-          {/* Fallback route to avoid blank page when no route matches */}
-          <Route path="*" element={<div style={{ padding: 20, textAlign: "center" }}>No route matched — app mounted</div>} />
-        </Routes>
-      </ErrorBoundary>
-    </BrowserRouter>
+        {/* Fallback route to avoid blank page when no route matches */}
+        <Route path="*" element={<div style={{ padding: 20, textAlign: "center" }}>No route matched — app mounted</div>} />
+      </Routes>
+    </ErrorBoundary>
   );
 }
 

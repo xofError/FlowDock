@@ -239,6 +239,26 @@ class APIClient {
   }
 
   /**
+   * Generate passcode for magic link sign-in
+   */
+  async generatePasscode(email) {
+    return this.request(`${AUTH_API_URL}/auth/generate-passcode`, {
+      method: "POST",
+      body: JSON.stringify({ email }),
+    });
+  }
+
+  /**
+   * Verify passcode and authenticate
+   */
+  async verifyPasscode(email, code) {
+    return this.request(`${AUTH_API_URL}/auth/verify-passcode`, {
+      method: "POST",
+      body: JSON.stringify({ email, code }),
+    });
+  }
+
+  /**
    * Get current user info
    */
   async getCurrentUser(userId) {
