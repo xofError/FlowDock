@@ -444,9 +444,10 @@ async def oauth_callback(
         # Store refresh token hash with user email and expiry
         token_store.store(refresh_token_hash, user.email, expiry)
 
-        # Create redirect response with tokens
+        # Create redirect response to OAuthCallback component first
+        # (not directly to dashboard) so tokens can be properly processed
         redirect_response = RedirectResponse(
-            url=f"{settings.frontend_url}/#/dashboard?access_token={access_token}&user_id={user.id}",
+            url=f"{settings.frontend_url}/#/auth/callback?access_token={access_token}&user_id={user.id}",
             status_code=302,
         )
         

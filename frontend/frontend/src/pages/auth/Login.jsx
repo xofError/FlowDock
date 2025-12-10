@@ -1,5 +1,5 @@
 import { Link, useNavigate } from "react-router-dom";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import MainLayout from "../../layout/MainLayout.jsx";
 import { useAuthContext } from "../../context/AuthContext.jsx";
 import Button from "../../components/Button.jsx";
@@ -8,13 +8,27 @@ import { AUTH_API_URL } from "../../services/api.js";
 
 export default function Login() {
   const navigate = useNavigate();
-  const { login } = useAuthContext();
+  const { login, isAuthenticated } = useAuthContext();
   
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [totpCode, setTotpCode] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
+
+  // Redirect to dashboard if already authenticated
+  useEffect(() => {
+    if (isAuthenticated) {
+      navigate("/dashboard", { replace: true });
+    }
+  }, [isAuthenticated, navigate]);
+
+  // Redirect to dashboard if already authenticated
+  useEffect(() => {
+    if (isAuthenticated) {
+      navigate("/dashboard", { replace: true });
+    }
+  }, [isAuthenticated, navigate]);
 
   const handleSignIn = async (e) => {
     e.preventDefault();

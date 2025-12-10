@@ -59,9 +59,14 @@ export const useAuth = () => {
       // Set authenticated state
       setIsAuthenticated(true);
 
-      // Load user data
-      const userData = await api.getCurrentUser(response.user_id);
-      setUser(userData);
+      // Wrap user profile fetch in try-catch so login succeeds even if it fails
+      try {
+        const userData = await api.getCurrentUser(response.user_id);
+        setUser(userData);
+      } catch (profileErr) {
+        console.warn("Could not load user profile immediately:", profileErr);
+        // We do NOT throw here. Login succeeds even if profile load fails.
+      }
 
       return response;
     } catch (err) {
