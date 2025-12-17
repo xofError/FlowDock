@@ -13,6 +13,7 @@ services:
     depends_on:
       - frontend
       - auth_service
+      - media_service
 
   # --- DATABASES ---
   postgres:
@@ -53,21 +54,62 @@ services:
       timeout: 5s
       retries: 5
 
-  pgadmin:
-    image: dpage/pgadmin4
-    container_name: flowdock_pgadmin
+  mongodb:
+    image: mongo:7
+    container_name: flowdock_mongodb
+    restart: always
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodata:/data/db
+    networks:
+      - flowdock_internal
+      - flowdock_public
+    command: mongod --noauth
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+
+  rabbitmq:
+    image: rabbitmq:4.0-management
+    container_name: flowdock_rabbitmq
     restart: always
     environment:
-      PGADMIN_DEFAULT_EMAIL: admin@pgadmin.com
-      PGADMIN_DEFAULT_PASSWORD: admin
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
     ports:
-      - "5050:80"
+      - "5672:5672"
+      - "15672:15672"
+    volumes:
+      - rabbitmqdata:/var/lib/rabbitmq
     networks:
-      - flowdock_public
       - flowdock_internal
-    depends_on:
-      postgres:
-        condition: service_healthy
+      - flowdock_public
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+
+  # pgadmin:
+  #   image: dpage/pgadmin4
+  #   container_name: flowdock_pgadmin
+  #   restart: always
+  #   environment:
+  #     PGADMIN_DEFAULT_EMAIL: admin@pgadmin.com
+  #     PGADMIN_DEFAULT_PASSWORD: admin
+  #   ports:
+  #     - "5050:80"
+  #   networks:
+  #     - flowdock_public
+  #     - flowdock_internal
+  #   depends_on:
+  #     postgres:
+  #       condition: service_healthy
 
   # --- APP SERVICES ---
   frontend:
@@ -121,6 +163,39 @@ services:
       redis:
         condition: service_healthy
 
+  media_service:
+    build:
+      context: ./backend/media_service
+      dockerfile: Dockerfile
+    container_name: flowdock_media_service
+    restart: always
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: FlowDock
+      MONGO_URL: "mongodb://mongodb:27017/flowdock"
+      MONGO_DB_NAME: "flowdock"
+      RABBITMQ_URL: "amqp://guest:guest@rabbitmq:5672/"
+      RABBITMQ_QUEUE: "file_events"
+      ENCRYPTION_MASTER_KEY: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+      LOG_LEVEL: "INFO"
+      # Auth Service URL for user lookups
+      AUTH_SERVICE_URL: "http://auth_service:8000"
+    ports:
+      - "8001:8000"
+    networks:
+      - flowdock_public
+      - flowdock_internal
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+
   # --- MONITORING ---
   prometheus:
     image: prom/prometheus:latest
@@ -154,6 +229,8 @@ services:
 volumes:
   pgdata:
   redisdata:
+  mongodata:
+  rabbitmqdata:
   prometheus_data:
   grafana_data:
   pipcache:

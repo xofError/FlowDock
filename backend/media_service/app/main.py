@@ -8,7 +8,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import files as files_router
+from app.presentation.api import files as files_router
 from app.database import connect_to_mongo, close_mongo_connection, init_db
 from app.services import rabbitmq_service
 from app.services.share_event_publisher import get_share_event_publisher
