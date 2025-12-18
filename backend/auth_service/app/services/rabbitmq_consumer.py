@@ -37,8 +37,21 @@ class RabbitMQConsumer:
             params.heartbeat = 60
             self._connection = pika.BlockingConnection(params)
             self._channel = self._connection.channel()
+            
+            # Declare queue
             self._channel.queue_declare(queue=self.queue, durable=True)
-            logger.info("✓ RabbitMQ consumer connected")
+            logger.info(f"✓ Declared queue '{self.queue}'")
+            
+            # Bind queue to exchange with routing key
+            # The publisher publishes to 'flowdock.events' exchange with routing_key 'file_events'
+            exchange_name = "flowdock.events"
+            self._channel.exchange_declare(exchange=exchange_name, exchange_type="topic", durable=True)
+            logger.info(f"✓ Declared exchange '{exchange_name}'")
+            
+            self._channel.queue_bind(exchange=exchange_name, queue=self.queue, routing_key="file_events")
+            logger.info(f"✓ Bound queue '{self.queue}' to exchange '{exchange_name}' with routing_key 'file_events'")
+            
+            logger.info("✓ RabbitMQ consumer connected and ready")
             return True
         except Exception as e:
             logger.error(f"✗ RabbitMQ consumer connect failed: {e}")
@@ -48,10 +61,15 @@ class RabbitMQConsumer:
 
     def _process_message(self, ch, method, properties, body):
         try:
+            logger.debug(f"Raw message received: {body}")
             payload = json.loads(body)
+            logger.debug(f"Parsed payload: {payload}")
+            
             event = payload.get("event") or payload.get("event_type") or payload.get("type")
             user_id_raw = payload.get("user_id")
             file_size = int(payload.get("file_size", 0))
+
+            logger.info(f"📨 Processing: event={event}, user_id={user_id_raw}, size={file_size}")
 
             # Normalize user_id to UUID instance if possible (repositories expect UUID)
             import uuid
@@ -70,18 +88,23 @@ class RabbitMQConsumer:
                 quota = StorageQuotaService(user_repo)
 
                 if event == "FILE_UPLOADED":
-                    logger.info(f"Received FILE_UPLOADED for user={user_id}, size={file_size}")
-                    quota.deduct_quota(user_id, file_size)
+                    logger.info(f"💾 FILE_UPLOADED: deducting {file_size} bytes from user {user_id}")
+                    result = quota.deduct_quota(user_id, file_size)
+                    logger.info(f"✓ Deduction result: {result}")
                 elif event == "FILE_DELETED":
-                    logger.info(f"Received FILE_DELETED for user={user_id}, size={file_size}")
-                    quota.add_quota(user_id, file_size)
+                    logger.info(f"🗑️  FILE_DELETED: adding back {file_size} bytes to user {user_id}")
+                    result = quota.add_quota(user_id, file_size)
+                    logger.info(f"✓ Addition result: {result}")
                 else:
-                    logger.debug(f"Ignoring unknown event type: {event}")
+                    logger.warning(f"⚠️  Ignoring unknown event type: {event}")
+            except Exception as db_error:
+                logger.error(f"✗ Database operation failed: {db_error}", exc_info=True)
             finally:
                 db.close()
 
             # Acknowledge message
             ch.basic_ack(delivery_tag=method.delivery_tag)
+            logger.info(f"✓ Message acknowledged")
 
         except Exception as e:
             logger.error(f"Error processing rabbitmq message: {e}", exc_info=True)
