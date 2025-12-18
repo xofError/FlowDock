@@ -1,6 +1,6 @@
 """
 FlowDock Media Service - Main Application
-Handles file uploads, downloads, and metadata storage with async communication.
+Handles file uploads, downloads, and metadata storage.
 """
 
 import logging
@@ -10,8 +10,6 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.presentation.api import files as files_router
 from app.database import connect_to_mongo, close_mongo_connection, init_db
-from app.services import rabbitmq_service
-from app.services.share_event_publisher import get_share_event_publisher
 from app.core.config import settings
 # Import models to register them with SQLAlchemy Base
 from app.models import share
@@ -44,13 +42,6 @@ async def lifespan(app: FastAPI):
         # Connect to MongoDB
         await connect_to_mongo()
         
-        # Connect to RabbitMQ (for file events)
-        await rabbitmq_service.connect_rabbitmq()
-        
-        # Connect to RabbitMQ Share Event Publisher (for sharing sync events)
-        share_publisher = get_share_event_publisher()
-        logger.info("✓ Share Event Publisher initialized")
-        
         logger.info("=" * 70)
         logger.info(f"✓ {settings.SERVICE_NAME} v{settings.SERVICE_VERSION}")
         logger.info("=" * 70)
@@ -65,7 +56,6 @@ async def lifespan(app: FastAPI):
     try:
         logger.info("🛑 Shutting down Media Service...")
         await close_mongo_connection()
-        await rabbitmq_service.close_rabbitmq()
         logger.info("✓ Shutdown complete")
     except Exception as e:
         logger.error(f"✗ Shutdown error: {e}")

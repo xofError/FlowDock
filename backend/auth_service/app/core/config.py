@@ -15,9 +15,6 @@ class Settings(BaseSettings):
     
     # Frontend redirect URL after OAuth
     frontend_url: str = "http://localhost:5173"
-    
-    # RabbitMQ
-    RABBITMQ_URL: str = "amqp://guest:guest@rabbitmq:5672/"
 
     class Config:
         env_file = ".env"

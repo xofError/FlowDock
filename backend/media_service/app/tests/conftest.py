@@ -13,8 +13,7 @@ os.environ.setdefault("POSTGRES_PORT", "5432")
 os.environ.setdefault("POSTGRES_DB", "test_db")
 os.environ.setdefault("MONGO_URL", "mongodb://localhost:27017")
 os.environ.setdefault("MONGO_DB_NAME", "test_media")
-os.environ.setdefault("RABBITMQ_URL", "amqp://guest:guest@localhost:5672/")
-os.environ.setdefault("RABBITMQ_QUEUE", "file_events")
+os.environ.setdefault("AUTH_SERVICE_URL", "http://localhost:8000")
 
 # Ensure the package `app` (backend/media_service/app) is importable when tests
 # are executed from the tests directory. We insert the parent directory of
@@ -29,8 +28,7 @@ def set_env_vars(monkeypatch):
     still providing the defaults above."""
     monkeypatch.setenv("MONGO_URL", os.environ["MONGO_URL"])
     monkeypatch.setenv("MONGO_DB_NAME", os.environ["MONGO_DB_NAME"])
-    monkeypatch.setenv("RABBITMQ_URL", os.environ["RABBITMQ_URL"])
-    monkeypatch.setenv("RABBITMQ_QUEUE", os.environ["RABBITMQ_QUEUE"])
+    monkeypatch.setenv("AUTH_SERVICE_URL", os.environ["AUTH_SERVICE_URL"])
     monkeypatch.setenv("POSTGRES_USER", os.environ["POSTGRES_USER"])
     monkeypatch.setenv("POSTGRES_PASSWORD", os.environ["POSTGRES_PASSWORD"])
     monkeypatch.setenv("POSTGRES_HOST", os.environ["POSTGRES_HOST"])

@@ -4,15 +4,20 @@ Constructs the service object graph for endpoints to use.
 """
 
 import logging
+import os
 from fastapi import Depends
 
 from app.database import get_fs
 from app.application.services import FileService
 from app.infrastructure.database.mongo_repository import MongoGridFSRepository
 from app.infrastructure.security.encryption import AESCryptoService
-from app.infrastructure.messaging.rabbitmq_publisher import RabbitMQEventPublisher
+from app.infrastructure.messaging.no_op_publisher import NoOpEventPublisher
+from app.infrastructure.http.auth_client import HttpQuotaRepository
 
 logger = logging.getLogger(__name__)
+
+# Auth Service URL from environment or default to Docker internal network
+AUTH_SERVICE_URL = os.getenv("AUTH_SERVICE_URL", "http://auth_service:8000")
 
 
 async def get_file_service() -> FileService:
@@ -30,13 +35,15 @@ async def get_file_service() -> FileService:
         fs = get_fs()
         repo = MongoGridFSRepository(fs)
         crypto = AESCryptoService()
-        publisher = RabbitMQEventPublisher()
+        publisher = NoOpEventPublisher()  # No-op since we removed RabbitMQ
+        quota_repo = HttpQuotaRepository(AUTH_SERVICE_URL)
 
         # Application service with injected dependencies
         service = FileService(
             repo=repo,
             crypto=crypto,
             event_publisher=publisher,
+            quota_repo=quota_repo,
         )
 
         return service

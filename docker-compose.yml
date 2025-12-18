@@ -73,28 +73,6 @@ services:
       retries: 5
       start_period: 60s
 
-  rabbitmq:
-    image: rabbitmq:4.0-management
-    container_name: flowdock_rabbitmq
-    restart: always
-    environment:
-      RABBITMQ_DEFAULT_USER: guest
-      RABBITMQ_DEFAULT_PASS: guest
-    ports:
-      - "5672:5672"
-      - "15672:15672"
-    volumes:
-      - rabbitmqdata:/var/lib/rabbitmq
-    networks:
-      - flowdock_internal
-      - flowdock_public
-    healthcheck:
-      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 40s
-
   pgadmin:
     image: dpage/pgadmin4
     container_name: flowdock_pgadmin
@@ -177,11 +155,9 @@ services:
       POSTGRES_DB: FlowDock
       MONGO_URL: "mongodb://mongodb:27017/flowdock"
       MONGO_DB_NAME: "flowdock"
-      RABBITMQ_URL: "amqp://guest:guest@rabbitmq:5672/"
-      RABBITMQ_QUEUE: "file_events"
       ENCRYPTION_MASTER_KEY: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
       LOG_LEVEL: "INFO"
-      # Auth Service URL for user lookups
+      # Auth Service URL for user lookups and quota updates
       AUTH_SERVICE_URL: "http://auth_service:8000"
     ports:
       - "8001:8000"
@@ -190,8 +166,6 @@ services:
       - flowdock_internal
     depends_on:
       mongodb:
-        condition: service_healthy
-      rabbitmq:
         condition: service_healthy
       postgres:
         condition: service_healthy
@@ -230,7 +204,6 @@ volumes:
   pgdata:
   redisdata:
   mongodata:
-  rabbitmqdata:
   prometheus_data:
   grafana_data:
   pipcache:

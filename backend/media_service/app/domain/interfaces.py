@@ -212,3 +212,24 @@ class IEventPublisher(ABC):
             file_id: The downloaded file identifier
         """
         pass
+
+
+class IQuotaRepository(ABC):
+    """
+    Abstract contract for updating user storage quota.
+    Implementations can use HTTP calls, direct DB access, messaging, etc.
+    """
+
+    @abstractmethod
+    async def update_usage(self, user_id: str, size_delta: int) -> None:
+        """
+        Update the user's storage quota in the Auth Service.
+        
+        This is called whenever a file is uploaded or deleted to keep
+        the user's storage_used counter in sync.
+        
+        Args:
+            user_id: The user whose quota should be updated
+            size_delta: The change in storage (positive for upload, negative for delete)
+        """
+        pass

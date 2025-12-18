@@ -83,8 +83,7 @@ async def health_check():
     return HealthCheckResponse(
         status="healthy",
         service="media_service",
-        mongodb="connected",
-        rabbitmq="connected"
+        mongodb="connected"
     )
 
 

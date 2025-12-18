@@ -23,12 +23,11 @@ class Settings:
     )
     MONGO_DB_NAME: str = "flowdock_media"
     
-    # RabbitMQ
-    RABBITMQ_URL: str = os.getenv(
-        "RABBITMQ_URL",
-        "amqp://guest:guest@rabbitmq:5672/"
+    # Auth Service (for quota updates)
+    AUTH_SERVICE_URL: str = os.getenv(
+        "AUTH_SERVICE_URL",
+        "http://auth_service:8000"
     )
-    RABBITMQ_QUEUE: str = "file_events"
     
     # File validation
     ALLOWED_MIMES: List[str] = [

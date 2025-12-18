@@ -143,3 +143,61 @@ def list_users_paginated(
         )
         for user in users
     ]
+
+
+# ============ Internal APIs (Called by Media Service) ============
+
+class QuotaUpdate(BaseModel):
+    """DTO for internal quota update requests."""
+    user_id: str
+    size_delta: int
+
+
+@router.post("/internal/quota/update", status_code=status.HTTP_200_OK)
+def update_user_quota(
+    data: QuotaUpdate,
+    db: Session = Depends(get_db),
+    user_repo = Depends(get_user_repository),
+):
+    """
+    Internal endpoint called by Media Service to update storage usage.
+    
+    This is meant to be called only from within the backend (Media Service)
+    to notify about file uploads/deletions.
+    
+    Args:
+        data: QuotaUpdate DTO with user_id and size_delta (positive for upload, negative for delete)
+        
+    Returns:
+        Success response with updated quota info
+        
+    Raises:
+        HTTPException 500: If update fails
+    """
+    try:
+        user = user_repo.get_by_id(data.user_id)
+        
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"User with ID '{data.user_id}' not found",
+            )
+        
+        # Update storage usage
+        user.storage_used += data.size_delta
+        user_repo.update(user)
+        
+        return {
+            "status": "success",
+            "user_id": data.user_id,
+            "delta": data.size_delta,
+            "storage_used": user.storage_used,
+            "storage_limit": user.storage_limit,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
+        )

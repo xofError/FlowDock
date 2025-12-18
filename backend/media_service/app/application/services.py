@@ -12,6 +12,7 @@ from app.domain.interfaces import (
     IFileRepository,
     ICryptoService,
     IEventPublisher,
+    IQuotaRepository,
 )
 from app.utils.validators import validate_file_type, validate_file_size
 
@@ -29,6 +30,7 @@ class FileService:
         repo: IFileRepository,
         crypto: ICryptoService,
         event_publisher: IEventPublisher,
+        quota_repo: IQuotaRepository,
     ):
         """
         Initialize service with dependencies (Dependency Injection).
@@ -37,10 +39,12 @@ class FileService:
             repo: File repository implementation
             crypto: Crypto service implementation
             event_publisher: Event publisher implementation
+            quota_repo: Quota repository for updating storage usage
         """
         self.repo = repo
         self.crypto = crypto
         self.publisher = event_publisher
+        self.quota_repo = quota_repo
 
     # ========================================================================
     # Upload Operations
@@ -90,8 +94,8 @@ class FileService:
             # 4. Save via repository
             file_id = await self.repo.save_file_stream(file, byte_stream())
 
-            # 5. Publish event
-            await self.publisher.publish_upload(user_id, file_id, len(file_content))
+            # 5. Update storage quota
+            await self.quota_repo.update_usage(user_id, len(file_content))
 
             logger.info(f"✓ Uploaded unencrypted file {file_id}")
             return True, file_id, None
@@ -158,8 +162,8 @@ class FileService:
             file_id = await self.repo.save_file_stream(file_entity, encrypted_stream)
             file_entity.id = file_id
 
-            # 7. Publish event
-            await self.publisher.publish_upload(user_id, file_id, original_size)
+            # 7. Update storage quota
+            await self.quota_repo.update_usage(user_id, original_size)
 
             logger.info(f"✓ Uploaded encrypted file {file_id} (original: {original_size} bytes)")
             return True, file_id, original_size, None
@@ -308,8 +312,8 @@ class FileService:
             if not success:
                 return False, None, "Deletion failed"
 
-            # 3. Publish event
-            await self.publisher.publish_delete(requester_user_id, file_id, file.size)
+            # 3. Update storage quota (negative delta for deletion)
+            await self.quota_repo.update_usage(requester_user_id, -file.size)
 
             logger.info(f"✓ Deleted file {file_id}")
             return True, file.size, None

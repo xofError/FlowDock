@@ -48,7 +48,6 @@ class HealthCheckResponse(BaseModel):
     status: str = Field(default="healthy", description="Service health status")
     service: str = Field(..., description="Service name")
     mongodb: str = Field(default="connected", description="MongoDB status")
-    rabbitmq: str = Field(default="connected", description="RabbitMQ status")
 
 
 class ErrorResponse(BaseModel):
