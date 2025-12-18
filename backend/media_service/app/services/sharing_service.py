@@ -94,6 +94,14 @@ class SharingService:
                 detail="Unable to reach Auth Service"
             )
 
+        # Prevent sharing with self by comparing resolved user IDs
+        try:
+            if str(target_user_id) == str(owner_id):
+                raise HTTPException(status_code=400, detail="Cannot share file with yourself")
+        except Exception:
+            # If comparison fails for any reason, continue to validation below
+            pass
+
         # 3. Normalize/validate expires_at and create share record
         # If expires_at was auto-filled by Swagger to current time, treat as not provided
         now_utc = datetime.now(timezone.utc)

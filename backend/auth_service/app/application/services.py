@@ -119,10 +119,29 @@ class AuthService:
         """
         # Business rule: User cannot register twice
         existing = self.user_repo.get_by_email(data.email)
-        if existing and existing.verified:
+        if existing:
+            # ✅ FIX: If user exists but is NOT verified, treat it as a retry
+            if not existing.verified:
+                # Optional: Update password or name if they changed it
+                hashed_pw = self.password_hasher.hash(data.password)
+                existing.password_hash = hashed_pw
+                existing.full_name = data.full_name
+                updated = self.user_repo.update(existing)
+
+                # Generate and store a fresh OTP so the user can verify again
+                try:
+                    # This will check rate limits and store OTP in Redis
+                    self.generate_email_otp(data.email)
+                except Exception:
+                    # Don't fail the flow if OTP generation fails here; caller can retry
+                    pass
+
+                return updated
+
+            # If verified, raise the standard error
             raise ValueError("User already exists")
 
-        # Hash the password
+        # Hash the password for a new user
         hashed_pw = self.password_hasher.hash(data.password)
 
         # Create domain entity
@@ -215,9 +234,15 @@ class AuthService:
         if not self.password_hasher.verify(password, user.password_hash):
             raise ValueError("Invalid credentials")
 
-        # Set login metadata
+        # Set login metadata and persist it
         user.last_login_ip = ip_address
         user.last_login_at = datetime.now(timezone.utc)
+
+        try:
+            self.user_repo.update(user)
+        except Exception:
+            # If persisting login metadata fails, still return the authenticated user
+            pass
 
         return user
 
@@ -362,4 +387,10 @@ class AuthService:
         # Delete passcode to prevent reuse
         self.redis_service.delete_passcode(email)
 
-        return user
+        # Update last login metadata and persist
+        user.last_login_at = datetime.now(timezone.utc)
+        try:
+            updated = self.user_repo.update(user)
+            return updated
+        except Exception:
+            return user

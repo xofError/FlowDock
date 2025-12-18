@@ -221,6 +221,7 @@ class FileService:
         self,
         file_id: str,
         requester_user_id: str,
+        allow_shared: bool = False,
     ) -> Tuple[bool, Optional[AsyncGenerator], Optional[dict], Optional[str]]:
         """
         Download and decrypt file if encrypted.
@@ -238,8 +239,8 @@ class FileService:
             if not file:
                 return False, None, None, "File not found"
 
-            # 2. Check ownership
-            if requester_user_id != "public_link" and file.owner_id != requester_user_id:
+            # 2. Check ownership or allowed shared access
+            if requester_user_id != "public_link" and file.owner_id != requester_user_id and not allow_shared:
                 return False, None, None, "Access denied"
 
             # 3. Get file stream

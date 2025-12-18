@@ -19323,3 +19323,10 @@ backend/auth_service/DELIVERABLES.txt
 .python-version
 main.py
 uv.lock
+.vscode/settings.json
+.gitignore
+backend/media_service/app/__pycache__/database.cpython-313.pyc
+backend/media_service/app/__pycache__/main.cpython-313.pyc
+backend/media_service/app/application/__pycache__/__init__.cpython-313.pyc
+backend/media_service/app/application/__pycache__/dtos.cpython-313.pyc
+backend/media_service/app/application/__pycache__/services.cpython-313.pyc

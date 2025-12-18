@@ -19,6 +19,9 @@ from app.application.dtos import (
     HealthCheckResponse,
 )
 from app.services.sharing_service import SharingService
+from datetime import datetime, timezone
+import httpx
+import os
 from app.schemas.sharing import (
     ShareCreate,
     ShareLinkCreate,
@@ -37,6 +40,7 @@ from app.utils.security import (
 )
 from app.models.share import Share, ShareLink
 from sqlalchemy.orm import Session
+import uuid
 from app.database import get_db
 
 
@@ -151,6 +155,7 @@ async def download_file(
     token: str = Query(None, description="Download token for public links"),
     current_user_id: Optional[str] = Depends(get_optional_user_id),
     service: FileService = Depends(get_file_service),
+    db: Session = Depends(get_db),
 ):
     """
     Download and decrypt a file.
@@ -189,10 +194,36 @@ async def download_file(
         if not is_authorized:
             raise HTTPException(status_code=403, detail="Permission denied")
 
-        # Download using injected service
+        # If requester is logged in user, allow shared access if a direct share exists
+        allow_shared = False
+        if requester_user_id and requester_user_id != "public_link":
+            # First, try to get metadata to verify ownership quickly
+            ok, meta, err = await service.get_file_metadata(file_id=file_id, requester_user_id=requester_user_id)
+            if ok:
+                # requester is owner; proceed normally
+                allow_shared = False
+            else:
+                # Not owner; check direct shares in DB
+                try:
+                    import uuid
+                    uid = uuid.UUID(requester_user_id)
+                except Exception:
+                    uid = None
+
+                if uid:
+                    share = db.query(Share).filter(
+                        Share.file_id == file_id,
+                        Share.shared_with_user_id == uid,
+                        Share.expires_at > datetime.now(timezone.utc)
+                    ).first()
+                    if share:
+                        allow_shared = True
+
+        # Download using injected service; allow shared access when applicable
         success, file_stream, metadata, error = await service.download_file(
             file_id=file_id,
-            requester_user_id=requester_user_id
+            requester_user_id=requester_user_id,
+            allow_shared=allow_shared,
         )
 
         if not success:
@@ -395,7 +426,12 @@ async def get_files_shared_with_user(
         )
 
     try:
-        shares = db.query(Share).filter(Share.shared_with_user_id == user_id).all()
+        try:
+            uid = uuid.UUID(user_id)
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid user_id")
+
+        shares = db.query(Share).filter(Share.shared_with_user_id == uid).all()
 
         result = []
         for share in shares:
@@ -435,7 +471,12 @@ async def get_files_shared_by_user(
         )
 
     try:
-        shares = db.query(Share).filter(Share.shared_by_user_id == user_id).all()
+        try:
+            uid = uuid.UUID(user_id)
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid user_id")
+
+        shares = db.query(Share).filter(Share.shared_by_user_id == uid).all()
 
         result = []
         for share in shares:
@@ -475,7 +516,12 @@ async def get_user_share_links(
         )
 
     try:
-        links = db.query(ShareLink).filter(ShareLink.created_by_user_id == user_id).all()
+        try:
+            uid = uuid.UUID(user_id)
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid user_id")
+
+        links = db.query(ShareLink).filter(ShareLink.created_by_user_id == uid).all()
 
         result = []
         for link in links:
@@ -510,11 +556,28 @@ async def share_file_with_user(
 ):
     """Share a file with a specific user by email"""
     try:
+        # Verify the requester actually owns the file before creating share
+        service = await get_file_service()
+        ok, metadata, err = await service.get_file_metadata(data.file_id, requester_user_id=current_user_id)
+        if not ok:
+            raise HTTPException(status_code=403, detail="Only file owner can create shares")
+
+        # Look up owner email from Auth Service for record-keeping
+        auth_service_url = os.getenv("AUTH_SERVICE_URL", "http://localhost:8001")
+        owner_email = None
+        try:
+            async with httpx.AsyncClient() as client:
+                r = await client.get(f"{auth_service_url}/api/users/{current_user_id}", timeout=5.0)
+                if r.status_code == 200:
+                    owner_email = r.json().get("email")
+        except Exception:
+            owner_email = None
+
         share = await SharingService.share_file(
             db,
             owner_id=current_user_id,
-            owner_email="owner@flowdock.com",
-            data=data
+            owner_email=owner_email or "",
+            data=data,
         )
 
         return ShareFileResponse(
@@ -530,20 +593,26 @@ async def share_file_with_user(
 
 
 @router.post("/share/link", response_model=ShareLinkResponse)
-def create_public_share_link(
+async def create_public_share_link(
     data: ShareLinkCreate,
     db: Session = Depends(get_db),
     current_user_id: str = Depends(get_current_user_id)
 ):
     """Create a public share link for a file"""
     try:
+        # Verify requester owns the file before creating a public link
+        service = await get_file_service()
+        ok, metadata, err = await service.get_file_metadata(data.file_id, requester_user_id=current_user_id)
+        if not ok:
+            raise HTTPException(status_code=403, detail="Only file owner can create share links")
+
         link = SharingService.create_link(db, current_user_id, data)
 
+        # Return fields matching `ShareLinkResponse` schema
         return ShareLinkResponse(
-            share_id=str(link.id),
-            link=f"http://localhost:8001/media/s/{link.token}/access",
+            link_url=f"http://localhost:8001/media/s/{link.token}/access",
             expires_at=link.expires_at,
-            password_protected=bool(link.password_hash)
+            has_password=bool(link.password_hash),
         )
     except HTTPException:
         raise

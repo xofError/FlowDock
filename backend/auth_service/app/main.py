@@ -14,6 +14,7 @@ from app.application.user_util_service import UserUtilService
 from app.infrastructure.database.repositories import PostgresUserRepository
 from app.infrastructure.security.security import ArgonPasswordHasher
 from app.infrastructure.logging import setup_logging
+from app.services.rabbitmq_consumer import start_consumer, stop_consumer
 
 logger = logging.getLogger(__name__)
 
@@ -43,10 +44,21 @@ async def lifespan(app: FastAPI):
         logger.warning(f"Could not create test user: {e}")
     
     logger.info("Auth Service startup complete")
+    # Start background RabbitMQ consumer to listen for file events
+    try:
+        start_consumer()
+        logger.info("✓ RabbitMQ consumer started")
+    except Exception as e:
+        logger.warning(f"Could not start RabbitMQ consumer: {e}")
     yield
     
     # Shutdown
     logger.info("Auth Service shutting down")
+    # Stop RabbitMQ consumer if running
+    try:
+        stop_consumer()
+    except Exception:
+        pass
 
 
 app = FastAPI(title="Auth Service", lifespan=lifespan)
