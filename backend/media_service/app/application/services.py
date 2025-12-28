@@ -13,6 +13,7 @@ from app.domain.interfaces import (
     ICryptoService,
     IEventPublisher,
     IQuotaRepository,
+    IActivityLogger,
 )
 from app.utils.validators import validate_file_type, validate_file_size
 
@@ -31,6 +32,7 @@ class FileService:
         crypto: ICryptoService,
         event_publisher: IEventPublisher,
         quota_repo: IQuotaRepository,
+        activity_logger: IActivityLogger = None,
     ):
         """
         Initialize service with dependencies (Dependency Injection).
@@ -40,11 +42,13 @@ class FileService:
             crypto: Crypto service implementation
             event_publisher: Event publisher implementation
             quota_repo: Quota repository for updating storage usage
+            activity_logger: Optional activity logger for audit trails
         """
         self.repo = repo
         self.crypto = crypto
         self.publisher = event_publisher
         self.quota_repo = quota_repo
+        self.activity_logger = activity_logger
 
     # ========================================================================
     # Upload Operations
@@ -56,6 +60,7 @@ class FileService:
         filename: str,
         file_content: bytes,
         content_type: str,
+        ip_address: Optional[str] = None,
     ) -> Tuple[bool, Optional[str], Optional[str]]:
         """
         Upload an unencrypted file.
@@ -65,6 +70,7 @@ class FileService:
             filename: Original filename
             file_content: File bytes
             content_type: MIME type
+            ip_address: Optional client IP for logging
             
         Returns:
             Tuple of (success, file_id, error_message)
@@ -97,6 +103,20 @@ class FileService:
             # 5. Update storage quota
             await self.quota_repo.update_usage(user_id, len(file_content))
 
+            # 6. Log activity
+            if self.activity_logger:
+                await self.activity_logger.log_activity(
+                    user_id,
+                    "FILE_UPLOAD",
+                    {
+                        "file_id": file_id,
+                        "filename": filename,
+                        "size": len(file_content),
+                        "content_type": content_type,
+                    },
+                    ip_address,
+                )
+
             logger.info(f"✓ Uploaded unencrypted file {file_id}")
             return True, file_id, None
 
@@ -108,6 +128,7 @@ class FileService:
         self,
         user_id: str,
         file: UploadFile,
+        ip_address: Optional[str] = None,
     ) -> Tuple[bool, Optional[str], int, Optional[str]]:
         """
         Upload file with envelope encryption using streaming.
@@ -115,6 +136,7 @@ class FileService:
         Args:
             user_id: Owner of the file
             file: UploadFile object (streaming)
+            ip_address: Optional client IP for logging
             
         Returns:
             Tuple of (success, file_id, original_size, error_message)
@@ -164,6 +186,21 @@ class FileService:
 
             # 7. Update storage quota
             await self.quota_repo.update_usage(user_id, original_size)
+
+            # 8. Log activity
+            if self.activity_logger:
+                await self.activity_logger.log_activity(
+                    user_id,
+                    "FILE_UPLOAD",
+                    {
+                        "file_id": file_id,
+                        "filename": file.filename,
+                        "size": original_size,
+                        "content_type": file.content_type,
+                        "encrypted": True,
+                    },
+                    ip_address,
+                )
 
             logger.info(f"✓ Uploaded encrypted file {file_id} (original: {original_size} bytes)")
             return True, file_id, original_size, None
@@ -287,6 +324,7 @@ class FileService:
         self,
         file_id: str,
         requester_user_id: str,
+        ip_address: Optional[str] = None,
     ) -> Tuple[bool, Optional[int], Optional[str]]:
         """
         Delete a file.
@@ -294,6 +332,7 @@ class FileService:
         Args:
             file_id: File to delete
             requester_user_id: User requesting deletion
+            ip_address: Optional client IP for logging
             
         Returns:
             Tuple of (success, file_size, error_message)
@@ -314,6 +353,19 @@ class FileService:
 
             # 3. Update storage quota (negative delta for deletion)
             await self.quota_repo.update_usage(requester_user_id, -file.size)
+
+            # 4. Log activity
+            if self.activity_logger:
+                await self.activity_logger.log_activity(
+                    requester_user_id,
+                    "FILE_DELETE",
+                    {
+                        "file_id": file_id,
+                        "filename": file.filename,
+                        "size": file.size,
+                    },
+                    ip_address,
+                )
 
             logger.info(f"✓ Deleted file {file_id}")
             return True, file.size, None

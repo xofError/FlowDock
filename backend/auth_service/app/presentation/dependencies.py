@@ -16,6 +16,7 @@ from app.application.oauth_service import OAuthService
 from app.infrastructure.database.repositories import (
     PostgresUserRepository,
     PostgresRecoveryTokenRepository,
+    PostgresLogRepository,
 )
 from app.infrastructure.security.security import (
     ArgonPasswordHasher,
@@ -74,6 +75,13 @@ def get_redis_service():
     return RedisService()
 
 
+def get_log_repository(db=None):
+    """FastAPI dependency: get log repository."""
+    if db is None:
+        db = next(get_db())
+    return PostgresLogRepository(db)
+
+
 def get_email_service():
     """FastAPI dependency: get email service."""
     from app.infrastructure.email.email import get_email_service as _get_email_service
@@ -87,6 +95,7 @@ def get_auth_service(
     password_hasher=None,
     token_generator=None,
     redis_service=None,
+    log_repo=None,
 ):
     """FastAPI dependency: get fully configured AuthService.
 
@@ -101,6 +110,7 @@ def get_auth_service(
     password_hasher = password_hasher or ArgonPasswordHasher()
     token_generator = token_generator or JWTTokenGenerator()
     redis_service = redis_service or RedisService()
+    log_repo = log_repo or PostgresLogRepository(db)
 
     return AuthService(
         user_repo=user_repo,
@@ -108,6 +118,7 @@ def get_auth_service(
         password_hasher=password_hasher,
         token_generator=token_generator,
         redis_service=redis_service,
+        log_repo=log_repo,
     )
 
 

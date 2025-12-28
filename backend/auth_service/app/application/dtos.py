@@ -6,7 +6,7 @@ They transfer data between the presentation layer (API) and application logic.
 """
 
 from pydantic import BaseModel, EmailStr, Field
-from typing import Optional
+from typing import Optional, Dict, Any
 from uuid import UUID
 
 
@@ -134,3 +134,26 @@ class UpdateProfileRequestDTO(BaseModel):
     """DTO for updating user profile."""
     full_name: Optional[str] = None
     phone_number: Optional[str] = None
+
+
+# ============ Activity Logging DTOs ============
+
+class ActivityLogCreateDTO(BaseModel):
+    """DTO for creating activity log entries."""
+    user_id: str  # UUID as string for flexibility
+    action: str = Field(..., description="Action type: USER_LOGIN, FILE_UPLOAD, etc.")
+    details: Dict[str, Any] = Field(default_factory=dict, description="Context-specific JSON data")
+    ip_address: Optional[str] = None
+
+
+class ActivityLogResponseDTO(BaseModel):
+    """DTO for activity log response."""
+    id: str
+    user_id: str
+    action: str
+    details: Optional[Dict[str, Any]] = None
+    ip_address: Optional[str] = None
+    created_at: Optional[str] = None
+
+    class Config:
+        from_attributes = True

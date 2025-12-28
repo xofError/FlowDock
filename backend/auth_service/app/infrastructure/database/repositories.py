@@ -9,9 +9,9 @@ from typing import Optional
 from uuid import UUID
 from sqlalchemy.orm import Session
 
-from app.domain.entities import User, Session as SessionEntity, RecoveryToken
+from app.domain.entities import User, Session as SessionEntity, RecoveryToken, ActivityLog
 from app.domain.interfaces import IUserRepository, ISessionRepository, IRecoveryTokenRepository
-from app.infrastructure.database.models import UserModel, SessionModel, RecoveryTokenModel
+from app.infrastructure.database.models import UserModel, SessionModel, RecoveryTokenModel, ActivityLogModel
 
 
 class PostgresUserRepository(IUserRepository):
@@ -240,3 +240,69 @@ class PostgresRecoveryTokenRepository(IRecoveryTokenRepository):
             expires_at=db_token.expires_at,
             used=db_token.used,
         )
+
+
+class PostgresLogRepository:
+    """PostgreSQL implementation of activity log repository."""
+
+    def __init__(self, db: Session):
+        self.db = db
+
+    def create_log(self, log: ActivityLog) -> ActivityLog:
+        """Create a new activity log entry."""
+        db_log = ActivityLogModel(
+            user_id=log.user_id,
+            action=log.action,
+            details=log.details or {},
+            ip_address=log.ip_address,
+            created_at=log.created_at,
+        )
+        self.db.add(db_log)
+        self.db.commit()
+        self.db.refresh(db_log)
+        return self._to_entity(db_log)
+
+    def get_logs_by_user(self, user_id: UUID, limit: int = 100) -> list:
+        """Get recent activity logs for a user."""
+        db_logs = (
+            self.db.query(ActivityLogModel)
+            .filter(ActivityLogModel.user_id == user_id)
+            .order_by(ActivityLogModel.created_at.desc())
+            .limit(limit)
+            .all()
+        )
+        return [self._to_entity(log) for log in db_logs]
+
+    def get_logs_by_action(self, action: str, limit: int = 100) -> list:
+        """Get logs for a specific action type."""
+        db_logs = (
+            self.db.query(ActivityLogModel)
+            .filter(ActivityLogModel.action == action)
+            .order_by(ActivityLogModel.created_at.desc())
+            .limit(limit)
+            .all()
+        )
+        return [self._to_entity(log) for log in db_logs]
+
+    def get_all_logs(self, limit: int = 100) -> list:
+        """Get all activity logs (for admin dashboard)."""
+        db_logs = (
+            self.db.query(ActivityLogModel)
+            .order_by(ActivityLogModel.created_at.desc())
+            .limit(limit)
+            .all()
+        )
+        return [self._to_entity(log) for log in db_logs]
+
+    @staticmethod
+    def _to_entity(db_log: ActivityLogModel) -> ActivityLog:
+        """Convert DB model to domain entity."""
+        return ActivityLog(
+            id=db_log.id,
+            user_id=db_log.user_id,
+            action=db_log.action,
+            details=db_log.details,
+            ip_address=db_log.ip_address,
+            created_at=db_log.created_at,
+        )
+

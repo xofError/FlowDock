@@ -10,8 +10,9 @@ from datetime import datetime, timedelta, timezone
 import redis
 import os
 import secrets
+import logging
 
-from app.domain.entities import User, RecoveryToken
+from app.domain.entities import User, RecoveryToken, ActivityLog
 from app.domain.interfaces import (
     IUserRepository,
     IRecoveryTokenRepository,
@@ -23,6 +24,9 @@ from app.application.dtos import (
     LoginRequestDTO,
     TokenResponseDTO,
 )
+from app.infrastructure.database.repositories import PostgresLogRepository
+
+logger = logging.getLogger(__name__)
 
 
 OTP_EXPIRE_MINUTES = 15
@@ -99,16 +103,37 @@ class AuthService:
         password_hasher: IPasswordHasher,
         token_generator: ITokenGenerator,
         redis_service: RedisService,
+        log_repo: PostgresLogRepository = None,  # Optional dependency for logging
     ):
         self.user_repo = user_repo
         self.recovery_token_repo = recovery_token_repo
         self.password_hasher = password_hasher
         self.token_generator = token_generator
         self.redis_service = redis_service
+        self.log_repo = log_repo
+
+    def _log_activity(self, user_id, action: str, details: dict = None, ip_address: str = None):
+        """Internal helper to create activity logs.
+        
+        This is non-blocking - if logging fails, it won't crash the app.
+        """
+        if not self.log_repo:
+            return
+        
+        try:
+            log = ActivityLog(
+                user_id=user_id,
+                action=action,
+                details=details or {},
+                ip_address=ip_address,
+            )
+            self.log_repo.create_log(log)
+        except Exception as e:
+            logger.error(f"Failed to create activity log: {str(e)}")
 
     # ============ Registration ============
 
-    def register_user(self, data: RegisterRequestDTO) -> User:
+    def register_user(self, data: RegisterRequestDTO, ip_address: str = None) -> User:
         """Register a new user.
 
         Business logic:
@@ -116,6 +141,7 @@ class AuthService:
         2. Hash password
         3. Create user entity
         4. Persist to repository
+        5. Log the activity
         """
         # Business rule: User cannot register twice
         existing = self.user_repo.get_by_email(data.email)
@@ -136,6 +162,14 @@ class AuthService:
                     # Don't fail the flow if OTP generation fails here; caller can retry
                     pass
 
+                # Log activity
+                self._log_activity(
+                    str(updated.id),
+                    "USER_REGISTER",
+                    {"email": data.email},
+                    ip_address
+                )
+
                 return updated
 
             # If verified, raise the standard error
@@ -154,7 +188,17 @@ class AuthService:
         )
 
         # Persist
-        return self.user_repo.save(new_user)
+        saved_user = self.user_repo.save(new_user)
+        
+        # Log activity
+        self._log_activity(
+            str(saved_user.id),
+            "USER_REGISTER",
+            {"email": data.email},
+            ip_address
+        )
+        
+        return saved_user
 
     # ============ Email OTP Verification ============
 
@@ -243,6 +287,14 @@ class AuthService:
         except Exception:
             # If persisting login metadata fails, still return the authenticated user
             pass
+
+        # Log activity
+        self._log_activity(
+            str(user.id),
+            "USER_LOGIN",
+            {"email": email},
+            ip_address
+        )
 
         return user
 

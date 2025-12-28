@@ -233,3 +233,31 @@ class IQuotaRepository(ABC):
             size_delta: The change in storage (positive for upload, negative for delete)
         """
         pass
+
+
+class IActivityLogger(ABC):
+    """
+    Abstract contract for logging user activities to the Auth Service.
+    Implementations can use HTTP calls, direct DB access, messaging, etc.
+    """
+
+    @abstractmethod
+    async def log_activity(
+        self,
+        user_id: str,
+        action: str,
+        details: Dict[str, Any] = None,
+        ip_address: Optional[str] = None,
+    ) -> None:
+        """
+        Log a user activity to the Auth Service.
+        
+        This is called when important actions occur (file upload, delete, download).
+        
+        Args:
+            user_id: The user who performed the action
+            action: Action type (e.g., "FILE_UPLOAD", "FILE_DELETE")
+            details: Optional context data (filename, size, etc.)
+            ip_address: Optional client IP address
+        """
+        pass

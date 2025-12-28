@@ -3,7 +3,7 @@ API endpoints for file operations with Clean Architecture and dependency injecti
 All business logic is in the application service layer.
 """
 
-from fastapi import APIRouter, UploadFile, File, HTTPException, Path, Query, Depends
+from fastapi import APIRouter, UploadFile, File, HTTPException, Path, Query, Depends, Request
 from fastapi.responses import StreamingResponse, RedirectResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from typing import Optional
@@ -94,6 +94,7 @@ async def health_check():
 async def upload_file(
     user_id: str = Path(..., description="User ID"),
     file: UploadFile = File(..., description="File to upload"),
+    request: Request = None,
     current_user_id: str = Depends(get_current_user_id),
     service: FileService = Depends(get_file_service),
 ):
@@ -120,10 +121,14 @@ async def upload_file(
     verify_user_ownership(current_user_id, user_id)
 
     try:
+        # Capture client IP address for logging
+        ip_address = request.client.host if request else None
+
         # Use injected service to upload encrypted file
         success, file_id, original_size, error = await service.upload_file_encrypted(
             user_id=user_id,
-            file=file
+            file=file,
+            ip_address=ip_address
         )
 
         if not success:
@@ -250,6 +255,7 @@ async def download_file(
 async def delete_file(
     file_id: str = Path(..., description="File ID (ObjectId)"),
     user_id: str = Query(None, description="User requesting deletion"),
+    request: Request = None,
     current_user_id: str = Depends(get_current_user_id),
     service: FileService = Depends(get_file_service),
 ):
@@ -272,10 +278,14 @@ async def delete_file(
         user_id = current_user_id
 
     try:
+        # Capture client IP address for logging
+        ip_address = request.client.host if request else None
+
         # Delete using injected service
         success, file_size, error = await service.delete_file(
             file_id=file_id,
-            requester_user_id=current_user_id
+            requester_user_id=current_user_id,
+            ip_address=ip_address
         )
 
         if not success:

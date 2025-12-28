@@ -13,6 +13,7 @@ from app.infrastructure.database.mongo_repository import MongoGridFSRepository
 from app.infrastructure.security.encryption import AESCryptoService
 from app.infrastructure.messaging.no_op_publisher import NoOpEventPublisher
 from app.infrastructure.http.auth_client import HttpQuotaRepository
+from app.infrastructure.http.logger import HttpActivityLogger
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +38,7 @@ async def get_file_service() -> FileService:
         crypto = AESCryptoService()
         publisher = NoOpEventPublisher()  # No-op since we removed RabbitMQ
         quota_repo = HttpQuotaRepository(AUTH_SERVICE_URL)
+        activity_logger = HttpActivityLogger(AUTH_SERVICE_URL)
 
         # Application service with injected dependencies
         service = FileService(
@@ -44,6 +46,7 @@ async def get_file_service() -> FileService:
             crypto=crypto,
             event_publisher=publisher,
             quota_repo=quota_repo,
+            activity_logger=activity_logger,
         )
 
         return service
