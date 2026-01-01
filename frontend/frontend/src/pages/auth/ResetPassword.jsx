@@ -91,7 +91,7 @@ export default function ResetPassword() {
         <form onSubmit={handleSubmit} className="flex flex-col px-2">
           <input
             type="password"
-            placeholder="New Password (min 6 characters)"
+            placeholder="New Password (min 8 characters)"
             value={password}
             onChange={e => setPassword(e.target.value)}
             disabled={authLoading}

@@ -180,7 +180,7 @@ export default function SignUp() {
               <input
                 name="password"
                 type="password"
-                placeholder="Password (min 6 characters)"
+                placeholder="Password (min 8 characters)"
                 value={formData.password}
                 onChange={handleChange}
                 disabled={authLoading}
