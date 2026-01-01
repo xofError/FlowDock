@@ -5,7 +5,7 @@ Pure Python objects independent of technology choices (MongoDB, GridFS, encrypti
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 
 
 @dataclass
@@ -19,13 +19,16 @@ class File:
     content_type: str = ""
     size: int = 0
     owner_id: str = ""
-    folder_id: Optional[str] = None  # Optional folder containing this file
+    folder_id: Optional[str] = None  # Folder containing this file (None = root)
     upload_date: Optional[datetime] = None
     
     # Encryption metadata
     encrypted: bool = False
     nonce: str = ""  # IV for CTR mode (hex string)
     encrypted_key: str = ""  # Wrapped file key (hex string)
+    
+    # Virus scan status
+    is_infected: bool = False
     
     # Additional metadata
     metadata: Dict[str, Any] = field(default_factory=dict)
@@ -48,6 +51,7 @@ class File:
             "encrypted": self.encrypted,
             "nonce": self.nonce,
             "encrypted_key": self.encrypted_key,
+            "is_infected": self.is_infected,
             "metadata": self.metadata,
         }
 
@@ -64,6 +68,7 @@ class Folder:
     parent_id: Optional[str] = None  # None for root folders
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
+    path: List[Dict[str, str]] = field(default_factory=list)  # Breadcrumb: [{"id": "...", "name": "..."}]
     metadata: Dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self):
@@ -82,6 +87,7 @@ class Folder:
             "parent_id": self.parent_id,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
+            "path": self.path,
             "metadata": self.metadata,
         }
 

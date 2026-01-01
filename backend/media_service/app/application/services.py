@@ -456,14 +456,16 @@ class FolderService:
     Orchestrates folder management without knowing implementation details.
     """
 
-    def __init__(self, folder_repo: "IFolderRepository"):
+    def __init__(self, folder_repo: "IFolderRepository", file_repo: "IGridFSRepository" = None):
         """
-        Initialize service with folder repository.
+        Initialize service with folder and file repositories.
         
         Args:
             folder_repo: Folder repository implementation
+            file_repo: Optional file repository for folder contents operations
         """
         self.folder_repo = folder_repo
+        self.file_repo = file_repo
 
     # ========================================================================
     # Create Folder
@@ -476,7 +478,7 @@ class FolderService:
         ip_address: Optional[str] = None,
     ) -> Tuple[bool, Optional[str], Optional[str]]:
         """
-        Create a new folder.
+        Create a new folder with validation.
         
         Args:
             user_id: Owner of the folder
@@ -492,6 +494,16 @@ class FolderService:
             if not name or len(name) > 255:
                 return False, None, "Invalid folder name (1-255 characters)"
 
+            # If parent_id provided, validate it exists and is owned by user
+            if parent_id:
+                parent = await self.folder_repo.get_folder(parent_id, user_id)
+                if not parent:
+                    return False, None, "Parent folder not found or not owned by user"
+
+                # Check for circular dependency
+                if await self._has_circular_dependency(user_id, parent_id, parent_id):
+                    return False, None, "Cannot create folder: would create circular dependency"
+
             # Create domain entity
             from app.domain.entities import Folder
             folder = Folder(
@@ -503,12 +515,95 @@ class FolderService:
             # Save folder
             folder_id = await self.folder_repo.create_folder(folder)
             
-            logger.info(f"✓ Created folder {folder_id} for owner {user_id}")
+            logger.info(f"✓ Created folder {folder_id} for owner {user_id} (parent: {parent_id})")
             return True, folder_id, None
 
         except Exception as e:
             logger.error(f"Create folder failed: {e}")
             return False, None, str(e)
+
+    # ========================================================================
+    # Circular Dependency Detection
+    # ========================================================================
+    async def _has_circular_dependency(
+        self,
+        owner_id: str,
+        current_folder_id: str,
+        target_parent_id: str,
+        visited: set = None,
+    ) -> bool:
+        """
+        Check if assigning target_parent_id would create a circular reference.
+        
+        Example: If Folder A has parent B, and B has parent C, we cannot
+        make C have parent A (circular).
+        
+        Args:
+            owner_id: The owner
+            current_folder_id: The folder being checked
+            target_parent_id: The proposed parent folder
+            visited: Set of already-visited folders (prevents infinite loops)
+            
+        Returns:
+            True if would create circular dependency, False otherwise
+        """
+        if visited is None:
+            visited = set()
+
+        if current_folder_id in visited:
+            return True
+
+        visited.add(current_folder_id)
+
+        if current_folder_id == target_parent_id:
+            return True
+
+        # Get the folder's parent
+        current = await self.folder_repo.get_folder(current_folder_id, owner_id)
+        if not current or not current.parent_id:
+            return False
+
+        # Recursively check the parent's ancestry
+        return await self._has_circular_dependency(owner_id, current.parent_id, target_parent_id, visited)
+
+    # ========================================================================
+    # Delete Folder (with recursion)
+    # ========================================================================
+    async def delete_folder_recursive(
+        self,
+        user_id: str,
+        folder_id: str,
+        ip_address: Optional[str] = None,
+    ) -> Tuple[bool, Optional[str]]:
+        """
+        Delete a folder and all its contents (files and subfolders).
+        
+        Args:
+            user_id: The owner (for verification)
+            folder_id: The folder identifier
+            ip_address: Optional client IP for logging
+            
+        Returns:
+            Tuple of (success, error_message)
+        """
+        try:
+            # Verify ownership
+            folder = await self.folder_repo.get_folder(folder_id, user_id)
+            if not folder:
+                return False, "Folder not found or not owned by user"
+
+            # Use repository's recursive delete
+            success = await self.folder_repo.delete_folder_recursive(folder_id, user_id)
+            
+            if not success:
+                return False, "Failed to delete folder"
+
+            logger.info(f"✓ Recursively deleted folder {folder_id} and all contents")
+            return True, None
+
+        except Exception as e:
+            logger.error(f"Delete folder failed: {e}")
+            return False, str(e)
 
     # ========================================================================
     # Get Folder
@@ -546,6 +641,79 @@ class FolderService:
 
         except Exception as e:
             logger.error(f"Get folder failed: {e}")
+            return False, None, str(e)
+
+    # ========================================================================
+    # Get Folder Contents (Files + Subfolders)
+    # ========================================================================
+    async def get_folder_contents(
+        self,
+        folder_id: str,
+        user_id: str,
+    ) -> Tuple[bool, Optional[dict], Optional[str]]:
+        """
+        Get folder contents (files and subfolders).
+        
+        Args:
+            folder_id: The folder identifier
+            user_id: The requesting user (for ownership verification)
+            
+        Returns:
+            Tuple of (success, contents_dict, error_message)
+            Where contents_dict has:
+            {
+                "folder": {folder_id, name, parent_id, created_at, updated_at},
+                "files": [{file_id, name, size, created_at, ...}],
+                "subfolders": [{folder_id, name, created_at, ...}]
+            }
+        """
+        try:
+            # Verify folder exists and is owned by user
+            folder = await self.folder_repo.get_folder(folder_id, user_id)
+            
+            if not folder:
+                return False, None, "Folder not found"
+
+            # Get all files in this folder
+            files = await self.file_repo.list_files_in_folder(folder_id)
+            files_list = [
+                {
+                    "file_id": f.id,
+                    "name": f.name,
+                    "size": f.size,
+                    "created_at": f.created_at,
+                    "is_infected": f.is_infected,
+                }
+                for f in files
+            ]
+
+            # Get direct subfolders only
+            subfolders = await self.folder_repo.list_subfolders(folder_id)
+            subfolders_list = [
+                {
+                    "folder_id": sf.id,
+                    "name": sf.name,
+                    "created_at": sf.created_at,
+                }
+                for sf in subfolders
+            ]
+
+            contents_dict = {
+                "folder": {
+                    "folder_id": folder.id,
+                    "name": folder.name,
+                    "parent_id": folder.parent_id,
+                    "created_at": folder.created_at,
+                    "updated_at": folder.updated_at,
+                },
+                "files": files_list,
+                "subfolders": subfolders_list,
+            }
+            
+            return True, contents_dict, None
+
+        except Exception as e:
+            logger.error(f"Get folder contents failed: {e}")
             return False, None, str(e)
 
     # ========================================================================

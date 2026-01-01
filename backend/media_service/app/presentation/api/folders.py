@@ -106,6 +106,45 @@ async def get_folder(
 
 
 # ============================================================================
+# GET FOLDER CONTENTS (Files + Subfolders)
+# ============================================================================
+@router.get("/{folder_id}/contents")
+async def get_folder_contents(
+    folder_id: str = Path(..., description="Folder ID"),
+    current_user_id: str = Depends(get_current_user_id),
+    service: FolderService = Depends(get_folder_service),
+):
+    """
+    Get folder contents (files and direct subfolders).
+    
+    **Security**: Requires valid JWT token and folder ownership.
+    
+    **Parameters**:
+    - **folder_id**: MongoDB ObjectId of the folder
+    
+    **Returns**: 
+    {
+        "folder": {folder metadata},
+        "files": [{file details}],
+        "subfolders": [{subfolder details}]
+    }
+    """
+    try:
+        success, contents_dict, error = await service.get_folder_contents(folder_id, current_user_id)
+        
+        if not success:
+            raise HTTPException(status_code=404, detail=error)
+
+        return contents_dict
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Get folder contents error: {e}")
+        raise HTTPException(status_code=500, detail=f"Get folder contents failed: {str(e)}")
+
+
+# ============================================================================
 # LIST FOLDERS
 # ============================================================================
 @router.get("", response_model=FolderListResponse)
@@ -201,9 +240,10 @@ async def delete_folder(
     folder_id: str = Path(..., description="Folder ID"),
     current_user_id: str = Depends(get_current_user_id),
     service: FolderService = Depends(get_folder_service),
+    request: Request = None,
 ):
     """
-    Delete a folder (only if empty).
+    Delete a folder and all its contents.
     
     **Security**: Requires valid JWT token and folder ownership.
     
@@ -212,12 +252,15 @@ async def delete_folder(
     
     **Returns**: Deletion confirmation
     
-    **Notes**: Folder must be empty (no files or subfolders) to be deleted.
+    **Notes**: Recursively deletes all files and subfolders within.
     """
     try:
-        success, error = await service.delete_folder(
-            folder_id=folder_id,
+        ip_address = request.client.host if request else None
+        
+        success, error = await service.delete_folder_recursive(
             user_id=current_user_id,
+            folder_id=folder_id,
+            ip_address=ip_address,
         )
         
         if not success:

@@ -66,10 +66,12 @@ async def get_folder_service(db = Depends(get_db)) -> FolderService:
     try:
         # Infrastructure layer implementations
         folder_repo = MongoFolderRepository(db)
+        file_repo = MongoGridFSRepository(db)
 
         # Application service with injected dependencies
         service = FolderService(
             folder_repo=folder_repo,
+            file_repo=file_repo,
         )
 
         return service

@@ -52,9 +52,11 @@ class MongoGridFSRepository(IFileRepository):
                 "owner": file.owner_id,
                 "contentType": file.content_type,
                 "originalFilename": file.filename,
+                "folderId": file.folder_id,  # Added folder support
                 "encrypted": file.encrypted,
                 "nonce": file.nonce,
                 "encryptedKey": file.encrypted_key,
+                "isInfected": file.is_infected,  # Added virus scan status
             }
             metadata.update(file.metadata)
 
@@ -71,7 +73,7 @@ class MongoGridFSRepository(IFileRepository):
             grid_in.close()
 
             file_id = str(grid_in._id)
-            logger.info(f"✓ Saved file {file_id} for owner {file.owner_id}")
+            logger.info(f"✓ Saved file {file_id} for owner {file.owner_id} (folder: {file.folder_id})")
             return file_id
 
         except Exception as e:
@@ -99,10 +101,12 @@ class MongoGridFSRepository(IFileRepository):
                 content_type=meta.get("contentType", grid_out.content_type),
                 size=grid_out.length,
                 owner_id=meta.get("owner", ""),
+                folder_id=meta.get("folderId"),  # Added folder support
                 upload_date=grid_out.upload_date,
                 encrypted=meta.get("encrypted", False),
                 nonce=meta.get("nonce", ""),
                 encrypted_key=meta.get("encryptedKey", ""),
+                is_infected=meta.get("isInfected", False),  # Added virus scan status
                 metadata=meta,
             )
 
@@ -437,4 +441,172 @@ class MongoFolderRepository(IFolderRepository):
         except Exception as e:
             logger.error(f"Failed to get folder size {folder_id}: {e}")
             return 0
+
+    # ========================================================================
+    # RECURSIVE DELETE HELPERS
+    # ========================================================================
+
+    async def get_all_children_folders(self, folder_id: str) -> List[str]:
+        """
+        Recursively get all descendant folder IDs.
+        
+        Args:
+            folder_id: The parent folder identifier
+            
+        Returns:
+            List of all descendant folder IDs
+        """
+        children = []
+        try:
+            # Get direct children
+            cursor = self.collection.find({"parent_id": folder_id})
+            async for doc in cursor:
+                child_id = str(doc["_id"])
+                children.append(child_id)
+                # Recursively get descendants
+                descendants = await self.get_all_children_folders(child_id)
+                children.extend(descendants)
+            return children
+        except Exception as e:
+            logger.error(f"Failed to get children for {folder_id}: {e}")
+            return []
+
+    async def delete_folder_recursive(self, folder_id: str, owner_id: str) -> bool:
+        """
+        Delete folder and all its contents (files and subfolders).
+        
+        Args:
+            folder_id: The folder identifier
+            owner_id: The owner (for verification)
+            
+        Returns:
+            True if deleted, False if not found/not owned
+        """
+        try:
+            # Verify ownership
+            folder = await self.get_folder(folder_id, owner_id)
+            if not folder:
+                return False
+
+            # 1. Get all descendant folders
+            all_folders_to_delete = [folder_id]
+            descendants = await self.get_all_children_folders(folder_id)
+            all_folders_to_delete.extend(descendants)
+
+            # 2. Delete all files in these folders
+            fs = self.db.get_collection("fs.files")
+            for fid in all_folders_to_delete:
+                result = await fs.delete_many({"metadata.folderId": fid})
+                logger.info(f"✓ Deleted {result.deleted_count} files from folder {fid}")
+
+            # 3. Delete all folders
+            for fid in all_folders_to_delete:
+                await self.collection.delete_one({"_id": ObjectId(fid)})
+
+            logger.info(f"✓ Recursively deleted folder {folder_id} and all contents")
+            return True
+
+        except Exception as e:
+            logger.error(f"Recursive delete failed for {folder_id}: {e}")
+            return False
+
+    # ========================================================================
+    # FILE QUERIES BY FOLDER
+    # ========================================================================
+
+    async def list_files_in_folder(
+        self,
+        folder_id: Optional[str],
+        owner_id: str,
+    ) -> List[File]:
+        """
+        List all files in a specific folder (root if folder_id is None).
+        
+        Args:
+            folder_id: The folder identifier (None = root)
+            owner_id: The owner identifier
+            
+        Returns:
+            List of File entities
+        """
+        try:
+            fs = self.db.get_collection("fs.files")
+            query = {"metadata.owner": owner_id}
+            
+            if folder_id is None:
+                # Root files have no folder_id
+                query["metadata.folderId"] = {"$in": [None, ""]}
+            else:
+                # Files in specific folder
+                query["metadata.folderId"] = folder_id
+
+            cursor = fs.find(query).sort("uploadDate", -1)
+            files = []
+
+            async for doc in cursor:
+                meta = doc.get("metadata", {})
+                file = File(
+                    id=str(doc["_id"]),
+                    filename=doc.get("filename", ""),
+                    content_type=meta.get("contentType", "application/octet-stream"),
+                    size=doc.get("length", 0),
+                    owner_id=meta.get("owner", ""),
+                    folder_id=meta.get("folderId"),
+                    upload_date=doc.get("uploadDate"),
+                    encrypted=meta.get("encrypted", False),
+                    nonce=meta.get("nonce", ""),
+                    encrypted_key=meta.get("encryptedKey", ""),
+                    is_infected=meta.get("isInfected", False),
+                    metadata=meta,
+                )
+                files.append(file)
+
+            return files
+
+        except Exception as e:
+            logger.error(f"Failed to list files in folder {folder_id}: {e}")
+            return []
+
+    async def list_subfolders(
+        self,
+        parent_id: Optional[str],
+        owner_id: str,
+    ) -> List[Folder]:
+        """
+        List direct subfolders (not recursive).
+        
+        Args:
+            parent_id: The parent folder ID (None = root)
+            owner_id: The owner identifier
+            
+        Returns:
+            List of Folder entities
+        """
+        try:
+            query = {"owner_id": owner_id}
+            if parent_id is None:
+                query["parent_id"] = {"$in": [None]}
+            else:
+                query["parent_id"] = parent_id
+
+            cursor = self.collection.find(query).sort("created_at", -1)
+            folders = []
+
+            async for doc in cursor:
+                folder = Folder(
+                    id=str(doc["_id"]),
+                    name=doc.get("name", ""),
+                    owner_id=doc.get("owner_id", ""),
+                    parent_id=doc.get("parent_id"),
+                    created_at=doc.get("created_at"),
+                    updated_at=doc.get("updated_at"),
+                    metadata=doc.get("metadata", {}),
+                )
+                folders.append(folder)
+
+            return folders
+
+        except Exception as e:
+            logger.error(f"Failed to list subfolders for {parent_id}: {e}")
+            return []
 
