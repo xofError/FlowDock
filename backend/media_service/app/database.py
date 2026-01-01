@@ -24,13 +24,13 @@ async def connect_to_mongo():
     global mongo_client, db, fs
     
     try:
-        mongo_client = AsyncIOMotorClient(settings.MONGO_URL)
-        db = mongo_client[settings.MONGO_DB_NAME]
+        mongo_client = AsyncIOMotorClient(settings.mongo_url)
+        db = mongo_client[settings.mongo_db_name]
         fs = AsyncIOMotorGridFSBucket(db)
         
         # Test connection
         await db.command("ping")
-        logger.info(f"✓ Connected to MongoDB: {settings.MONGO_DB_NAME}")
+        logger.info(f"✓ Connected to MongoDB: {settings.mongo_db_name}")
         
     except Exception as e:
         logger.error(f"✗ Failed to connect to MongoDB: {e}")

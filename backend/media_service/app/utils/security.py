@@ -8,14 +8,15 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import jwt, JWTError
 from typing import Dict, Any, Optional
-import os
 import logging
+
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
 # JWT configuration - matches Auth Service
-JWT_SECRET = os.getenv("JWT_SECRET", "secret")
-JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
+JWT_SECRET = settings.jwt_secret
+JWT_ALGORITHM = settings.jwt_algorithm
 
 security = HTTPBearer()
 

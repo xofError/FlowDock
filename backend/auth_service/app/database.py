@@ -1,11 +1,12 @@
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, declarative_base, Session
-import os
 
-DATABASE_URL = (
-    f"postgresql://{os.getenv('POSTGRES_USER', 'postgres')}:{os.getenv('POSTGRES_PASSWORD', 'postgres')}"
-    f"@{os.getenv('POSTGRES_HOST', 'localhost')}:{os.getenv('POSTGRES_PORT', '5432')}/{os.getenv('POSTGRES_DB', 'FlowDock')}"
-)
+from app.core.config import settings
+
+# Use settings for database configuration
+# supports both environment variables and hardcoded defaults
+DATABASE_URL = settings.database_url
+
 engine = create_engine(DATABASE_URL, future=True)
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)

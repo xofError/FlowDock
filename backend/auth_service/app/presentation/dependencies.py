@@ -7,6 +7,8 @@ This wires together all the layers:
 - API routes use injected services via FastAPI dependencies
 """
 
+from fastapi import Header, HTTPException, status
+from app.core.config import settings
 from app.database import SessionLocal
 from app.application.services import AuthService, RedisService
 from app.application.twofa_service import TwoFAService
@@ -25,6 +27,36 @@ from app.infrastructure.security.security import (
 from app.infrastructure.security.totp import TOTPService
 from app.infrastructure.security.token_store import RefreshTokenStore
 from app.infrastructure.email.email import get_email_service
+
+
+async def verify_internal_service(x_api_key: str = Header(...)) -> None:
+    """
+    Verify that the request comes from an authorized internal service.
+    
+    This dependency validates the X-API-Key header against the configured
+    internal API key. It's used to protect internal service endpoints like
+    /logs/internal that should only be called from other microservices.
+    
+    Args:
+        x_api_key: The API key from the X-API-Key header
+        
+    Raises:
+        HTTPException: 401 Unauthorized if the API key is invalid or missing
+        
+    Usage:
+        @router.post("/internal")
+        async def create_log(
+            data: SomeDTO,
+            _: None = Depends(verify_internal_service)
+        ):
+            # This endpoint now requires valid API key
+    """
+    if x_api_key != settings.internal_api_key:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid API key",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
 
 def get_db():

@@ -5,7 +5,7 @@ These endpoints expose activity logging functionality.
 The /internal/logs endpoint is for internal service-to-service communication.
 """
 
-from fastapi import APIRouter, Depends, status, HTTPException
+from fastapi import APIRouter, status, HTTPException, Depends
 from fastapi.responses import JSONResponse
 from uuid import UUID
 from typing import Optional
@@ -14,35 +14,39 @@ from sqlalchemy.orm import Session
 from app.application.dtos import ActivityLogCreateDTO, ActivityLogResponseDTO
 from app.infrastructure.database.repositories import PostgresLogRepository
 from app.domain.entities import ActivityLog
-from app.database import get_db
+from app.database import SessionLocal
+from app.presentation.dependencies import verify_internal_service
 
 router = APIRouter(tags=["Activity Logging"])
 
 
-def get_log_repo(db: Session = Depends(get_db)) -> PostgresLogRepository:
-    """Dependency to get the log repository."""
+def get_log_repo() -> PostgresLogRepository:
+    """Get the log repository with a new database session."""
+    db = SessionLocal()
     return PostgresLogRepository(db)
 
 
 @router.post("/internal", status_code=status.HTTP_201_CREATED)
 def create_activity_log(
     data: ActivityLogCreateDTO,
-    repo: PostgresLogRepository = Depends(get_log_repo),
+    _: None = Depends(verify_internal_service),
 ):
     """
     Internal endpoint for other services (like Media Service) 
     to write activity logs to PostgreSQL.
     
-    This is an internal-only endpoint and should not be exposed publicly.
+    This is an internal-only endpoint and requires X-API-Key header.
     It's called by other microservices to log user activities.
     
     Args:
         data: ActivityLogCreateDTO with user_id, action, details, ip_address
-        repo: PostgresLogRepository dependency
+        _: Validates internal service authentication via verify_internal_service
         
     Returns:
         {"status": "logged", "id": log_id}
     """
+    repo = get_log_repo()
+    
     try:
         # Parse user_id as UUID if it's a string
         try:
@@ -76,7 +80,6 @@ def create_activity_log(
 def get_user_activity_logs(
     user_id: str,
     limit: int = 50,
-    repo: PostgresLogRepository = Depends(get_log_repo),
 ):
     """
     Get activity logs for a specific user.
@@ -84,11 +87,12 @@ def get_user_activity_logs(
     Args:
         user_id: User ID as string (will be converted to UUID)
         limit: Maximum number of logs to return (default 50, max 100)
-        repo: PostgresLogRepository dependency
         
     Returns:
         List of ActivityLogResponseDTO objects
     """
+    repo = get_log_repo()
+    
     try:
         # Clamp limit to reasonable value
         limit = min(limit, 100)
@@ -123,7 +127,6 @@ def get_user_activity_logs(
 def get_logs_by_action(
     action: str,
     limit: int = 50,
-    repo: PostgresLogRepository = Depends(get_log_repo),
 ):
     """
     Get activity logs for a specific action type.
@@ -131,11 +134,12 @@ def get_logs_by_action(
     Args:
         action: Action name (e.g., "USER_LOGIN", "FILE_UPLOAD")
         limit: Maximum number of logs to return (default 50, max 100)
-        repo: PostgresLogRepository dependency
         
     Returns:
         List of ActivityLogResponseDTO objects
     """
+    repo = get_log_repo()
+    
     try:
         # Clamp limit to reasonable value
         limit = min(limit, 100)
@@ -161,20 +165,18 @@ def get_logs_by_action(
 
 
 @router.get("/all", response_model=list[ActivityLogResponseDTO])
-def get_all_activity_logs(
-    limit: int = 50,
-    repo: PostgresLogRepository = Depends(get_log_repo),
-):
+def get_all_activity_logs(limit: int = 50):
     """
     Get all activity logs (admin endpoint).
     
     Args:
         limit: Maximum number of logs to return (default 50, max 100)
-        repo: PostgresLogRepository dependency
         
     Returns:
         List of ActivityLogResponseDTO objects
     """
+    repo = get_log_repo()
+    
     try:
         # Clamp limit to reasonable value
         limit = min(limit, 100)

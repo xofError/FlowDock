@@ -17,18 +17,20 @@ logger = logging.getLogger(__name__)
 class HttpActivityLogger(IActivityLogger):
     """
     HTTP implementation of activity logger.
-    Sends logs to Auth Service via HTTP POST.
+    Sends logs to Auth Service via HTTP POST with API key authentication.
     """
 
-    def __init__(self, auth_service_url: str, timeout: float = 2.0):
+    def __init__(self, auth_service_url: str, api_key: str, timeout: float = 2.0):
         """
         Initialize the HTTP activity logger.
 
         Args:
             auth_service_url: Base URL of Auth Service (e.g., "http://auth_service:8000")
+            api_key: Internal API key for authentication with Auth Service
             timeout: HTTP request timeout in seconds (default 2.0)
         """
         self.auth_service_url = auth_service_url.rstrip("/")
+        self.api_key = api_key
         self.timeout = timeout
 
     async def log_activity(
@@ -62,6 +64,7 @@ class HttpActivityLogger(IActivityLogger):
                 response = await client.post(
                     f"{self.auth_service_url}/logs/internal",
                     json=payload,
+                    headers={"X-API-Key": self.api_key},
                     timeout=self.timeout,
                 )
 
@@ -83,18 +86,20 @@ class HttpActivityLogger(IActivityLogger):
 class HttpQuotaRepository(IQuotaRepository):
     """
     HTTP implementation of quota repository.
-    Updates storage quota in Auth Service via HTTP POST.
+    Updates storage quota in Auth Service via HTTP POST with API key authentication.
     """
 
-    def __init__(self, auth_service_url: str, timeout: float = 5.0):
+    def __init__(self, auth_service_url: str, api_key: str, timeout: float = 5.0):
         """
         Initialize the HTTP quota repository.
 
         Args:
             auth_service_url: Base URL of Auth Service (e.g., "http://auth_service:8000")
+            api_key: Internal API key for authentication with Auth Service
             timeout: HTTP request timeout in seconds (default 5.0)
         """
         self.auth_service_url = auth_service_url.rstrip("/")
+        self.api_key = api_key
         self.timeout = timeout
 
     async def update_usage(self, user_id: str, size_delta: int) -> None:
@@ -112,6 +117,7 @@ class HttpQuotaRepository(IQuotaRepository):
                 response = await client.post(
                     f"{self.auth_service_url}/users/internal/quota/update",
                     json={"user_id": user_id, "size_delta": size_delta},
+                    headers={"X-API-Key": self.api_key},
                     timeout=self.timeout,
                 )
 

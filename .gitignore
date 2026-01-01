@@ -19372,3 +19372,10 @@ backend/media_service/app/infrastructure/database/__pycache__/__init__.cpython-3
 backend/media_service/app/infrastructure/database/__pycache__/mongo_repository.cpython-313.pyc
 backend/media_service/app/services/__pycache__/__init__.cpython-313.pyc
 backend/media_service/app/utils/__pycache__/security.cpython-313.pyc
+__pycache__/test_api_key_authentication.cpython-313.pyc
+.gitignore
+__pycache__/test_activity_logging.cpython-313.pyc
+backend/media_service/app/__pycache__/database.cpython-313.pyc
+backend/media_service/app/__pycache__/main.cpython-313.pyc
+backend/media_service/app/infrastructure/http/__pycache__/logger.cpython-313.pyc
+backend/auth_service/app/presentation/api/__pycache__/logs.cpython-313.pyc

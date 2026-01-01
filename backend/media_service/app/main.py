@@ -16,7 +16,7 @@ from app.models import share
 
 # Configure logging
 logging.basicConfig(
-    level=settings.LOG_LEVEL,
+    level=settings.log_level,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
@@ -43,7 +43,7 @@ async def lifespan(app: FastAPI):
         await connect_to_mongo()
         
         logger.info("=" * 70)
-        logger.info(f"✓ {settings.SERVICE_NAME} v{settings.SERVICE_VERSION}")
+        logger.info(f"✓ {settings.service_name} v{settings.service_version}")
         logger.info("=" * 70)
         
     except Exception as e:
@@ -66,9 +66,9 @@ async def lifespan(app: FastAPI):
 # ============================================================================
 
 app = FastAPI(
-    title=settings.SERVICE_NAME,
+    title=settings.service_name,
     description="Handles file uploads, downloads, and metadata storage with async communication",
-    version=settings.SERVICE_VERSION,
+    version=settings.service_version,
     lifespan=lifespan
 )
 
@@ -82,7 +82,7 @@ app.add_middleware(
 )
 
 # Include routers
-app.include_router(files_router.router, prefix=settings.API_PREFIX, tags=["files"])
+app.include_router(files_router.router, prefix=settings.api_prefix, tags=["files"])
 
 
 # ============================================================================
@@ -93,7 +93,7 @@ app.include_router(files_router.router, prefix=settings.API_PREFIX, tags=["files
 async def root():
     """Root endpoint"""
     return {
-        "service": settings.SERVICE_NAME,
-        "version": settings.SERVICE_VERSION,
+        "service": settings.service_name,
+        "version": settings.service_version,
         "status": "running"
     }
