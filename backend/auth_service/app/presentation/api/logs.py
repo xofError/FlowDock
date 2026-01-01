@@ -8,14 +8,14 @@ The /internal/logs endpoint is for internal service-to-service communication.
 from fastapi import APIRouter, status, HTTPException, Depends
 from fastapi.responses import JSONResponse
 from uuid import UUID
-from typing import Optional
+from typing import Optional, Dict, Any
 from sqlalchemy.orm import Session
 
 from app.application.dtos import ActivityLogCreateDTO, ActivityLogResponseDTO
 from app.infrastructure.database.repositories import PostgresLogRepository
 from app.domain.entities import ActivityLog
 from app.database import SessionLocal
-from app.presentation.dependencies import verify_internal_service
+from app.presentation.dependencies import verify_internal_service, get_current_user_id, verify_jwt_token
 
 router = APIRouter(tags=["Activity Logging"])
 
@@ -80,17 +80,33 @@ def create_activity_log(
 def get_user_activity_logs(
     user_id: str,
     limit: int = 50,
+    current_user_id: str = Depends(get_current_user_id),
 ):
     """
     Get activity logs for a specific user.
     
+    Requires JWT authentication. Users can only view their own logs,
+    unless they have admin access (future feature).
+    
     Args:
         user_id: User ID as string (will be converted to UUID)
         limit: Maximum number of logs to return (default 50, max 100)
+        current_user_id: Authenticated user ID from JWT token
         
     Returns:
         List of ActivityLogResponseDTO objects
+        
+    Raises:
+        HTTPException: 401 if not authenticated
+        HTTPException: 403 if trying to view another user's logs
     """
+    # Authorization check: users can only view their own logs
+    if user_id != current_user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Cannot view activity logs for other users",
+        )
+    
     repo = get_log_repo()
     
     try:
@@ -127,13 +143,18 @@ def get_user_activity_logs(
 def get_logs_by_action(
     action: str,
     limit: int = 50,
+    current_user_id: str = Depends(get_current_user_id),
 ):
     """
     Get activity logs for a specific action type.
     
+    Requires JWT authentication. Note: Users can see logs for any action type
+    (not restricted to own logs since action queries are useful for analytics).
+    
     Args:
         action: Action name (e.g., "USER_LOGIN", "FILE_UPLOAD")
         limit: Maximum number of logs to return (default 50, max 100)
+        current_user_id: Current user ID from JWT token
         
     Returns:
         List of ActivityLogResponseDTO objects
@@ -165,12 +186,19 @@ def get_logs_by_action(
 
 
 @router.get("/all", response_model=list[ActivityLogResponseDTO])
-def get_all_activity_logs(limit: int = 50):
+def get_all_activity_logs(
+    limit: int = 50,
+    current_user_id: str = Depends(get_current_user_id),
+):
     """
-    Get all activity logs (admin endpoint).
+    Get all activity logs.
+    
+    Requires JWT authentication. All authenticated users can access this endpoint
+    to view all activity logs (useful for analytics, auditing, etc).
     
     Args:
         limit: Maximum number of logs to return (default 50, max 100)
+        current_user_id: Authenticated user ID from JWT token
         
     Returns:
         List of ActivityLogResponseDTO objects

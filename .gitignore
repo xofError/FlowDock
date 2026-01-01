@@ -19379,3 +19379,11 @@ backend/media_service/app/__pycache__/database.cpython-313.pyc
 backend/media_service/app/__pycache__/main.cpython-313.pyc
 backend/media_service/app/infrastructure/http/__pycache__/logger.cpython-313.pyc
 backend/auth_service/app/presentation/api/__pycache__/logs.cpython-313.pyc
+backend/auth_service/app/presentation/__pycache__/dependencies.cpython-313.pyc
+backend/auth_service/app/presentation/api/__pycache__/logs.cpython-313.pyc
+JWT_AUTHENTICATION_IMPLEMENTATION.md
+backend/auth_service/app/__pycache__/database.cpython-313.pyc
+backend/auth_service/app/core/__pycache__/config.cpython-313.pyc
+backend/auth_service/app/presentation/api/__pycache__/logs.cpython-313.pyc
+backend/auth_service/app/presentation/api/__pycache__/logs.cpython-313.pyc
+backend/auth_service/app/__pycache__/database.cpython-313.pyc

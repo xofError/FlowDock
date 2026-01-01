@@ -7,7 +7,9 @@ This wires together all the layers:
 - API routes use injected services via FastAPI dependencies
 """
 
-from fastapi import Header, HTTPException, status
+from fastapi import Header, HTTPException, status, Depends
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from typing import Dict, Any, Optional
 from app.core.config import settings
 from app.database import SessionLocal
 from app.application.services import AuthService, RedisService
@@ -29,7 +31,7 @@ from app.infrastructure.security.token_store import RefreshTokenStore
 from app.infrastructure.email.email import get_email_service
 
 
-async def verify_internal_service(x_api_key: str = Header(...)) -> None:
+async def verify_internal_service(x_api_key: str = Header(None)) -> None:
     """
     Verify that the request comes from an authorized internal service.
     
@@ -38,7 +40,7 @@ async def verify_internal_service(x_api_key: str = Header(...)) -> None:
     /logs/internal that should only be called from other microservices.
     
     Args:
-        x_api_key: The API key from the X-API-Key header
+        x_api_key: The API key from the X-API-Key header (optional parameter)
         
     Raises:
         HTTPException: 401 Unauthorized if the API key is invalid or missing
@@ -51,12 +53,86 @@ async def verify_internal_service(x_api_key: str = Header(...)) -> None:
         ):
             # This endpoint now requires valid API key
     """
-    if x_api_key != settings.internal_api_key:
+    if not x_api_key or x_api_key != settings.internal_api_key:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid API key",
+            detail="Invalid or missing API key",
             headers={"WWW-Authenticate": "Bearer"},
         )
+
+
+async def verify_jwt_token(
+    credentials: HTTPAuthorizationCredentials = Depends(HTTPBearer(auto_error=False))
+) -> Dict[str, Any]:
+    """
+    Verify JWT token from Authorization header.
+    
+    This dependency extracts and validates a JWT token from the Authorization header.
+    Returns the decoded token payload if valid.
+    
+    Args:
+        credentials: HTTP Bearer credentials from Authorization header
+        
+    Returns:
+        Decoded JWT payload (dict with 'sub' as user_id)
+        
+    Raises:
+        HTTPException: 401 Unauthorized if token is invalid or expired
+        
+    Usage:
+        @router.get("/endpoint")
+        async def get_data(token: Dict = Depends(verify_jwt_token)):
+            user_id = token['sub']
+    """
+    if not credentials:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing authorization header",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    
+    token_generator = JWTTokenGenerator()
+    payload = token_generator.decode_access_token(credentials.credentials)
+    
+    if not payload:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    
+    return payload
+
+
+async def get_current_user_id(token: Dict[str, Any] = Depends(verify_jwt_token)) -> str:
+    """
+    Extract user_id from verified JWT token.
+    
+    This is a convenience dependency that extracts the user_id (from the 'sub' claim)
+    from an already-verified JWT token.
+    
+    Args:
+        token: Verified JWT token payload
+        
+    Returns:
+        User ID (UUID as string)
+        
+    Raises:
+        HTTPException: 401 Unauthorized if 'sub' claim missing
+        
+    Usage:
+        @router.get("/my-logs")
+        async def get_my_logs(user_id: str = Depends(get_current_user_id)):
+            # user_id is the authenticated user's ID
+    """
+    user_id = token.get("sub")
+    if not user_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token: missing user_id",
+        )
+    return user_id
+
 
 
 def get_db():
