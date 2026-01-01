@@ -6,7 +6,7 @@ Implementations are in the infrastructure layer.
 
 from abc import ABC, abstractmethod
 from typing import AsyncGenerator, Optional, Tuple, List, Dict, Any
-from app.domain.entities import File
+from app.domain.entities import File, Folder
 
 
 class IFileRepository(ABC):
@@ -261,3 +261,96 @@ class IActivityLogger(ABC):
             ip_address: Optional client IP address
         """
         pass
+
+
+class IFolderRepository(ABC):
+    """
+    Abstract contract for folder storage and management.
+    Supports hierarchical folder structure with parent_id pattern.
+    """
+
+    @abstractmethod
+    async def create_folder(self, folder: "Folder") -> str:
+        """
+        Create a new folder.
+        
+        Args:
+            folder: Folder entity with name, owner_id, and optional parent_id
+            
+        Returns:
+            folder_id (str): The identifier of the created folder
+        """
+        pass
+
+    @abstractmethod
+    async def get_folder(self, folder_id: str, owner_id: str) -> Optional["Folder"]:
+        """
+        Get a folder by ID (with ownership verification).
+        
+        Args:
+            folder_id: The folder identifier
+            owner_id: The owner (for verification)
+            
+        Returns:
+            Folder entity or None if not found/not owned
+        """
+        pass
+
+    @abstractmethod
+    async def list_folders(
+        self,
+        owner_id: str,
+        parent_id: Optional[str] = None,
+    ) -> List["Folder"]:
+        """
+        List folders for a user.
+        
+        Args:
+            owner_id: The owner's identifier
+            parent_id: Optional parent folder ID (None = root folders)
+            
+        Returns:
+            List of Folder entities
+        """
+        pass
+
+    @abstractmethod
+    async def update_folder(self, folder: "Folder") -> bool:
+        """
+        Update folder metadata.
+        
+        Args:
+            folder: Folder entity with updated fields
+            
+        Returns:
+            True if updated, False if not found
+        """
+        pass
+
+    @abstractmethod
+    async def delete_folder(self, folder_id: str, owner_id: str) -> bool:
+        """
+        Delete a folder (only if empty).
+        
+        Args:
+            folder_id: The folder identifier
+            owner_id: The owner (for verification)
+            
+        Returns:
+            True if deleted, False if not found/not owned/not empty
+        """
+        pass
+
+    @abstractmethod
+    async def get_folder_contents_size(self, folder_id: str) -> int:
+        """
+        Get total size of all files in a folder (for deletion checks).
+        
+        Args:
+            folder_id: The folder identifier
+            
+        Returns:
+            Total size in bytes
+        """
+        pass
+

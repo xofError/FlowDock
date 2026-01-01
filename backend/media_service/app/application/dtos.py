@@ -99,3 +99,39 @@ class ShareFileResponse(BaseModel):
     status: str = Field(default="shared", description="Sharing status")
     file_id: str = Field(..., description="File ID")
     target: str = Field(..., description="Share target (email or link)")
+
+
+# ============================================================================
+# FOLDER DTOs
+# ============================================================================
+class FolderCreateRequest(BaseModel):
+    """Request to create a folder"""
+    name: str = Field(..., min_length=1, max_length=255, description="Folder name")
+    parent_id: Optional[str] = Field(None, description="Parent folder ID (None for root)")
+
+
+class FolderResponse(BaseModel):
+    """Response containing folder metadata"""
+    folder_id: str = Field(..., description="MongoDB ObjectId of folder")
+    name: str = Field(..., description="Folder name")
+    parent_id: Optional[str] = Field(None, description="Parent folder ID")
+    created_at: datetime = Field(..., description="Creation timestamp")
+    updated_at: datetime = Field(..., description="Last updated timestamp")
+
+
+class FolderListResponse(BaseModel):
+    """Response containing list of folders"""
+    folders: list = Field(default_factory=list, description="List of folder metadata")
+    total: int = Field(..., description="Total number of folders")
+
+
+class FolderUpdateRequest(BaseModel):
+    """Request to update folder metadata"""
+    name: Optional[str] = Field(None, min_length=1, max_length=255, description="New folder name")
+
+
+class FolderDeleteResponse(BaseModel):
+    """Response from folder deletion"""
+    status: str = Field(default="deleted", description="Deletion status")
+    folder_id: str = Field(..., description="Deleted folder ID")
+

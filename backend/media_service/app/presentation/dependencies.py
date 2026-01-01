@@ -7,9 +7,9 @@ import logging
 from fastapi import Depends
 
 from app.core.config import settings
-from app.database import get_fs
-from app.application.services import FileService
-from app.infrastructure.database.mongo_repository import MongoGridFSRepository
+from app.database import get_fs, get_db
+from app.application.services import FileService, FolderService
+from app.infrastructure.database.mongo_repository import MongoGridFSRepository, MongoFolderRepository
 from app.infrastructure.security.encryption import AESCryptoService
 from app.infrastructure.messaging.no_op_publisher import NoOpEventPublisher
 from app.infrastructure.http.auth_client import HttpQuotaRepository
@@ -51,3 +51,30 @@ async def get_file_service() -> FileService:
     except Exception as e:
         logger.error(f"Failed to build FileService: {e}")
         raise
+
+
+async def get_folder_service(db = Depends(get_db)) -> FolderService:
+    """
+    Factory function for FolderService dependency injection.
+    Builds the complete FolderService with all dependencies.
+    
+    Usage in endpoint:
+        @router.post("/folders")
+        async def create_folder(service: FolderService = Depends(get_folder_service)):
+            ...
+    """
+    try:
+        # Infrastructure layer implementations
+        folder_repo = MongoFolderRepository(db)
+
+        # Application service with injected dependencies
+        service = FolderService(
+            folder_repo=folder_repo,
+        )
+
+        return service
+
+    except Exception as e:
+        logger.error(f"Failed to build FolderService: {e}")
+        raise
+

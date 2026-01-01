@@ -14,6 +14,7 @@ from app.domain.interfaces import (
     IEventPublisher,
     IQuotaRepository,
     IActivityLogger,
+    IFolderRepository,
 )
 from app.utils.validators import validate_file_type, validate_file_size
 
@@ -447,3 +448,216 @@ class FileService:
         except Exception as e:
             logger.error(f"List files failed: {e}")
             return False, None, str(e)
+
+
+class FolderService:
+    """
+    Application service for folder operations.
+    Orchestrates folder management without knowing implementation details.
+    """
+
+    def __init__(self, folder_repo: "IFolderRepository"):
+        """
+        Initialize service with folder repository.
+        
+        Args:
+            folder_repo: Folder repository implementation
+        """
+        self.folder_repo = folder_repo
+
+    # ========================================================================
+    # Create Folder
+    # ========================================================================
+    async def create_folder(
+        self,
+        user_id: str,
+        name: str,
+        parent_id: Optional[str] = None,
+        ip_address: Optional[str] = None,
+    ) -> Tuple[bool, Optional[str], Optional[str]]:
+        """
+        Create a new folder.
+        
+        Args:
+            user_id: Owner of the folder
+            name: Folder name
+            parent_id: Optional parent folder ID
+            ip_address: Optional client IP for logging
+            
+        Returns:
+            Tuple of (success, folder_id, error_message)
+        """
+        try:
+            # Validate folder name
+            if not name or len(name) > 255:
+                return False, None, "Invalid folder name (1-255 characters)"
+
+            # Create domain entity
+            from app.domain.entities import Folder
+            folder = Folder(
+                name=name,
+                owner_id=user_id,
+                parent_id=parent_id,
+            )
+
+            # Save folder
+            folder_id = await self.folder_repo.create_folder(folder)
+            
+            logger.info(f"✓ Created folder {folder_id} for owner {user_id}")
+            return True, folder_id, None
+
+        except Exception as e:
+            logger.error(f"Create folder failed: {e}")
+            return False, None, str(e)
+
+    # ========================================================================
+    # Get Folder
+    # ========================================================================
+    async def get_folder(
+        self,
+        folder_id: str,
+        user_id: str,
+    ) -> Tuple[bool, Optional[dict], Optional[str]]:
+        """
+        Get folder metadata.
+        
+        Args:
+            folder_id: The folder identifier
+            user_id: The requesting user (for ownership verification)
+            
+        Returns:
+            Tuple of (success, folder_dict, error_message)
+        """
+        try:
+            folder = await self.folder_repo.get_folder(folder_id, user_id)
+            
+            if not folder:
+                return False, None, "Folder not found"
+
+            folder_dict = {
+                "folder_id": folder.id,
+                "name": folder.name,
+                "parent_id": folder.parent_id,
+                "created_at": folder.created_at,
+                "updated_at": folder.updated_at,
+            }
+            
+            return True, folder_dict, None
+
+        except Exception as e:
+            logger.error(f"Get folder failed: {e}")
+            return False, None, str(e)
+
+    # ========================================================================
+    # List Folders
+    # ========================================================================
+    async def list_folders(
+        self,
+        user_id: str,
+        parent_id: Optional[str] = None,
+    ) -> Tuple[bool, Optional[list], Optional[str]]:
+        """
+        List folders for a user.
+        
+        Args:
+            user_id: The owner's identifier
+            parent_id: Optional parent folder ID (None = root folders)
+            
+        Returns:
+            Tuple of (success, folders_list, error_message)
+        """
+        try:
+            folders = await self.folder_repo.list_folders(user_id, parent_id)
+
+            folders_list = [
+                {
+                    "folder_id": f.id,
+                    "name": f.name,
+                    "parent_id": f.parent_id,
+                    "created_at": f.created_at,
+                    "updated_at": f.updated_at,
+                }
+                for f in folders
+            ]
+            
+            return True, folders_list, None
+
+        except Exception as e:
+            logger.error(f"List folders failed: {e}")
+            return False, None, str(e)
+
+    # ========================================================================
+    # Update Folder
+    # ========================================================================
+    async def update_folder(
+        self,
+        folder_id: str,
+        user_id: str,
+        name: Optional[str] = None,
+    ) -> Tuple[bool, Optional[str]]:
+        """
+        Update folder metadata.
+        
+        Args:
+            folder_id: The folder identifier
+            user_id: The owner (for verification)
+            name: New folder name
+            
+        Returns:
+            Tuple of (success, error_message)
+        """
+        try:
+            # Get existing folder for verification
+            folder = await self.folder_repo.get_folder(folder_id, user_id)
+            if not folder:
+                return False, "Folder not found"
+
+            # Update name if provided
+            if name:
+                if len(name) > 255:
+                    return False, "Folder name too long (max 255 characters)"
+                folder.name = name
+
+            # Save changes
+            success = await self.folder_repo.update_folder(folder)
+            if not success:
+                return False, "Update failed"
+
+            logger.info(f"✓ Updated folder {folder_id}")
+            return True, None
+
+        except Exception as e:
+            logger.error(f"Update folder failed: {e}")
+            return False, str(e)
+
+    # ========================================================================
+    # Delete Folder
+    # ========================================================================
+    async def delete_folder(
+        self,
+        folder_id: str,
+        user_id: str,
+    ) -> Tuple[bool, Optional[str]]:
+        """
+        Delete a folder (only if empty).
+        
+        Args:
+            folder_id: The folder identifier
+            user_id: The owner (for verification)
+            
+        Returns:
+            Tuple of (success, error_message)
+        """
+        try:
+            success = await self.folder_repo.delete_folder(folder_id, user_id)
+            
+            if not success:
+                return False, "Cannot delete folder (not found, not owned, or not empty)"
+
+            logger.info(f"✓ Deleted folder {folder_id}")
+            return True, None
+
+        except Exception as e:
+            logger.error(f"Delete folder failed: {e}")
+            return False, str(e)
+
