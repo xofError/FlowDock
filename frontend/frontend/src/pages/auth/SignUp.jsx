@@ -14,6 +14,7 @@ import useAuth from "../../hooks/useAuth.js";
 import Button from "../../components/Button.jsx";
 import GoogleIcon from "../../resources/icons/social-google-plus-svgrepo-com.svg";
 import { AUTH_API_URL } from "../../services/api.js";
+import LegalModal from "../../components/LegalModal.jsx";
 
 export default function SignUp() {
   const navigate = useNavigate();
@@ -26,6 +27,7 @@ export default function SignUp() {
   const [email, setEmail] = useState("");
   const [error, setError] = useState(null);
   const [passwordStrength, setPasswordStrength] = useState(0);
+  const [legalModal, setLegalModal] = useState(null); // "privacy" | "terms" | null
 
   const calculatePasswordStrength = (password) => {
     if (!password) return 0;
@@ -268,6 +270,41 @@ export default function SignUp() {
                 Sign In
               </Link>
             </p>
+
+            {/* Privacy & Terms Links */}
+            <div className="text-center text-xs text-gray-600" style={{ marginTop: "1rem" }}>
+              <button
+                type="button"
+                onClick={() => setLegalModal("privacy")}
+                style={{
+                  background: "none",
+                  border: "none",
+                  color: "#4c739a",
+                  textDecoration: "underline",
+                  cursor: "pointer",
+                  padding: 0,
+                  fontSize: "0.75rem",
+                }}
+              >
+                Privacy Policy
+              </button>
+              <span style={{ margin: "0 0.5rem" }}>•</span>
+              <button
+                type="button"
+                onClick={() => setLegalModal("terms")}
+                style={{
+                  background: "none",
+                  border: "none",
+                  color: "#4c739a",
+                  textDecoration: "underline",
+                  cursor: "pointer",
+                  padding: 0,
+                  fontSize: "0.75rem",
+                }}
+              >
+                Terms of Service
+              </button>
+            </div>
           </>
         )}
 
@@ -320,6 +357,13 @@ export default function SignUp() {
           </div>
         )}
       </div>
+
+      {/* Legal Modal */}
+      <LegalModal
+        type={legalModal}
+        isOpen={legalModal !== null}
+        onClose={() => setLegalModal(null)}
+      />
     </MainLayout>
   );
 }

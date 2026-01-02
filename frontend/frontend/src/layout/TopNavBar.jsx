@@ -71,10 +71,10 @@ export default function TopNavBar({ children }) {
           >
             <Anchor className="h-7 w-7" style={{ color: "#000000" }} />
             <span
-              className="text-[#0d141b] font-black"
+              className="text-[#0d141b]"
               style={{
                 fontSize: "24px",
-                fontWeight: 900,
+                fontWeight: "700",
                 lineHeight: "1",
               }}
             >

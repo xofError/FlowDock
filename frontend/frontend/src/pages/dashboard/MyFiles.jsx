@@ -1,5 +1,6 @@
 import React, { useState } from "react";
-import { Search, X, Calendar } from "lucide-react";
+import { Search, X, Calendar, useNavigate } from "lucide-react";
+import { useNavigate as useRouterNavigate } from "react-router-dom";
 import TopNavBar from "../../layout/TopNavBar";
 import DashboardIcon from "../../resources/icons/dashboard.svg";
 import MyFilesIcon from "../../resources/icons/my_files.svg";
@@ -25,6 +26,7 @@ const SAMPLE_MY_FILES = [
 ];
 
 export default function MyFiles() {
+  const routerNavigate = useRouterNavigate();
   const [searchQuery, setSearchQuery] = useState("");
   const [appliedSearch, setAppliedSearch] = useState("");
   const [selectedFile, setSelectedFile] = useState(null);
@@ -37,6 +39,7 @@ export default function MyFiles() {
   const [maxDownloads, setMaxDownloads] = useState("");
   const [emailError, setEmailError] = useState("");
   const [dateError, setDateError] = useState("");
+  const [successMessage, setSuccessMessage] = useState("");
 
   let displayFiles = SAMPLE_MY_FILES;
 
@@ -103,8 +106,11 @@ export default function MyFiles() {
     
     if (hasError) return;
 
-    alert(`Share link created for ${shareFile.name}\nEmail: ${shareEmail}\nExpiry: ${shareExpiryDate}\nPublic Link: ${generatePublicLink}\nMax Downloads: ${maxDownloads}`);
-    setShareFile(null);
+    setSuccessMessage(`✓ Share link created for ${shareFile.name}`);
+    setTimeout(() => {
+      setShareFile(null);
+      setSuccessMessage("");
+    }, 2500);
   };
 
   const handleShare = (file) => {
@@ -467,8 +473,8 @@ export default function MyFiles() {
             <button
               key={idx}
               className={`sidebar-btn ${idx === 1 ? "active" : ""}`}
-              onClick={() => window.location.href = item.to}
-            >
+              onClick={() => routerNavigate(item.to)}
+              >
               <img 
                 src={item.icon} 
                 alt="" 
@@ -698,6 +704,20 @@ export default function MyFiles() {
               <button className="share-modal-btn primary" onClick={handleCreateShareLink}>
                 Create share link
               </button>
+              {successMessage && (
+                <div style={{
+                  marginTop: "1rem",
+                  padding: "0.75rem",
+                  backgroundColor: "#dcfce7",
+                  color: "#166534",
+                  borderRadius: "6px",
+                  fontSize: "0.875rem",
+                  textAlign: "center",
+                  border: "1px solid #bbf7d0"
+                }}>
+                  {successMessage}
+                </div>
+              )}
             </div>
           </div>
         </div>

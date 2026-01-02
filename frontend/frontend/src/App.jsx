@@ -25,7 +25,7 @@ function Help() {
   return (
     <div style={{ padding: 24 }}>
       <h1 style={{ fontSize: 20, marginBottom: 8 }}>Help</h1>
-      <p>If you need assistance, check the documentation or contact support.</p>
+      <p>If you need assistance, check the documentation or contact support at flowdockproduction@gmail.com</p>
     </div>
   );
 }
