@@ -532,8 +532,28 @@ class FileService:
 
             # Verify new folder exists and is owned by user
             new_folder = await self.folder_repo.get_folder(new_folder_id, user_id)
+            
+            # [FIX #3] If not owner, check if user has EDIT permissions via sharing
             if not new_folder:
-                return False, "Destination folder not found or access denied"
+                # Check if folder exists and user has EDIT/ADMIN permissions
+                new_folder = await self.folder_repo.get_folder_by_id(new_folder_id)
+                if new_folder:
+                    # Verify user has EDIT or ADMIN permission via folder sharing
+                    # Access shares collection directly if available
+                    if hasattr(self.folder_repo, 'db'):
+                        share = await self.folder_repo.db["folder_shares"].find_one({
+                            "folder_id": new_folder_id,
+                            "target_id": user_id,
+                            "permission": {"$in": ["edit", "admin"]}  # Only EDIT/ADMIN can add files
+                        })
+                        if not share:
+                            logger.warning(f"User {user_id} lacks EDIT permission for folder {new_folder_id}")
+                            return False, "Destination folder not found or access denied"
+                    else:
+                        logger.warning(f"Cannot check sharing permissions: folder_repo has no db attribute")
+                        return False, "Destination folder not found or access denied"
+                else:
+                    return False, "Destination folder not found or access denied"
 
             # Update file's folder_id
             await self.repo.update_file_metadata(file_id, {"folder_id": new_folder_id})
@@ -552,16 +572,26 @@ class FolderService:
     Orchestrates folder management without knowing implementation details.
     """
 
-    def __init__(self, folder_repo: "IFolderRepository", file_repo: "IGridFSRepository" = None):
+    def __init__(
+        self,
+        folder_repo: "IFolderRepository",
+        file_repo: "IGridFSRepository" = None,
+        crypto: ICryptoService = None,
+        quota_repo: IQuotaRepository = None,
+    ):
         """
         Initialize service with folder and file repositories.
         
         Args:
             folder_repo: Folder repository implementation
             file_repo: Optional file repository for folder contents operations
+            crypto: Optional crypto service for decryption during archive
+            quota_repo: Optional quota repository for updating storage usage
         """
         self.folder_repo = folder_repo
         self.file_repo = file_repo
+        self.crypto = crypto
+        self.quota_repo = quota_repo
 
     # ========================================================================
     # Create Folder
@@ -686,13 +716,23 @@ class FolderService:
             if not folder:
                 return False, "Folder not found or not owned by user"
 
+            # [FIX #2] Calculate total size before deletion for quota rollback
+            total_size = 0
+            if hasattr(self.folder_repo, 'get_folder_contents_size'):
+                total_size = await self.folder_repo.get_folder_contents_size(folder_id)
+            
             # Use repository's recursive delete
             success = await self.folder_repo.delete_folder_recursive(folder_id, user_id)
             
             if not success:
                 return False, "Failed to delete folder"
 
-            logger.info(f"✓ Recursively deleted folder {folder_id} and all contents")
+            # [FIX #2] Update Quota to reflect freed space
+            if self.quota_repo and total_size > 0:
+                await self.quota_repo.update_usage(user_id, -total_size)
+                logger.info(f"✓ Updated quota: freed {total_size} bytes for user {user_id}")
+
+            logger.info(f"✓ Recursively deleted folder {folder_id} and all contents (Freed {total_size} bytes)")
             return True, None
 
         except Exception as e:
@@ -1177,13 +1217,24 @@ class FolderService:
                             # Get file content
                             _, stream = await self.file_repo.get_file_stream(file_entity.id)
                             if stream:
+                                # [FIX #1] Handle Decryption for encrypted files
+                                if file_entity.encrypted and self.crypto:
+                                    try:
+                                        # Unwrap the encrypted key and get nonce
+                                        file_key = self.crypto.unwrap_key(bytes.fromhex(file_entity.encrypted_key))
+                                        nonce = bytes.fromhex(file_entity.nonce)
+                                        # Decrypt the stream
+                                        stream = self.crypto.decrypt_stream(stream, file_key, nonce)
+                                        logger.info(f"Decrypting file {file_entity.filename} for archive")
+                                    except Exception as decrypt_error:
+                                        logger.error(f"Failed to decrypt {file_entity.filename} for zip: {decrypt_error}")
+                                        logger.warning(f"Skipping encrypted file {file_entity.filename} - decryption failed")
+                                        continue
+                                
                                 # Read the stream into memory and write to zip
                                 file_data = b""
                                 async for chunk in stream:
                                     file_data += chunk
-                                
-                                # NOTE: If files are encrypted, decrypt here using CryptoService
-                                # For now, assuming files are stored in usable format
                                 
                                 zipf.writestr(zip_entry_path, file_data)
                         except Exception as e:
@@ -1275,6 +1326,18 @@ class FolderService:
                         try:
                             _, stream = await self.file_repo.get_file_stream(file_entity.id)
                             if stream:
+                                # [FIX #1] Handle Decryption for encrypted files
+                                if file_entity.encrypted and self.crypto:
+                                    try:
+                                        file_key = self.crypto.unwrap_key(bytes.fromhex(file_entity.encrypted_key))
+                                        nonce = bytes.fromhex(file_entity.nonce)
+                                        stream = self.crypto.decrypt_stream(stream, file_key, nonce)
+                                        logger.info(f"Decrypting file {file_entity.filename} for public archive")
+                                    except Exception as decrypt_error:
+                                        logger.error(f"Failed to decrypt {file_entity.filename} for zip: {decrypt_error}")
+                                        logger.warning(f"Skipping encrypted file {file_entity.filename} - decryption failed")
+                                        continue
+                                
                                 file_data = b""
                                 async for chunk in stream:
                                     file_data += chunk

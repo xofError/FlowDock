@@ -76,11 +76,17 @@ async def get_folder_service() -> FolderService:
         folder_repo = MongoFolderRepository(mongo_db)
         fs = get_fs()
         file_repo = MongoGridFSRepository(fs, mongo_db)
+        
+        # [FIX] Inject crypto and quota services
+        crypto = AESCryptoService()
+        quota_repo = HttpQuotaRepository(settings.auth_service_url)
 
         # Application service with injected dependencies
         service = FolderService(
             folder_repo=folder_repo,
             file_repo=file_repo,
+            crypto=crypto,          # For decryption in archive_folder
+            quota_repo=quota_repo,  # For quota updates in delete_folder_recursive
         )
 
         return service
