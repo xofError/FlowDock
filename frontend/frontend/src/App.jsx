@@ -20,16 +20,8 @@ import Trash from "./pages/dashboard/Trash.jsx";
 import Settings from "./pages/dashboard/Settings.jsx";
 import PublicLink from "./pages/PublicLink.jsx";
 import NotFound from "./pages/NotFound.jsx";
+import Help from "./pages/Help.jsx"; // << added import
 import { useAuthContext } from "./context/AuthContext.jsx";
-
-function Help() {
-  return (
-    <div style={{ padding: 24 }}>
-      <h1 style={{ fontSize: 20, marginBottom: 8 }}>Help</h1>
-      <p>If you need assistance, check the documentation or contact support at flowdockproduction@gmail.com</p>
-    </div>
-  );
-}
 
 // Simple Error Boundary to avoid blank page and show error details
 class ErrorBoundary extends React.Component {

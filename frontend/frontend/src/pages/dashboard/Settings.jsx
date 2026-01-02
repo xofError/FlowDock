@@ -1,4 +1,4 @@
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { X } from "lucide-react";
 import TopNavBar from "../../layout/TopNavBar";
@@ -46,9 +46,21 @@ export default function Settings() {
   const [devices, setDevices] = useState(SAMPLE_DEVICES);
   const [deviceToRemove, setDeviceToRemove] = useState(null);
   const [removeDeviceWarning, setRemoveDeviceWarning] = useState(false);
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const accountRef = useRef(null);
   const storageRef = useRef(null);
   const securityRef = useRef(null);
+
+  useEffect(() => {
+    function onToggle() { setMobileSidebarOpen(s => !s); }
+    window.addEventListener("toggleMobileSidebar", onToggle);
+    return () => window.removeEventListener("toggleMobileSidebar", onToggle);
+  }, []);
+
+  useEffect(() => {
+    document.body.style.overflow = mobileSidebarOpen ? "hidden" : "";
+    return () => { document.body.style.overflow = ""; };
+  }, [mobileSidebarOpen]);
 
   const validateEmail = (email) => {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -148,14 +160,9 @@ export default function Settings() {
           cursor: pointer;
           margin-bottom: 0.6rem;
         }
-        .sidebar-btn:hover {
-          background-color: #f1f5f9;
-        }
-        .sidebar-btn.active {
-          background-color: #e2e8f0;
-          color: #0f172a;
-          font-weight: 500;
-        }
+        .sidebar-btn:hover { background-color: #f1f5f9; }
+        .sidebar-btn.active { background-color: #e2e8f0; color: #0f172a; font-weight: 500; }
+
         .settings-nav-btn {
           display: flex;
           align-items: center;
@@ -164,231 +171,68 @@ export default function Settings() {
           border: none;
           background: transparent;
           cursor: pointer;
-          fontSize: 0.875rem;
+          font-size: 0.875rem;
           color: #64748b;
           transition: all 0.2s;
-          borderBottom: 2px solid transparent;
+          border-bottom: 2px solid transparent;
         }
-        .settings-nav-btn:hover {
-          color: #0f172a;
-        }
-        .settings-nav-btn.active {
-          color: #2563eb;
-          borderBottom: 2px solid #2563eb;
-        }
+        .settings-nav-btn:hover { color: #0f172a; }
+        .settings-nav-btn.active { color: #2563eb; border-bottom: 2px solid #2563eb; }
+
         .input-field {
           width: 100%;
           border: 1px solid #d1d5db;
           border-radius: 6px;
           padding: 0.75rem;
           font-size: 0.875rem;
-          marginBottom: 1rem;
-        }
-        .input-field:focus {
-          outline: none;
-          border-color: #2563eb;
-          boxShadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
-        }
-        .update-btn {
-          background-color: #2563eb;
-          color: #ffffff;
-          border: none;
-          padding: 0.75rem 1.5rem;
-          border-radius: 6px;
-          cursor: pointer;
-          font-weight: 500;
-          font-size: 0.875rem;
-          transition: background-color 0.2s;
-        }
-        .update-btn:hover {
-          background-color: #1d4ed8;
-        }
-        .empty-btn, .secondary-btn {
-          background-color: #e5e7eb;
-          color: #000000;
-          border: none;
-          padding: 0.75rem 1.5rem;
-          border-radius: 6px;
-          cursor: pointer;
-          font-weight: 500;
-          font-size: 0.875rem;
-          transition: background-color 0.2s;
-        }
-        .empty-btn:hover, .secondary-btn:hover {
-          background-color: #d1d5db;
-        }
-        .success-message {
-          background-color: #dcfce7;
-          color: #166534;
-          border: 1px solid #bbf7d0;
-          padding: 0.75rem;
-          border-radius: 6px;
-          margin-top: 1rem;
-          font-size: 0.875rem;
-        }
-        .storage-chart {
-          width: 100%;
-          height: 40px;
-          background: linear-gradient(to right, #2563eb 35%, #e5e7eb 35%);
-          border-radius: 8px;
-          marginBottom: 1rem;
-        }
-        .toggle-switch {
-          display: inline-flex;
-          align-items: center;
-          width: 48px;
-          height: 24px;
-          background: #d1d5db;
-          border-radius: 12px;
-          padding: 2px;
-          cursor: pointer;
-          transition: background 0.2s;
-        }
-        .toggle-switch.active {
-          background: #2563eb;
-        }
-        .toggle-switch-circle {
-          width: 20px;
-          height: 20px;
-          background: white;
-          border-radius: 50%;
-          transition: transform 0.2s;
-        }
-        .toggle-switch.active .toggle-switch-circle {
-          transform: translateX(24px);
-        }
-        .icon-box {
-          display: inline-flex;
-          align-items: center;
-          justify-content: center;
-          width: 40px;
-          height: 40px;
-          background-color: #e5e7eb;
-          border-radius: 6px;
-          margin-right: 1rem;
-        }
-        .icon-box svg {
-          width: 20px;
-          height: 20px;
-        }
-        .device-item {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          padding: 1rem 0;
-          border-bottom: 1px solid #e5e7eb;
-        }
-        .device-item:last-child {
-          border-bottom: none;
-        }
-        .remove-btn {
-          background: none;
-          border: none;
-          color: #dc2626;
-          cursor: pointer;
-          font-size: 1.25rem;
-          padding: 0;
-          width: 24px;
-          height: 24px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-        }
-        .modal-overlay {
-          position: fixed;
-          top: 0;
-          left: 0;
-          right: 0;
-          bottom: 0;
-          background-color: rgba(0, 0, 0, 0.5);
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          z-index: 100;
-        }
-        .modal-content {
-          background: #ffffff;
-          border-radius: 8px;
-          padding: 1.5rem;
-          max-width: 400px;
-          width: 90%;
-          box-shadow: 0 10px 40px rgba(0, 0, 0, 0.15);
-        }
-        .modal-header {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
           margin-bottom: 1rem;
         }
-        .modal-title {
-          font-size: 1.25rem;
-          font-weight: 600;
-          color: #0f172a;
-        }
-        .modal-close-btn {
-          background: none;
-          border: none;
-          cursor: pointer;
-          display: flex;
-          padding: 0;
-        }
-        .modal-close-btn svg {
-          color: #dc2626;
-          width: 1.5rem;
-          height: 1.5rem;
-        }
-        .modal-text {
-          font-size: 0.875rem;
-          color: #64748b;
-          margin-bottom: 1.5rem;
-          lineHeight: 1.6;
-        }
-        .warning-text {
-          color: #dc2626;
-          fontWeight: 600;
-        }
-        .modal-buttons {
-          display: flex;
-          gap: 0.75rem;
-          justifyContent: flex-end;
-        }
-        .modal-btn {
-          padding: 0.5rem 1rem;
-          border-radius: 6px;
-          cursor: pointer;
-          fontWeight: 500;
-          fontSize: 0.875rem;
-          border: none;
-          transition: background-color 0.2s;
-        }
-        .modal-btn-cancel {
-          background-color: #e5e7eb;
-          color: #0f172a;
-        }
-        .modal-btn-cancel:hover {
-          background-color: #d1d5db;
-        }
-        .modal-btn-delete {
-          background-color: #dc2626;
-          color: #ffffff;
-        }
-        .modal-btn-delete:hover {
-          background-color: #b91c1c;
-        }
-        .recovery-phrase-box {
-          background-color: #f9fafb;
-          border: 1px solid #e5e7eb;
-          border-radius: 6px;
-          padding: 1rem;
-          font-family: monospace;
-          font-size: 0.875rem;
-          word-break: break-all;
-          color: #0f172a;
-        }
+        .input-field:focus { outline: none; border-color: #2563eb; box-shadow: 0 0 0 3px rgba(37,99,235,0.1); }
+
+        .update-btn { background-color: #2563eb; color: #fff; border: none; padding: 0.75rem 1.5rem; border-radius: 6px; cursor: pointer; font-weight:500; font-size:0.875rem; transition: background-color 0.2s; }
+        .update-btn:hover { background-color: #1d4ed8; }
+        .empty-btn, .secondary-btn { background-color: #e5e7eb; color: #000; border: none; padding: 0.75rem 1.5rem; border-radius: 6px; cursor: pointer; font-weight: 500; font-size:0.875rem; transition: background-color 0.2s; }
+        .empty-btn:hover, .secondary-btn:hover { background-color: #d1d5db; }
+
+        .success-message { background-color: #dcfce7; color: #166534; border: 1px solid #bbf7d0; padding: 0.75rem; border-radius: 6px; margin-top: 1rem; font-size: 0.875rem; }
+
+        .storage-chart { width: 100%; height: 40px; background: linear-gradient(to right, #2563eb 35%, #e5e7eb 35%); border-radius: 8px; margin-bottom: 1rem; }
+
+        .toggle-switch { display:inline-flex; align-items:center; width:48px; height:24px; background:#d1d5db; border-radius:12px; padding:2px; cursor:pointer; transition: background 0.2s; }
+        .toggle-switch.active { background: #2563eb; }
+        .toggle-switch-circle { width:20px; height:20px; background:white; border-radius:50%; transition: transform 0.2s; }
+        .toggle-switch.active .toggle-switch-circle { transform: translateX(24px); }
+
+        .icon-box { display:inline-flex; align-items:center; justify-content:center; width:40px; height:40px; background-color:#e5e7eb; border-radius:6px; margin-right:1rem; }
+        .icon-box svg { width:20px; height:20px; }
+
+        .device-item { display:flex; align-items:center; justify-content:space-between; padding:1rem 0; border-bottom:1px solid #e5e7eb; }
+        .device-item:last-child { border-bottom: none; }
+        .remove-btn { background:none; border:none; color:#dc2626; cursor:pointer; font-size:1.25rem; padding:0; width:24px; height:24px; display:flex; align-items:center; justify-content:center; }
+
+        .modal-overlay { position: fixed; inset:0; background-color: rgba(0,0,0,0.5); display:flex; align-items:center; justify-content:center; z-index:100; }
+        .modal-content { background:#fff; border-radius:8px; padding:1.5rem; max-width:400px; width:90%; box-shadow:0 10px 40px rgba(0,0,0,0.15); }
+        .modal-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:1rem; }
+        .modal-title { font-size:1.25rem; font-weight:600; color:#0f172a; }
+        .modal-close-btn { background:none; border:none; cursor:pointer; display:flex; padding:0; }
+        .modal-close-btn svg { color:#dc2626; width:1.5rem; height:1.5rem; }
+        .modal-text { font-size:0.875rem; color:#64748b; margin-bottom:1.5rem; line-height:1.6; }
+        .warning-text { color:#dc2626; font-weight:600; }
+        .modal-buttons { display:flex; gap:0.75rem; justify-content:flex-end; }
+        .modal-btn { padding:0.5rem 1rem; border-radius:6px; cursor:pointer; font-weight:500; font-size:0.875rem; border:none; transition: background-color 0.2s; }
+        .modal-btn-cancel { background-color:#e5e7eb; color:#0f172a; }
+        .modal-btn-cancel:hover { background-color:#d1d5db; }
+        .modal-btn-delete { background-color:#dc2626; color:#fff; }
+        .modal-btn-delete:hover { background-color:#b91c1c; }
+
+        .recovery-phrase-box { background-color:#f9fafb; border:1px solid #e5e7eb; border-radius:6px; padding:1rem; font-family:monospace; font-size:0.875rem; word-break:break-all; color:#0f172a; }
+
+        .mobile-menu { position: fixed; inset:0; background-color: rgba(0,0,0,0.7); display:flex; align-items:center; justify-content:center; z-index:60; }
+        .panel { background:#ffffff; border-radius:8px; padding:1.5rem; max-width:400px; width:90%; box-shadow:0 10px 40px rgba(0,0,0,0.15); }
       `}</style>
 
       {/* Sidebar */}
-      <aside 
+      <aside className="sidebar-responsive"
         style={{ 
           width: "calc(100vw * 5 / 17 * 0.75 * 0.85)",
           backgroundColor: "#ffffff",
@@ -719,6 +563,26 @@ export default function Settings() {
             <p style={{ fontSize: "0.75rem", color: "#64748b", marginTop: "1rem", textAlign: "center" }}>
               Save this phrase in a safe place. You'll need it to recover your account.
             </p>
+          </div>
+        </div>
+      )}
+
+      {/* Mobile sidebar panel */}
+      {mobileSidebarOpen && (
+        <div className="mobile-menu" onClick={() => setMobileSidebarOpen(false)} style={{ zIndex: 60 }}>
+          <div className="panel" onClick={(e) => e.stopPropagation()}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
+              <strong>FlowDock</strong>
+              <button onClick={() => setMobileSidebarOpen(false)} style={{ background: "none", border: "none", cursor: "pointer" }}>✕</button>
+            </div>
+            <nav style={{ display: "flex", flexDirection: "column", gap: "0.6rem" }}>
+              {navItems.map((item, idx) => (
+                <button key={idx} onClick={() => { setMobileSidebarOpen(false); routerNavigate(item.to); }} style={{ display: "flex", gap: "0.5rem", alignItems: "center", padding: "0.6rem 0.2rem", background: "transparent", border: "none", cursor: "pointer" }}>
+                  <img src={item.icon} alt="" style={{ width: "1rem", height: "1rem" }} />
+                  <span>{item.label}</span>
+                </button>
+              ))}
+            </nav>
           </div>
         </div>
       )}

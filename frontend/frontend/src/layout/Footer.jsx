@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 export default function Footer() {
   return (
     <footer
-      className="bg-[#f5f7fb] mt-8 flex flex-col items-center justify-center"
+      className="site-footer bg-[#f5f7fb] mt-8 flex flex-col items-center justify-center"
       style={{ 
         paddingLeft: "2.5cm", 
         paddingRight: "2.5cm", 

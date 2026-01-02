@@ -1,5 +1,5 @@
-import React, { useState } from "react";
-import { Search, X, Calendar, useNavigate } from "lucide-react";
+import React, { useState, useEffect } from "react";
+import { Search, X, Calendar } from "lucide-react";
 import { useNavigate as useRouterNavigate } from "react-router-dom";
 import TopNavBar from "../../layout/TopNavBar";
 import DashboardIcon from "../../resources/icons/dashboard.svg";
@@ -40,6 +40,7 @@ export default function MyFiles() {
   const [emailError, setEmailError] = useState("");
   const [dateError, setDateError] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
 
   let displayFiles = SAMPLE_MY_FILES;
 
@@ -196,532 +197,357 @@ export default function MyFiles() {
     );
   };
 
+  useEffect(() => {
+    function onToggle() { setMobileSidebarOpen(s => !s); }
+    window.addEventListener("toggleMobileSidebar", onToggle);
+    return () => window.removeEventListener("toggleMobileSidebar", onToggle);
+  }, []);
+
+  useEffect(() => {
+    document.body.style.overflow = mobileSidebarOpen ? "hidden" : "";
+    return () => { document.body.style.overflow = ""; };
+  }, [mobileSidebarOpen]);
+
   return (
-    <TopNavBar>
-      <style>{`
-        .sidebar-btn {
-          display: flex;
-          align-items: center;
-          justify-content: flex-start;
-          width: 100%;
-          gap: 0.3cm;
-          height: 2rem;
-          font-size: 0.875rem;
-          padding: 0.5rem 0.8rem;
-          border-radius: 0.5rem;
-          outline: none;
-          border: none;
-          background-color: transparent;
-          color: #64748b;
-          font-weight: 400;
-          transition: all 0.2s ease;
-          cursor: pointer;
-          margin-bottom: 0.6rem;
-        }
-        .sidebar-btn:hover {
-          background-color: #f1f5f9;
-        }
-        .sidebar-btn.active {
-          background-color: #e2e8f0;
-          color: #0f172a;
-          font-weight: 500;
-        }
-        .file-link {
-          color: #2563eb;
-          text-decoration: underline;
-          cursor: pointer;
-          transition: opacity 0.2s;
-        }
-        .file-link:hover {
-          opacity: 0.7;
-        }
-        .modal-overlay {
-          position: fixed;
-          top: 0;
-          left: 0;
-          right: 0;
-          bottom: 0;
-          background-color: rgba(0, 0, 0, 0.5);
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          z-index: 100;
-        }
-        .modal-content {
-          background: #ffffff;
-          border-radius: 8px;
-          padding: 1.5rem;
-          max-width: 500px;
-          width: 90%;
-          box-shadow: 0 10px 40px rgba(0, 0, 0, 0.15);
-        }
-        .modal-header {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          margin-bottom: 1rem;
-        }
-        .modal-title {
-          font-size: 1.25rem;
-          font-weight: 600;
-          color: #0f172a;
-        }
-        .modal-close-btn {
-          background: none;
-          border: none;
-          cursor: pointer;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          padding: 0;
-        }
-        .modal-close-btn svg {
-          color: #dc2626;
-          width: 1.5rem;
-          height: 1.5rem;
-        }
-        .modal-info {
-          margin-bottom: 1.5rem;
-        }
-        .modal-info-row {
-          display: flex;
-          justify-content: space-between;
-          padding: 0.5rem 0;
-          border-bottom: 1px solid #e5e7eb;
-          font-size: 0.875rem;
-        }
-        .modal-info-label {
-          font-weight: 500;
-          color: #64748b;
-        }
-        .modal-info-value {
-          color: #0f172a;
-        }
-        .modal-buttons {
-          display: flex;
-          gap: 0.5rem;
-          justify-content: flex-end;
-        }
-        .modal-btn {
-          background-color: #2563eb;
-          color: #ffffff;
-          border: none;
-          padding: 0.5rem 1rem;
-          border-radius: 6px;
-          cursor: pointer;
-          font-weight: 500;
-          font-size: 0.875rem;
-          transition: background-color 0.2s;
-        }
-        .modal-btn:hover {
-          background-color: #1d4ed8;
-        }
-        .search-wrapper {
-          width: 90%;
-          max-width: 90%;
-          margin-left: 0;
-        }
-        .content-width { 
-          width: 90%; 
-          max-width: 90%; 
-          margin-left: 0; 
-        }
-        .files-table { 
-          border: 1px solid #e5e7eb; 
-          border-radius: 8px; 
-          overflow: hidden; 
-        }
-        .files-table > .table-inner { 
-          padding: 0 0.5rem 0.5rem 0.5rem; 
-        }
-        .files-table thead tr { 
-          border-bottom: 1px solid #e5e7eb; 
-        }
-        .files-table tbody tr { 
-          border-bottom: 1px solid #e5e7eb; 
-        }
-        .files-table th, .files-table td { 
-          padding-left: 1rem; 
-          padding-right: 1rem; 
-        }
-        .files-table thead th { 
-          padding-top: 0.45rem; 
-          padding-bottom: 0.6rem; 
-          text-align: left; 
-          vertical-align: middle; 
-        }
-        .files-table th:last-child, .files-table td:last-child { 
-          border-right: none; 
-        }
-        .col-muted { 
-          color: #64748b; 
-        }
-        .files-table .table-inner table { 
-          width: 100%; 
-        }
-        .share-input {
-          width: 100%;
-          border: 1px solid #d1d5db;
-          border-radius: 6px;
-          padding: 0.5rem 0.75rem;
-          font-size: 0.875rem;
-          background: transparent;
-          outline: none;
-          transition: border-color 0.2s;
-          height: 2.5rem;
-        }
-        .share-input:focus {
-          border-color: #2563eb;
-        }
-        .share-input-group {
-          margin-bottom: 1rem;
-          position: relative;
-        }
-        .share-input-label {
-          font-size: 0.875rem;
-          font-weight: 500;
-          color: #374151;
-          margin-bottom: 0.25rem;
-          display: block;
-        }
-        .toggle-switch {
-          display: inline-flex;
-          align-items: center;
-          width: 48px;
-          height: 24px;
-          background: #d1d5db;
-          border-radius: 12px;
-          padding: 2px;
-          cursor: pointer;
-          transition: background 0.2s;
-        }
-        .toggle-switch.active {
-          background: #2563eb;
-        }
-        .toggle-switch-circle {
-          width: 20px;
-          height: 20px;
-          background: white;
-          border-radius: 50%;
-          transition: transform 0.2s;
-        }
-        .toggle-switch.active .toggle-switch-circle {
-          transform: translateX(24px);
-        }
-        .share-modal-btn {
-          width: 100%;
-          padding: 0.5rem 1rem;
-          border-radius: 6px;
-          font-size: 0.875rem;
-          font-weight: 500;
-          cursor: pointer;
-          border: 1px solid #d1d5db;
-          background: transparent;
-          color: #0f172a;
-          transition: all 0.2s;
-          height: 2.5rem;
-        }
-        .share-modal-btn:hover {
-          border-color: #9ca3af;
-        }
-        .share-modal-btn.primary {
-          background: #2563eb;
-          color: white;
-          border: none;
-          width: 100%;
-        }
-        .share-modal-btn.primary:hover {
-          background: #1d4ed8;
-        }
-        .calendar-icon-btn {
-          position: absolute;
-          right: 0.75rem;
-          top: 50%;
-          transform: translateY(-50%);
-          background: none;
-          border: none;
-          cursor: pointer;
-          padding: 0;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-        }
-        .error-text {
-          color: #dc2626;
-          font-size: 0.75rem;
-          margin-top: 0.25rem;
-          display: block;
-        }
-      `}</style>
+    <>
+      <TopNavBar>
+        <style>{`
+          .sidebar-btn { display:flex; align-items:center; justify-content:flex-start; width:100%; gap:0.3cm; height:2rem; font-size:0.875rem; padding:0.5rem 0.8rem; border-radius:0.5rem; outline:none; border:none; background-color:transparent; color:#64748b; font-weight:400; transition:all .2s ease; cursor:pointer; margin-bottom:0.6rem; }
+          .sidebar-btn:hover { background-color:#f1f5f9; }
+          .sidebar-btn.active { background-color:#e2e8f0; color:#0f172a; font-weight:500; }
+          .file-link { color:#2563eb; text-decoration:underline; cursor:pointer; transition:opacity .2s; }
+          .file-link:hover { opacity:0.7; }
+          .modal-overlay { position:fixed; inset:0; background-color:rgba(0,0,0,0.5); display:flex; align-items:center; justify-content:center; z-index:100; }
+          .modal-content { background:#fff; border-radius:8px; padding:1.5rem; max-width:500px; width:90%; box-shadow:0 10px 40px rgba(0,0,0,0.15); }
+          .modal-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:1rem; }
+          .modal-title { font-size:1.25rem; font-weight:600; color:#0f172a; }
+          .modal-close-btn { background:none; border:none; cursor:pointer; display:flex; align-items:center; justify-content:center; padding:0; }
+          .modal-close-btn svg { color:#dc2626; width:1.5rem; height:1.5rem; }
+          .modal-info { margin-bottom:1.5rem; }
+          .modal-info-row { display:flex; justify-content:space-between; padding:0.5rem 0; border-bottom:1px solid #e5e7eb; font-size:0.875rem; }
+          .modal-info-label { font-weight:500; color:#64748b; }
+          .modal-info-value { color:#0f172a; }
+          .modal-buttons { display:flex; gap:0.5rem; justify-content:flex-end; }
+          .modal-btn { background-color:#2563eb; color:#fff; border:none; padding:0.5rem 1rem; border-radius:6px; cursor:pointer; font-weight:500; font-size:0.875rem; transition:background-color .2s; }
+          .modal-btn:hover { background-color:#1d4ed8; }
+          .search-wrapper { width:90%; max-width:90%; margin-left:0; }
+          .content-width { width:90%; max-width:90%; margin-left:0; }
+          .files-table { border:1px solid #e5e7eb; border-radius:8px; overflow:hidden; }
+          .files-table > .table-inner { padding:0 0.5rem 0.5rem 0.5rem; }
+          .files-table thead tr { border-bottom:1px solid #e5e7eb; }
+          .files-table tbody tr { border-bottom:1px solid #e5e7eb; }
+          .files-table th, .files-table td { padding-left:1rem; padding-right:1rem; }
+          .files-table thead th { padding-top:0.45rem; padding-bottom:0.6rem; text-align:left; vertical-align:middle; }
+          .files-table th:last-child, .files-table td:last-child { border-right:none; }
+          .col-muted { color:#64748b; }
+          .files-table .table-inner table { width:100%; }
+          .share-input { width:100%; border:1px solid #d1d5db; border-radius:6px; padding:0.5rem 0.75rem; font-size:0.875rem; background:transparent; outline:none; transition:border-color .2s; height:2.5rem; }
+          .share-input:focus { border-color:#2563eb; }
+          .share-input-group { margin-bottom:1rem; position:relative; }
+          .share-input-label { font-size:0.875rem; font-weight:500; color:#374151; margin-bottom:0.25rem; display:block; }
+          .toggle-switch { display:inline-flex; align-items:center; width:48px; height:24px; background:#d1d5db; border-radius:12px; padding:2px; cursor:pointer; transition:background .2s; }
+          .toggle-switch.active { background:#2563eb; }
+          .toggle-switch-circle { width:20px; height:20px; background:white; border-radius:50%; transition:transform .2s; }
+          .toggle-switch.active .toggle-switch-circle { transform:translateX(24px); }
+          .share-modal-btn { width:100%; padding:0.5rem 1rem; border-radius:6px; font-size:0.875rem; font-weight:500; cursor:pointer; border:1px solid #d1d5db; background:transparent; color:#0f172a; transition:all .2s; height:2.5rem; }
+          .share-modal-btn:hover { border-color:#9ca3af; }
+          .share-modal-btn.primary { background:#2563eb; color:white; border:none; width:100%; }
+          .share-modal-btn.primary:hover { background:#1d4ed8; }
+          .calendar-icon-btn { position:absolute; right:0.75rem; top:50%; transform:translateY(-50%); background:none; border:none; cursor:pointer; padding:0; display:flex; align-items:center; justify-content:center; }
+          .error-text { color:#dc2626; font-size:0.75rem; margin-top:0.25rem; display:block; }
+          .mobile-menu { position:fixed; inset:0; background:rgba(0,0,0,0.7); display:flex; align-items:center; justify-content:flex-end; z-index:60; }
+          .panel { background:#fff; border-radius:8px; padding:1.5rem; width:320px; max-width:85%; box-shadow:-8px 0 24px rgba(0,0,0,0.12); }
+        `}</style>
 
-      {/* Sidebar */}
-      <aside 
-        style={{ 
-          width: "calc(100vw * 5 / 17 * 0.75 * 0.85)",
-          backgroundColor: "#ffffff",
-          paddingLeft: "1cm",
-          paddingRight: "1.5rem",
-          paddingTop: "1.5rem",
-          paddingBottom: "1.5rem",
-          display: "flex",
-          flexDirection: "column",
-          flexShrink: 0,
-        }}
-      >
-        <nav style={{ flex: 1 }}>
-          {navItems.map((item, idx) => (
-            <button
-              key={idx}
-              className={`sidebar-btn ${idx === 1 ? "active" : ""}`}
-              onClick={() => routerNavigate(item.to)}
+        {/* Sidebar (hide on small screens) */}
+        <aside className="sidebar-responsive"
+          style={{ 
+            width: "calc(100vw * 5 / 17 * 0.75 * 0.85)",
+            backgroundColor: "#ffffff",
+            paddingLeft: "1cm",
+            paddingRight: "1.5rem",
+            paddingTop: "1.5rem",
+            paddingBottom: "1.5rem",
+            display: "flex",
+            flexDirection: "column",
+            flexShrink: 0,
+          }}
+        >
+          <nav style={{ flex: 1 }}>
+            {navItems.map((item, idx) => (
+              <button
+                key={idx}
+                className={`sidebar-btn ${idx === 1 ? "active" : ""}`}
+                onClick={() => routerNavigate(item.to)}
               >
-              <img 
-                src={item.icon} 
-                alt="" 
-                style={{ width: "1.1rem", height: "1.1rem", flexShrink: 0 }} 
-              />
-              <span style={{ fontSize: "0.875rem" }}>{item.label}</span>
-            </button>
-          ))}
-        </nav>
-      </aside>
-
-      {/* Main Content */}
-      <main 
-        style={{ 
-          flex: 1, 
-          paddingLeft: "3rem", 
-          paddingRight: "3rem", 
-          paddingTop: "2.5rem", 
-          paddingBottom: "2.5rem", 
-          overflowY: "auto", 
-          backgroundColor: "#ffffff" 
-        }}
-      >
-        <header style={{ marginBottom: "3rem" }}>
-          <h1 style={{ fontSize: "2rem", fontWeight: "bold", color: "#0f172a" }}>My Files</h1>
-        </header>
-
-        {/* Search Bar */}
-        <div className="search-wrapper" style={{ marginBottom: "0.3cm", display: "flex", alignItems: "center", gap: "0.25cm" }}>
-          <Search style={{ width: "1.25rem", height: "1.25rem", color: "#9ca3af", flexShrink: 0 }} />
-          <input
-            type="text"
-            placeholder="Search files"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                e.preventDefault();
-                setAppliedSearch(searchQuery.trim());
-              }
-            }}
-            style={{
-              flex: 1,
-              backgroundColor: searchQuery ? "#f3f4f6" : "transparent",
-              borderRadius: "0.5rem",
-              border: "1px solid #e5e7eb",
-              padding: "0.35rem 0.75rem",
-              height: "1.4rem",
-              fontSize: "1rem",
-              outline: "none",
-              transition: "background-color 0.2s ease",
-            }}
-            onFocus={(e) => {
-              e.target.style.backgroundColor = "#f3f4f6";
-            }}
-            onBlur={(e) => {
-              e.target.style.backgroundColor = searchQuery ? "#f3f4f6" : "transparent";
-            }}
-          />
-        </div>
-
-        {/* Files Table */}
-        <div className="files-table content-width" style={{ backgroundColor: "#ffffff", marginTop: "1.5rem" }}>
-          <div className="table-inner overflow-x-auto">
-            <table style={{ width: "100%", textAlign: "left", borderCollapse: "collapse" }}>
-              <thead>
-                <tr style={{ backgroundColor: "transparent" }}>
-                  <th style={{ fontSize: "0.875rem", fontWeight: 600, color: "#374151" }}>Name</th>
-                  <th style={{ fontSize: "0.875rem", fontWeight: 600, color: "#374151" }}>Owner</th>
-                  <th style={{ fontSize: "0.875rem", fontWeight: 600, color: "#374151" }}>Last Accessed</th>
-                </tr>
-              </thead>
-              <tbody>
-                {displayFiles.map((file) => (
-                  <tr key={file.id} style={{ backgroundColor: "#ffffff", height: "2.75rem", borderBottom: displayFiles.indexOf(file) === displayFiles.length - 1 ? "none" : "1px solid #e5e7eb" }}>
-                    <td style={{ fontSize: "0.875rem", fontWeight: 500, color: "#0f172a" }}>
-                      <span className="file-link" onClick={() => setSelectedFile(file)}>
-                        {file.name}
-                      </span>
-                    </td>
-                    <td style={{ fontSize: "0.875rem", color: "#64748b" }}>{file.owner}</td>
-                    <td style={{ fontSize: "0.875rem", color: "#64748b" }}>{file.lastAccessed}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </main>
-
-      {/* File Details Modal */}
-      {selectedFile && !shareFile && (
-        <div className="modal-overlay" onClick={() => setSelectedFile(null)}>
-          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h2 className="modal-title">File Details</h2>
-              <button className="modal-close-btn" onClick={() => setSelectedFile(null)}>
-                <X />
-              </button>
-            </div>
-
-            <div className="modal-info">
-              <div className="modal-info-row">
-                <span className="modal-info-label">Name:</span>
-                <span className="modal-info-value">{selectedFile.name}</span>
-              </div>
-              <div className="modal-info-row">
-                <span className="modal-info-label">Size:</span>
-                <span className="modal-info-value">{selectedFile.size}</span>
-              </div>
-              <div className="modal-info-row">
-                <span className="modal-info-label">Upload Date:</span>
-                <span className="modal-info-value">{selectedFile.uploadDate}</span>
-              </div>
-              <div className="modal-info-row">
-                <span className="modal-info-label">Owner:</span>
-                <span className="modal-info-value">{selectedFile.owner}</span>
-              </div>
-              <div className="modal-info-row">
-                <span className="modal-info-label">File Hash:</span>
-                <span className="modal-info-value" style={{ fontSize: "0.75rem", fontFamily: "monospace" }}>{selectedFile.hash}</span>
-              </div>
-              <div className="modal-info-row">
-                <span className="modal-info-label">Encryption Status:</span>
-                <span className="modal-info-value">{selectedFile.encryption}</span>
-              </div>
-              <div className="modal-info-row">
-                <span className="modal-info-label">Download Count:</span>
-                <span className="modal-info-value">{selectedFile.downloads}</span>
-              </div>
-              <div className="modal-info-row">
-                <span className="modal-info-label">Last Accessed:</span>
-                <span className="modal-info-value">{selectedFile.lastAccessed}</span>
-              </div>
-            </div>
-
-            <div className="modal-buttons">
-              <button className="modal-btn" onClick={() => handleDownload(selectedFile)}>
-                Download
-              </button>
-              <button className="modal-btn" onClick={() => handleShare(selectedFile)}>
-                Share
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Share Modal */}
-      {shareFile && (
-        <div className="modal-overlay" onClick={() => setShareFile(null)}>
-          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h2 className="modal-title">Share "{shareFile.name}"</h2>
-              <button className="modal-close-btn" onClick={() => setShareFile(null)}>
-                <X />
-              </button>
-            </div>
-
-            <div style={{ marginBottom: "1.5rem" }}>
-              {/* Email Input */}
-              <div className="share-input-group">
-                <label className="share-input-label">Email</label>
-                <input
-                  type="email"
-                  placeholder="Enter email"
-                  value={shareEmail}
-                  onChange={(e) => {
-                    setShareEmail(e.target.value);
-                    if (emailError) setEmailError("");
-                  }}
-                  className="share-input"
+                <img 
+                  src={item.icon} 
+                  alt="" 
+                  style={{ width: "1.1rem", height: "1.1rem", flexShrink: 0 }} 
                 />
-                {emailError && <span className="error-text">{emailError}</span>}
+                <span style={{ fontSize: "0.875rem" }}>{item.label}</span>
+              </button>
+            ))}
+          </nav>
+        </aside>
+
+        {/* Mobile sidebar panel for MyFiles */}
+        {mobileSidebarOpen && (
+          <div className="mobile-menu" onClick={() => setMobileSidebarOpen(false)} style={{ zIndex: 60 }}>
+            <div className="panel" onClick={(e) => e.stopPropagation()} style={{ width: 320, maxWidth: "85%", boxShadow: "-8px 0 24px rgba(0,0,0,0.12)" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
+                <strong>FlowDock</strong>
+                <button onClick={() => setMobileSidebarOpen(false)} style={{ background: "none", border: "none", cursor: "pointer" }}>✕</button>
+              </div>
+              <nav style={{ display: "flex", flexDirection: "column", gap: "0.6rem" }}>
+                {navItems.map((item, idx) => (
+                  <button key={idx} onClick={() => { setMobileSidebarOpen(false); routerNavigate(item.to); }} style={{ display: "flex", gap: "0.5rem", alignItems: "center", padding: "0.6rem 0.2rem", background: "transparent", border: "none", cursor: "pointer" }}>
+                    <img src={item.icon} alt="" style={{ width: "1rem", height: "1rem" }} />
+                    <span>{item.label}</span>
+                  </button>
+                ))}
+              </nav>
+            </div>
+          </div>
+        )}
+
+        {/* Main Content */}
+        <main 
+          style={{ 
+            flex: 1, 
+            paddingLeft: "3rem", 
+            paddingRight: "3rem", 
+            paddingTop: "2.5rem", 
+            paddingBottom: "2.5rem", 
+            overflowY: "auto", 
+            backgroundColor: "#ffffff" 
+          }}
+        >
+          <header style={{ marginBottom: "3rem" }}>
+            <h1 style={{ fontSize: "2rem", fontWeight: "bold", color: "#0f172a" }}>My Files</h1>
+          </header>
+
+          {/* Search Bar */}
+          <div className="search-wrapper" style={{ marginBottom: "0.3cm", display: "flex", alignItems: "center", gap: "0.25cm" }}>
+            <Search style={{ width: "1.25rem", height: "1.25rem", color: "#9ca3af", flexShrink: 0 }} />
+            <input
+              type="text"
+              placeholder="Search files"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  setAppliedSearch(searchQuery.trim());
+                }
+              }}
+              style={{
+                flex: 1,
+                backgroundColor: searchQuery ? "#f3f4f6" : "transparent",
+                borderRadius: "0.5rem",
+                border: "1px solid #e5e7eb",
+                padding: "0.35rem 0.75rem",
+                height: "1.4rem",
+                fontSize: "1rem",
+                outline: "none",
+                transition: "background-color 0.2s ease",
+              }}
+              onFocus={(e) => {
+                e.target.style.backgroundColor = "#f3f4f6";
+              }}
+              onBlur={(e) => {
+                e.target.style.backgroundColor = searchQuery ? "#f3f4f6" : "transparent";
+              }}
+            />
+          </div>
+
+          {/* Files Table */}
+          <div className="files-table content-width" style={{ backgroundColor: "#ffffff", marginTop: "1.5rem" }}>
+            <div className="table-inner overflow-x-auto">
+              <table style={{ width: "100%", textAlign: "left", borderCollapse: "collapse" }}>
+                <thead>
+                  <tr style={{ backgroundColor: "transparent" }}>
+                    <th style={{ fontSize: "0.875rem", fontWeight: 600, color: "#374151" }}>Name</th>
+                    <th style={{ fontSize: "0.875rem", fontWeight: 600, color: "#374151" }}>Owner</th>
+                    <th style={{ fontSize: "0.875rem", fontWeight: 600, color: "#374151" }}>Last Accessed</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {displayFiles.map((file) => (
+                    <tr key={file.id} style={{ backgroundColor: "#ffffff", height: "2.75rem", borderBottom: displayFiles.indexOf(file) === displayFiles.length - 1 ? "none" : "1px solid #e5e7eb" }}>
+                      <td style={{ fontSize: "0.875rem", fontWeight: 500, color: "#0f172a" }}>
+                        <span className="file-link" onClick={() => setSelectedFile(file)}>
+                          {file.name}
+                        </span>
+                      </td>
+                      <td style={{ fontSize: "0.875rem", color: "#64748b" }}>{file.owner}</td>
+                      <td style={{ fontSize: "0.875rem", color: "#64748b" }}>{file.lastAccessed}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </main>
+
+        {/* File Details Modal */}
+        {selectedFile && !shareFile && (
+          <div className="modal-overlay" onClick={() => setSelectedFile(null)}>
+            <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+              <div className="modal-header">
+                <h2 className="modal-title">File Details</h2>
+                <button className="modal-close-btn" onClick={() => setSelectedFile(null)}>
+                  <X />
+                </button>
               </div>
 
-              {/* Expiry Date Input */}
-              <div className="share-input-group">
-                <label className="share-input-label">Expiry Date</label>
-                <div style={{ position: "relative" }}>
+              <div className="modal-info">
+                <div className="modal-info-row">
+                  <span className="modal-info-label">Name:</span>
+                  <span className="modal-info-value">{selectedFile.name}</span>
+                </div>
+                <div className="modal-info-row">
+                  <span className="modal-info-label">Size:</span>
+                  <span className="modal-info-value">{selectedFile.size}</span>
+                </div>
+                <div className="modal-info-row">
+                  <span className="modal-info-label">Upload Date:</span>
+                  <span className="modal-info-value">{selectedFile.uploadDate}</span>
+                </div>
+                <div className="modal-info-row">
+                  <span className="modal-info-label">Owner:</span>
+                  <span className="modal-info-value">{selectedFile.owner}</span>
+                </div>
+                <div className="modal-info-row">
+                  <span className="modal-info-label">File Hash:</span>
+                  <span className="modal-info-value" style={{ fontSize: "0.75rem", fontFamily: "monospace" }}>{selectedFile.hash}</span>
+                </div>
+                <div className="modal-info-row">
+                  <span className="modal-info-label">Encryption Status:</span>
+                  <span className="modal-info-value">{selectedFile.encryption}</span>
+                </div>
+                <div className="modal-info-row">
+                  <span className="modal-info-label">Download Count:</span>
+                  <span className="modal-info-value">{selectedFile.downloads}</span>
+                </div>
+                <div className="modal-info-row">
+                  <span className="modal-info-label">Last Accessed:</span>
+                  <span className="modal-info-value">{selectedFile.lastAccessed}</span>
+                </div>
+              </div>
+
+              <div className="modal-buttons">
+                <button className="modal-btn" onClick={() => handleDownload(selectedFile)}>
+                  Download
+                </button>
+                <button className="modal-btn" onClick={() => handleShare(selectedFile)}>
+                  Share
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Share Modal */}
+        {shareFile && (
+          <div className="modal-overlay" onClick={() => setShareFile(null)}>
+            <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+              <div className="modal-header">
+                <h2 className="modal-title">Share "{shareFile.name}"</h2>
+                <button className="modal-close-btn" onClick={() => setShareFile(null)}>
+                  <X />
+                </button>
+              </div>
+
+              <div style={{ marginBottom: "1.5rem" }}>
+                {/* Email Input */}
+                <div className="share-input-group">
+                  <label className="share-input-label">Email</label>
                   <input
-                    type="text"
-                    placeholder="YY/MM/DD"
-                    value={shareExpiryDate}
+                    type="email"
+                    placeholder="Enter email"
+                    value={shareEmail}
                     onChange={(e) => {
-                      setShareExpiryDate(e.target.value);
-                      if (dateError) setDateError("");
+                      setShareEmail(e.target.value);
+                      if (emailError) setEmailError("");
                     }}
                     className="share-input"
                   />
-                  <button
-                    className="calendar-icon-btn"
-                    onClick={() => setShowCalendar(!showCalendar)}
+                  {emailError && <span className="error-text">{emailError}</span>}
+                </div>
+
+                {/* Expiry Date Input */}
+                <div className="share-input-group">
+                  <label className="share-input-label">Expiry Date</label>
+                  <div style={{ position: "relative" }}>
+                    <input
+                      type="text"
+                      placeholder="YY/MM/DD"
+                      value={shareExpiryDate}
+                      onChange={(e) => {
+                        setShareExpiryDate(e.target.value);
+                        if (dateError) setDateError("");
+                      }}
+                      className="share-input"
+                    />
+                    <button
+                      className="calendar-icon-btn"
+                      onClick={() => setShowCalendar(!showCalendar)}
+                    >
+                      <Calendar style={{ width: "18px", height: "18px", color: "#64748b" }} />
+                    </button>
+                    {showCalendar && <CalendarPicker onDateSelect={handleCalendarDateSelect} currentDate={calendarDate} />}
+                  </div>
+                  {dateError && <span className="error-text">{dateError}</span>}
+                </div>
+
+                {/* Generate Public Link Toggle */}
+                <div className="share-input-group" style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <label className="share-input-label" style={{ marginBottom: 0 }}>Generate public link</label>
+                  <div
+                    className={`toggle-switch ${generatePublicLink ? "active" : ""}`}
+                    onClick={() => setGeneratePublicLink(!generatePublicLink)}
                   >
-                    <Calendar style={{ width: "18px", height: "18px", color: "#64748b" }} />
-                  </button>
-                  {showCalendar && <CalendarPicker onDateSelect={handleCalendarDateSelect} currentDate={calendarDate} />}
+                    <div className="toggle-switch-circle"></div>
+                  </div>
                 </div>
-                {dateError && <span className="error-text">{dateError}</span>}
-              </div>
 
-              {/* Generate Public Link Toggle */}
-              <div className="share-input-group" style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                <label className="share-input-label" style={{ marginBottom: 0 }}>Generate public link</label>
-                <div
-                  className={`toggle-switch ${generatePublicLink ? "active" : ""}`}
-                  onClick={() => setGeneratePublicLink(!generatePublicLink)}
-                >
-                  <div className="toggle-switch-circle"></div>
+                {/* Max Downloads Input */}
+                <div className="share-input-group">
+                  <label className="share-input-label">Max downloads</label>
+                  <input
+                    type="number"
+                    placeholder="Unlimited"
+                    value={maxDownloads}
+                    onChange={(e) => setMaxDownloads(e.target.value.replace(/[^0-9]/g, ""))}
+                    min="1"
+                    className="share-input"
+                  />
                 </div>
-              </div>
 
-              {/* Max Downloads Input */}
-              <div className="share-input-group">
-                <label className="share-input-label">Max downloads</label>
-                <input
-                  type="number"
-                  placeholder="Unlimited"
-                  value={maxDownloads}
-                  onChange={(e) => setMaxDownloads(e.target.value.replace(/[^0-9]/g, ""))}
-                  min="1"
-                  className="share-input"
-                />
+                {/* Create Share Link Button */}
+                <button className="share-modal-btn primary" onClick={handleCreateShareLink}>
+                  Create share link
+                </button>
+                {successMessage && (
+                  <div style={{
+                    marginTop: "1rem",
+                    padding: "0.75rem",
+                    backgroundColor: "#dcfce7",
+                    color: "#166534",
+                    borderRadius: "6px",
+                    fontSize: "0.875rem",
+                    textAlign: "center",
+                    border: "1px solid #bbf7d0"
+                  }}>
+                    {successMessage}
+                  </div>
+                )}
               </div>
-
-              {/* Create Share Link Button */}
-              <button className="share-modal-btn primary" onClick={handleCreateShareLink}>
-                Create share link
-              </button>
-              {successMessage && (
-                <div style={{
-                  marginTop: "1rem",
-                  padding: "0.75rem",
-                  backgroundColor: "#dcfce7",
-                  color: "#166534",
-                  borderRadius: "6px",
-                  fontSize: "0.875rem",
-                  textAlign: "center",
-                  border: "1px solid #bbf7d0"
-                }}>
-                  {successMessage}
-                </div>
-              )}
             </div>
           </div>
-        </div>
-      )}
-    </TopNavBar>
+        )}
+      </TopNavBar>
+    </>
   );
 }

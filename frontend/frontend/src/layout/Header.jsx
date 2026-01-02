@@ -1,10 +1,15 @@
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useLocation } from "react-router-dom";
 import { Anchor } from "lucide-react";
 import { useState } from "react";
+import ReorderIcon from "../resources/icons/reorder.svg";
 
 export default function Header() {
   const navigate = useNavigate();
+  const location = useLocation();            // <- added
   const [loading, setLoading] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
+
+  const isHome = location.pathname === "/";  // true on home route
 
   const handleLogoClick = (e) => {
     e.preventDefault();
@@ -28,7 +33,7 @@ export default function Header() {
         backgroundColor: "#ffffff"
       }}
     >
-      <div className="max-w-4xl mx-auto px-4 w-full grid grid-cols-3 items-center">
+      <div className="max-w-4xl mx-auto px-4 w-full grid grid-cols-3 items-center container">
         {/* Left: logo + name */}
         <a
           href="/"
@@ -45,8 +50,8 @@ export default function Header() {
           {/* ...existing code... */}
         </div>
 
-        {/* Right: Sign In - aligned to the right column */}
-        <div className="col-start-3 flex justify-end">
+        {/* Right: Sign In (and mobile toggle placed to the right of it on small screens) */}
+        <div className="col-start-3 flex justify-end items-center">
           <button
             onClick={handleSignIn}
             disabled={loading}
@@ -55,8 +60,49 @@ export default function Header() {
           >
             Sign In
           </button>
+
+          {/* place the reorder (sidebar toggle) to the right of Sign In on mobile only */}
+          {!isHome && (
+            <button
+              onClick={() => {
+                setMobileOpen(true);
+                try { window.dispatchEvent(new CustomEvent('toggleMobileSidebar')); } catch (e) { /* no-op */ }
+              }}
+              title="Toggle menu"
+              aria-label="Toggle menu"
+              className="sidebar-toggle-button"
+              style={{ background: "none", border: "none", cursor: "pointer", padding: 0, marginLeft: "0.4rem" }}
+            >
+              <img src={ReorderIcon} alt="Menu" style={{ width: "1.6rem", height: "1.6rem" }} />
+            </button>
+          )}
         </div>
       </div>
+
+      {/* Mobile menu overlay */}
+      {mobileOpen && (
+        <div className="mobile-menu" onClick={() => setMobileOpen(false)}>
+          <div className="panel" onClick={(e) => e.stopPropagation()}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                <Anchor className="h-8 w-8" />
+                <strong>FlowDock</strong>
+              </div>
+              <button onClick={() => setMobileOpen(false)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: "1.2rem" }}>✕</button>
+            </div>
+
+            <nav style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+              <a href="/" onClick={(e) => { e.preventDefault(); setMobileOpen(false); navigate("/"); }} style={{ textDecoration: "none", color: "#0f172a" }}>Home</a>
+              <a href="/features" onClick={(e) => { e.preventDefault(); setMobileOpen(false); navigate("/"); }} style={{ textDecoration: "none", color: "#0f172a" }}>Features</a>
+              <a href="/help" onClick={(e) => { e.preventDefault(); setMobileOpen(false); navigate("/help"); }} style={{ textDecoration: "none", color: "#0f172a" }}>Help</a>
+
+              <div style={{ marginTop: "1rem" }}>
+                <button onClick={() => { setMobileOpen(false); navigate("/login"); }} style={{ width: "100%", padding: "0.6rem 1rem", borderRadius: 8, border: "1px solid #e5e7eb", background: "#fff" }}>Sign In</button>
+              </div>
+            </nav>
+          </div>
+        </div>
+      )}
     </header>
   );
 }

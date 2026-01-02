@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { Calendar, X } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import TopNavBar from "../../layout/TopNavBar";
@@ -41,6 +41,18 @@ export default function Shared() {
   const [calendarDate, setCalendarDate] = useState(new Date());
   const [dateError, setDateError] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+
+  useEffect(() => {
+    function onToggle() { setMobileSidebarOpen(s => !s); }
+    window.addEventListener("toggleMobileSidebar", onToggle);
+    return () => window.removeEventListener("toggleMobileSidebar", onToggle);
+  }, []);
+
+  useEffect(() => {
+    document.body.style.overflow = mobileSidebarOpen ? "hidden" : "";
+    return () => { document.body.style.overflow = ""; };
+  }, [mobileSidebarOpen]);
 
   const validateDate = (dateStr) => {
     if (!dateStr) return false;
@@ -159,75 +171,77 @@ export default function Shared() {
   const SharedTable = ({ title, data }) => (
     <div style={{ marginBottom: "2rem" }}>
       <h3 style={{ fontSize: "1.125rem", fontWeight: "600", color: "#0f172a", marginBottom: "1rem" }}>{title}</h3>
-      <div style={{ border: "1px solid #e5e7eb", borderRadius: "8px", overflow: "hidden" }}>
-        <table style={{ width: "100%", textAlign: "left", borderCollapse: "collapse", tableLayout: "fixed" }}>
-          <colgroup>
-            <col style={{ width: "25%" }} />
-            <col style={{ width: "25%" }} />
-            <col style={{ width: "15%" }} />
-            <col style={{ width: "20%" }} />
-            <col style={{ width: "15%" }} />
-          </colgroup>
-          <thead>
-            <tr style={{ backgroundColor: "transparent", borderBottom: "1px solid #e5e7eb" }}>
-              <th style={{ padding: "1rem", fontSize: "0.875rem", fontWeight: 600, color: "#374151" }}>Name</th>
-              <th style={{ padding: "1rem", fontSize: "0.875rem", fontWeight: 600, color: "#374151" }}>Shared With</th>
-              <th style={{ padding: "1rem", fontSize: "0.875rem", fontWeight: 600, color: "#374151" }}>Status</th>
-              <th style={{ padding: "1rem", fontSize: "0.875rem", fontWeight: 600, color: "#374151" }}>Expiration</th>
-              <th style={{ padding: "1rem", fontSize: "0.875rem", fontWeight: 600, color: "#374151" }}>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {data.map((file) => (
-              <tr key={file.id} style={{ backgroundColor: "#ffffff", height: "2.75rem", borderBottom: "1px solid #e5e7eb" }}>
-                <td style={{ padding: "1rem", fontSize: "0.875rem", color: "#0f172a" }}>{file.name}</td>
-                <td style={{ padding: "1rem", fontSize: "0.875rem", color: "#64748b" }}>{file.sharedWith}</td>
-                <td style={{ padding: "1rem", fontSize: "0.875rem", color: "#64748b" }}>
-                  <span style={{ padding: "0.25rem 0.5rem", borderRadius: "4px", backgroundColor: file.status === "Active" ? "#dcfce7" : "#fee2e2", color: file.status === "Active" ? "#166534" : "#991b1b" }}>
-                    {file.status}
-                  </span>
-                </td>
-                <td style={{ padding: "1rem", fontSize: "0.875rem", color: "#64748b" }}>{file.expiration}</td>
-                <td style={{ padding: "1rem" }}>
-                  {file.status === "Active" ? (
-                    <button
-                      onClick={() => alert(`Revoked ${file.name}`)}
-                      style={{
-                        padding: "0.4rem 0.75rem",
-                        borderRadius: "6px",
-                        border: "1px solid #d1d5db",
-                        backgroundColor: "#f3f4f6",
-                        color: "#000000",
-                        fontSize: "0.875rem",
-                        cursor: "pointer",
-                      }}
-                    >
-                      Revoke
-                    </button>
-                  ) : (
-                    <button
-                      onClick={() => handleExtend(file)}
-                      style={{
-                        padding: "0.4rem 0.75rem",
-                        borderRadius: "6px",
-                        border: "1px solid #d1d5db",
-                        backgroundColor: "#f3f4f6",
-                        color: "#000000",
-                        fontSize: "0.875rem",
-                        cursor: "pointer",
-                      }}
-                    >
-                      Extend
-                    </button>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
+      <div className="shared-table" style={{ border: "1px solid #e5e7eb", borderRadius: "8px" }}>
+        <div className="table-inner" style={{ width: "100%", overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
+          <table style={{ width: "100%", textAlign: "left", borderCollapse: "collapse", minWidth: "720px", tableLayout: "auto" }}>
+           <colgroup>
+             <col style={{ width: "25%" }} />
+             <col style={{ width: "25%" }} />
+             <col style={{ width: "15%" }} />
+             <col style={{ width: "20%" }} />
+             <col style={{ width: "15%" }} />
+           </colgroup>
+           <thead>
+             <tr style={{ backgroundColor: "transparent", borderBottom: "1px solid #e5e7eb" }}>
+               <th style={{ padding: "1rem", fontSize: "0.875rem", fontWeight: 600, color: "#374151" }}>Name</th>
+               <th style={{ padding: "1rem", fontSize: "0.875rem", fontWeight: 600, color: "#374151" }}>Shared With</th>
+               <th style={{ padding: "1rem", fontSize: "0.875rem", fontWeight: 600, color: "#374151" }}>Status</th>
+               <th style={{ padding: "1rem", fontSize: "0.875rem", fontWeight: 600, color: "#374151" }}>Expiration</th>
+               <th style={{ padding: "1rem", fontSize: "0.875rem", fontWeight: 600, color: "#374151" }}>Actions</th>
+             </tr>
+           </thead>
+           <tbody>
+             {data.map((file) => (
+               <tr key={file.id} style={{ backgroundColor: "#ffffff", height: "2.75rem", borderBottom: "1px solid #e5e7eb" }}>
+                 <td style={{ padding: "1rem", fontSize: "0.875rem", color: "#0f172a", whiteSpace: "nowrap" }}>{file.name}</td>
+                 <td style={{ padding: "1rem", fontSize: "0.875rem", color: "#64748b", whiteSpace: "nowrap" }}>{file.sharedWith}</td>
+                 <td style={{ padding: "1rem", fontSize: "0.875rem", color: "#64748b" }}>
+                   <span style={{ padding: "0.25rem 0.5rem", borderRadius: "4px", backgroundColor: file.status === "Active" ? "#dcfce7" : "#fee2e2", color: file.status === "Active" ? "#166534" : "#991b1b" }}>
+                     {file.status}
+                   </span>
+                 </td>
+                 <td style={{ padding: "1rem", fontSize: "0.875rem", color: "#64748b", whiteSpace: "nowrap" }}>{file.expiration}</td>
+                 <td style={{ padding: "1rem" }}>
+                   {file.status === "Active" ? (
+                     <button
+                       onClick={() => alert(`Revoked ${file.name}`)}
+                       style={{
+                         padding: "0.4rem 0.75rem",
+                         borderRadius: "6px",
+                         border: "1px solid #d1d5db",
+                         backgroundColor: "#f3f4f6",
+                         color: "#000000",
+                         fontSize: "0.875rem",
+                         cursor: "pointer",
+                       }}
+                     >
+                       Revoke
+                     </button>
+                   ) : (
+                     <button
+                       onClick={() => handleExtend(file)}
+                       style={{
+                         padding: "0.4rem 0.75rem",
+                         borderRadius: "6px",
+                         border: "1px solid #d1d5db",
+                         backgroundColor: "#f3f4f6",
+                         color: "#000000",
+                         fontSize: "0.875rem",
+                         cursor: "pointer",
+                       }}
+                     >
+                       Extend
+                     </button>
+                   )}
+                 </td>
+               </tr>
+             ))}
+           </tbody>
+         </table>
+       </div>
+     </div>
+   </div>
+ );
 
   return (
     <TopNavBar>
@@ -251,108 +265,31 @@ export default function Shared() {
           cursor: pointer;
           margin-bottom: 0.6rem;
         }
-        .sidebar-btn:hover {
-          background-color: #f1f5f9;
-        }
-        .sidebar-btn.active {
-          background-color: #e2e8f0;
-          color: #0f172a;
-          font-weight: 500;
-        }
-        .modal-overlay {
-          position: fixed;
-          top: 0;
-          left: 0;
-          right: 0;
-          bottom: 0;
-          background-color: rgba(0, 0, 0, 0.5);
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          z-index: 100;
-        }
-        .modal-content {
-          background: #ffffff;
-          border-radius: 8px;
-          padding: 1.5rem;
-          max-width: 500px;
-          width: 90%;
-          box-shadow: 0 10px 40px rgba(0, 0, 0, 0.15);
-        }
-        .modal-header {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          margin-bottom: 1rem;
-        }
-        .modal-title {
-          font-size: 1.25rem;
-          font-weight: 600;
-          color: #0f172a;
-        }
-        .modal-close-btn {
-          background: none;
-          border: none;
-          cursor: pointer;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          padding: 0;
-        }
-        .modal-close-btn svg {
-          color: #dc2626;
-          width: 1.5rem;
-          height: 1.5rem;
-        }
-        .error-text {
-          color: #dc2626;
-          font-size: 0.75rem;
-          margin-top: 0.25rem;
-          display: block;
-        }
-        .share-input {
-          width: 100%;
-          border: 1px solid #d1d5db;
-          border-radius: 6px;
-          padding: 0.5rem 0.75rem;
-          font-size: 0.875rem;
-          background: transparent;
-          outline: none;
-          transition: border-color 0.2s;
-          height: 2.5rem;
-        }
-        .share-input:focus {
-          border-color: #2563eb;
-        }
-        .share-input-group {
-          margin-bottom: 1rem;
-          position: relative;
-        }
-        .share-input-label {
-          font-size: 0.875rem;
-          font-weight: 500;
-          color: #374151;
-          margin-bottom: 0.25rem;
-          display: block;
-        }
-        .calendar-icon-btn {
-          position: absolute;
-          right: 0.75rem;
-          top: 50%;
-          transform: translateY(-50%);
-          background: none;
-          border: none;
-          cursor: pointer;
-          padding: 0;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-        }
+        .sidebar-btn:hover { background-color: #f1f5f9; }
+        .sidebar-btn.active { background-color: #e2e8f0; color: #0f172a; font-weight: 500; }
+
+        /* Allow horizontal scrolling for shared tables without changing columns */
+        .shared-table .table-inner { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+        .shared-table table { min-width: 720px; table-layout: auto; }
+        .shared-table th, .shared-table td { white-space: nowrap; }
+
+        .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(0, 0, 0, 0.5); display: flex; align-items: center; justify-content: center; z-index: 100; }
+        .modal-content { background: #ffffff; border-radius: 8px; padding: 1.5rem; max-width: 500px; width: 90%; box-shadow: 0 10px 40px rgba(0, 0, 0, 0.15); }
+        .modal-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem; }
+        .modal-title { font-size: 1.25rem; font-weight: 600; color: #0f172a; }
+        .modal-close-btn { background: none; border: none; cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 0; }
+        .modal-close-btn svg { color: #dc2626; width: 1.5rem; height: 1.5rem; }
+        .error-text { color: #dc2626; font-size: 0.75rem; margin-top: 0.25rem; display: block; }
+        .share-input { width: 100%; border: 1px solid #d1d5db; border-radius: 6px; padding: 0.5rem 0.75rem; font-size: 0.875rem; background: transparent; outline: none; transition: border-color 0.2s; height: 2.5rem; }
+        .share-input:focus { border-color: #2563eb; }
+        .share-input-group { margin-bottom: 1rem; position: relative; }
+        .share-input-label { font-size: 0.875rem; font-weight: 500; color: #374151; margin-bottom: 0.25rem; display: block; }
+        .calendar-icon-btn { position: absolute; right: 0.75rem; top: 50%; transform: translateY(-50%); background: none; border: none; cursor: pointer; padding: 0; display: flex; align-items: center; justify-content: center; }
       `}</style>
 
       {/* Sidebar */}
-      <aside 
-        style={{ 
+      <aside className="sidebar-responsive"
+        style={{
           width: "calc(100vw * 5 / 17 * 0.75 * 0.85)",
           backgroundColor: "#ffffff",
           paddingLeft: "1cm",
@@ -381,6 +318,26 @@ export default function Shared() {
           ))}
         </nav>
       </aside>
+
+      {/* Mobile sidebar panel */}
+      {mobileSidebarOpen && (
+        <div className="mobile-menu" onClick={() => setMobileSidebarOpen(false)} style={{ zIndex: 60 }}>
+          <div className="panel" onClick={(e) => e.stopPropagation()}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
+              <strong>FlowDock</strong>
+              <button onClick={() => setMobileSidebarOpen(false)} style={{ background: "none", border: "none", cursor: "pointer" }}>✕</button>
+            </div>
+            <nav style={{ display: "flex", flexDirection: "column", gap: "0.6rem" }}>
+              {navItems.map((item, idx) => (
+                <button key={idx} onClick={() => { setMobileSidebarOpen(false); routerNavigate(item.to); }} style={{ display: "flex", gap: "0.5rem", alignItems: "center", padding: "0.6rem 0.2rem", background: "transparent", border: "none", cursor: "pointer" }}>
+                  <img src={item.icon} alt="" style={{ width: "1rem", height: "1rem" }} />
+                  <span>{item.label}</span>
+                </button>
+              ))}
+            </nav>
+          </div>
+        </div>
+      )}
 
       {/* Main Content */}
       <main 

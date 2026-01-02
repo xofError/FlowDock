@@ -1,5 +1,5 @@
-import React from "react";
-import { NavLink } from "react-router-dom";
+import React, { useState, useEffect } from "react";
+import { NavLink, useNavigate } from "react-router-dom";
 import {
   LayoutDashboard,
   Folder,
@@ -18,75 +18,128 @@ const navItems = [
 ];
 
 export default function LeftNavBar({ children }) {
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    function onToggle() {
+      setMobileOpen((s) => !s);
+    }
+    window.addEventListener("toggleMobileSidebar", onToggle);
+    return () => window.removeEventListener("toggleMobileSidebar", onToggle);
+  }, []);
+
+  useEffect(() => {
+    document.body.style.overflow = mobileOpen ? "hidden" : "";
+    return () => { document.body.style.overflow = ""; };
+  }, [mobileOpen]);
+
   return (
-    <div className="flex w-full bg-white font-sans text-slate-800">
-      <aside
-        className="flex flex-col bg-white flex-shrink-0"
-        style={{
-          width: "calc(100vw * 5 / 17 * 0.75)",
-          backgroundColor: "#ffffff",
-          paddingLeft: "1.5rem",
-          paddingRight: "1.5rem",
-          paddingTop: "1.5rem",
-          paddingBottom: "1.5rem",
-        }}
-      >
-        <div className="flex items-center gap-2 mb-10 px-2">
-          <Anchor className="w-6 h-6 text-slate-900" />
-          <span className="text-xl font-bold tracking-tight">FlowDock</span>
+    <>
+      <div className="flex w-full bg-white font-sans text-slate-800">
+        <aside
+          className="sidebar-responsive flex flex-col bg-white flex-shrink-0"
+          style={{
+            width: "calc(100vw * 5 / 17 * 0.75)",
+            backgroundColor: "#ffffff",
+            paddingLeft: "1.5rem",
+            paddingRight: "1.5rem",
+            paddingTop: "1.5rem",
+            paddingBottom: "1.5rem",
+          }}
+        >
+          <div className="flex items-center gap-2 mb-10 px-2">
+            <Anchor className="w-6 h-6 text-slate-900" />
+            <span className="text-xl font-bold tracking-tight">FlowDock</span>
+          </div>
+
+          <nav className="flex-1 space-y-1">
+            {navItems.map((item) => {
+              const Icon = item.icon;
+              return (
+                <NavLink
+                  key={item.to}
+                  to={item.to}
+                  className={({ isActive }) =>
+                    isActive ? "nav-link-active" : "nav-link"
+                  }
+                  style={({ isActive }) => ({
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "flex-start",
+                    width: "100%",
+                    gap: "0.2cm",
+                    height: "1.5rem",
+                    fontSize: "0.39rem",
+                    padding: "0.3rem 1rem",
+                    borderRadius: "0.5rem",
+                    outline: "none",
+                    border: "none",
+                    backgroundColor: isActive ? "#e2e8f0" : "transparent",
+                    color: isActive ? "#0f172a" : "#64748b",
+                    fontWeight: isActive ? "500" : "400",
+                    transition: "all 0.2s ease",
+                    cursor: "pointer",
+                    textDecoration: "none",
+                  })}
+                >
+                  <Icon
+                    style={{
+                      width: "0.75rem",
+                      height: "0.75rem",
+                      flexShrink: 0,
+                      marginRight: "0.1cm",
+                    }}
+                  />
+                  <span style={{ fontSize: "0.6rem" }}>{item.label}</span>
+                </NavLink>
+              );
+            })}
+          </nav>
+        </aside>
+
+        <main
+          className="flex-1 p-6 overflow-y-auto"
+          style={{ width: "calc(100vw * 12 / 17)" }}
+        >
+          {children}
+        </main>
+      </div>
+
+      {/* Mobile sidebar panel (left) */}
+      {mobileOpen && (
+        <div className="mobile-menu" onClick={() => setMobileOpen(false)} style={{ zIndex: 60 }}>
+          <div
+            className="panel"
+            onClick={(e) => e.stopPropagation()}
+            style={{ boxShadow: "-8px 0 24px rgba(0,0,0,0.12)", width: 320, maxWidth: "85%" }}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                <Anchor className="w-6 h-6 text-slate-900" />
+                <span className="text-xl font-bold tracking-tight">FlowDock</span>
+              </div>
+              <button onClick={() => setMobileOpen(false)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: "1.2rem" }}>✕</button>
+            </div>
+
+            <nav style={{ display: "flex", flexDirection: "column", gap: "0.6rem" }}>
+              {navItems.map((item) => {
+                const Icon = item.icon;
+                return (
+                  <button
+                    key={item.to}
+                    onClick={() => { setMobileOpen(false); navigate(item.to); }}
+                    style={{ textDecoration: "none", color: "#0f172a", display: "flex", gap: "0.5rem", alignItems: "center", padding: "0.6rem 0.2rem", background: "transparent", border: "none", cursor: "pointer" }}
+                  >
+                    <Icon style={{ width: "1rem", height: "1rem" }} />
+                    <span>{item.label}</span>
+                  </button>
+                );
+              })}
+            </nav>
+          </div>
         </div>
-
-        <nav className="flex-1 space-y-1">
-          {navItems.map((item) => {
-            const Icon = item.icon;
-            return (
-              <NavLink
-                key={item.to}
-                to={item.to}
-                className={({ isActive }) =>
-                  isActive ? "nav-link-active" : "nav-link"
-                }
-                style={({ isActive }) => ({
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "flex-start",
-                  width: "100%",
-                  gap: "0.2cm",
-                  height: "1.5rem",
-                  fontSize: "0.39rem",
-                  padding: "0.3rem 1rem",
-                  borderRadius: "0.5rem",
-                  outline: "none",
-                  border: "none",
-                  backgroundColor: isActive ? "#e2e8f0" : "transparent",
-                  color: isActive ? "#0f172a" : "#64748b",
-                  fontWeight: isActive ? "500" : "400",
-                  transition: "all 0.2s ease",
-                  cursor: "pointer",
-                  textDecoration: "none",
-                })}
-              >
-                <Icon
-                  style={{
-                    width: "0.75rem",
-                    height: "0.75rem",
-                    flexShrink: 0,
-                    marginRight: "0.1cm",
-                  }}
-                />
-                <span style={{ fontSize: "0.6rem" }}>{item.label}</span>
-              </NavLink>
-            );
-          })}
-        </nav>
-      </aside>
-
-      <main
-        className="flex-1 p-6 overflow-y-auto"
-        style={{ width: "calc(100vw * 12 / 17)" }}
-      >
-        {children}
-      </main>
-    </div>
+      )}
+    </>
   );
 }

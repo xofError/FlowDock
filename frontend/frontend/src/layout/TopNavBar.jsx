@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { Anchor } from "lucide-react";
 import PersonIcon from "../resources/icons/person.svg";
 import QuestionMarkIcon from "../resources/icons/question_mark.svg";
+import ReorderIcon from "../resources/icons/reorder.svg";
 import { useAuthContext } from "../context/AuthContext";
 
 export default function TopNavBar({ children }) {
@@ -55,6 +56,14 @@ export default function TopNavBar({ children }) {
     navigate("/login", { replace: true });
   };
 
+  const handleToggleSidebar = () => {
+    try {
+      window.dispatchEvent(new CustomEvent("toggleMobileSidebar"));
+    } catch (e) {
+      console.error("toggle event failed", e);
+    }
+  };
+
   return (
     <div className="flex flex-col min-h-screen" style={{ overflowX: "hidden" }}>
       {/* Top Nav Bar */}
@@ -91,8 +100,10 @@ export default function TopNavBar({ children }) {
             </span>
           </a>
 
-          {/* Right: Two icon buttons + profile dropdown */}
-          <div ref={profileRef} className="flex items-center" style={{ gap: "0.35cm", marginLeft: "auto", marginRight: "3.8cm", position: "relative" }}>
+          {/* Right: Sidebar toggle (mobile), help, profile */}
+          <div ref={profileRef} className="topnav-right" style={{ gap: "0.35cm", marginLeft: "auto", marginRight: "3.8cm", position: "relative" }}>
+            
+
             <button
               onClick={handleHelp}
               title="Help"
@@ -109,6 +120,17 @@ export default function TopNavBar({ children }) {
               style={{ background: "none", border: "none", cursor: "pointer", padding: "0", display: "flex", alignItems: "center", justifyContent: "center" }}
             >
               <img src={PersonIcon} alt="Profile" style={{ width: "1.95rem", height: "1.95rem" }} />
+            </button>
+
+            {/* Sidebar toggle (mobile-only) placed to the right of the profile icon */}
+            <button
+              onClick={handleToggleSidebar}
+              title="Toggle menu"
+              aria-label="Toggle menu"
+              className="sidebar-toggle-button"
+              style={{ background: "none", border: "none", cursor: "pointer", padding: 0, marginLeft: "0.4rem" }}
+            >
+              <img src={ReorderIcon} alt="Menu" style={{ width: "1.95rem", height: "1.95rem" }} />
             </button>
 
             {profileOpen && (
