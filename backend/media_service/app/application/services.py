@@ -836,12 +836,21 @@ class FolderService:
             if not folder:
                 return False, None, "Folder not found"
 
+            # [FIX #1] Determine if we should filter by owner_id
+            # Only filter by owner if the user is the OWNER of this folder
+            # If user is accessing via sharing or public link, don't filter
+            is_owner = folder.owner_id == user_id
+            
             # Get all files in this folder
-            if allow_public:
-                # For public access, list all files without ownership restriction
-                files = await self.file_repo.list_files_in_folder(folder_id, owner_id=None)
+            # [FIX #1] If not owner (i.e., accessed via sharing), don't filter by owner_id
+            if is_owner or allow_public:
+                # Owner or public access: filter by owner (owner only for owner, none for public)
+                owner_filter = user_id if is_owner else None
             else:
-                files = await self.file_repo.list_files_in_folder(folder_id, owner_id=user_id)
+                # Shared access: don't filter by owner - list all files in the folder
+                owner_filter = None
+            
+            files = await self.file_repo.list_files_in_folder(folder_id, owner_id=owner_filter)
             
             files_list = [
                 {
@@ -855,11 +864,15 @@ class FolderService:
             ]
 
             # Get direct subfolders only
-            if allow_public:
-                # For public access, list all subfolders without ownership restriction
-                subfolders = await self.folder_repo.list_subfolders(folder_id, owner_id=None)
+            # [FIX #1] If not owner (i.e., accessed via sharing), don't filter by owner_id
+            if is_owner or allow_public:
+                # Owner or public access: filter by owner (owner only for owner, none for public)
+                owner_filter = user_id if is_owner else None
             else:
-                subfolders = await self.folder_repo.list_subfolders(folder_id, owner_id=user_id)
+                # Shared access: don't filter by owner - list all subfolders
+                owner_filter = None
+            
+            subfolders = await self.folder_repo.list_subfolders(folder_id, owner_id=owner_filter)
             
             subfolders_list = [
                 {
@@ -1231,12 +1244,17 @@ class FolderService:
                                         logger.warning(f"Skipping encrypted file {file_entity.filename} - decryption failed")
                                         continue
                                 
-                                # Read the stream into memory and write to zip
-                                file_data = b""
-                                async for chunk in stream:
-                                    file_data += chunk
-                                
-                                zipf.writestr(zip_entry_path, file_data)
+                                # [FIX #2] Write to ZIP in chunks instead of loading entire file in RAM
+                                # This prevents Out-Of-Memory crashes with large files (1GB+)
+                                try:
+                                    with zipf.open(zip_entry_path, 'w') as zf_entry:
+                                        async for chunk in stream:
+                                            # Write chunk-by-chunk to disk (via temp zip file)
+                                            # Safe because zipf is writing to file path, not memory
+                                            zf_entry.write(chunk)
+                                except Exception as chunk_error:
+                                    logger.warning(f"Failed to write {file_entity.filename} to zip in chunks: {chunk_error}")
+                                    continue
                         except Exception as e:
                             logger.warning(f"Failed to add file {file_entity.filename} to zip: {e}")
                             continue
@@ -1338,10 +1356,16 @@ class FolderService:
                                         logger.warning(f"Skipping encrypted file {file_entity.filename} - decryption failed")
                                         continue
                                 
-                                file_data = b""
-                                async for chunk in stream:
-                                    file_data += chunk
-                                zipf.writestr(zip_entry_path, file_data)
+                                # [FIX #2] Write to ZIP in chunks instead of loading entire file in RAM
+                                # This prevents Out-Of-Memory crashes with large files (1GB+)
+                                try:
+                                    with zipf.open(zip_entry_path, 'w') as zf_entry:
+                                        async for chunk in stream:
+                                            # Write chunk-by-chunk to disk (via temp zip file)
+                                            zf_entry.write(chunk)
+                                except Exception as chunk_error:
+                                    logger.warning(f"Failed to write {file_entity.filename} to zip in chunks: {chunk_error}")
+                                    continue
                         except Exception as e:
                             logger.warning(f"Failed to add file {file_entity.filename} to zip: {e}")
                             continue
