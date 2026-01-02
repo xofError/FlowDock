@@ -15,6 +15,15 @@ import AdminUserManagement from "./pages/AdminUserManagement.jsx";
 import Dashboard from "./pages/dashboard/Dashboard.jsx";
 import { useAuthContext } from "./context/AuthContext.jsx";
 
+function Help() {
+  return (
+    <div style={{ padding: 24 }}>
+      <h1 style={{ fontSize: 20, marginBottom: 8 }}>Help</h1>
+      <p>If you need assistance, check the documentation or contact support.</p>
+    </div>
+  );
+}
+
 // Simple Error Boundary to avoid blank page and show error details
 class ErrorBoundary extends React.Component {
   constructor(props) {
@@ -65,6 +74,8 @@ function ProtectedRoute({ children }) {
 }
 
 function App() {
+  const { isAuthenticated } = useAuthContext();
+
   useEffect(() => {
     // quick runtime check that App mounted in browser
     // Open browser console to see this message
@@ -74,12 +85,12 @@ function App() {
   return (
     <ErrorBoundary>
       <Routes>
-        {/* Redirect root to login */}
-        <Route path="/" element={<Navigate to="/login" />} />
+        {/* Redirect root to login or dashboard based on auth */}
+        <Route path="/" element={<Navigate to={isAuthenticated ? "/dashboard" : "/login"} />} />
 
-        {/* Public pages */}
-        <Route path="/login" element={<Login />} />
-        <Route path="/signup" element={<SignUp />} />
+        {/* Public pages (redirect to dashboard if already authenticated) */}
+        <Route path="/login" element={isAuthenticated ? <Navigate to="/dashboard" /> : <Login />} />
+        <Route path="/signup" element={isAuthenticated ? <Navigate to="/dashboard" /> : <SignUp />} />
         <Route path="/verify-email" element={<VerifyEmail />} />
         <Route path="/verify-totp" element={<VerifyTOTP />} />
         <Route path="/auth/callback" element={<OAuthCallback />} />
@@ -92,6 +103,9 @@ function App() {
         <Route path="/pass-recovery" element={<PassRecovery />} />
         <Route path="/pass-recovery-verify" element={<PassRecoveryVerify />} />
         <Route path="/reset-password" element={<ResetPassword />} />
+
+        {/* Help page used by TopNavBar */}
+        <Route path="/help" element={<Help />} />
 
         {/* Protected pages */}
         <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />

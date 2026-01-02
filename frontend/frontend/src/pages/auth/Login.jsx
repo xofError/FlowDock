@@ -39,6 +39,16 @@ export default function Login() {
       // Call the real login function which may return totp_required
       const response = await login(email, password, totpCode || null);
 
+      // persist user (backend / login hook may already do this, but force here)
+      try {
+        const userToStore = response?.user || { email };
+        if (typeof window !== "undefined" && userToStore) {
+          localStorage.setItem("user", JSON.stringify(userToStore));
+        }
+      } catch (e) {
+        // ignore storage errors
+      }
+
       // If backend requires TOTP, navigate to the verify-TOTP page with credentials
       if (response?.totp_required) {
         navigate("/verify-totp", { state: { email, password } });

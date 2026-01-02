@@ -1,5 +1,5 @@
 import { Link, useNavigate } from "react-router-dom";
-import logo from "../resources/images/logo.svg";
+import { Anchor } from "lucide-react";
 import { useState } from "react";
 
 export default function Header() {
@@ -15,7 +15,7 @@ export default function Header() {
     <header
       className="bg-white flex items-center"
       style={{ 
-        paddingLeft: "2.5cm", 
+        paddingLeft: "1.2cm", 
         paddingRight: "2.5cm", 
         paddingTop: "3.84mm", 
         paddingBottom: "3.84mm", 
@@ -26,13 +26,13 @@ export default function Header() {
       <div className="max-w-4xl mx-auto px-4 w-full grid grid-cols-3 items-center">
         {/* Left: logo + name */}
         <div className="flex items-center gap-3 col-start-1">
-          <img src={logo} alt="FlowDock logo" className="h-12 w-12" />
+          <Anchor className="h-12 w-12 text-slate-900" />
           <span className="text-[#0d141b] font-black" style={{ fontSize: "28px", fontWeight: 900, lineHeight: "1" }}>FlowDock</span>
         </div>
 
         {/* Center: reserved slot (will stay centered if content added) */}
         <div className="col-start-2 text-center">
-          {/* ...optional center content... */}
+          {/* ...existing code... */}
         </div>
 
         {/* Right: Sign In - aligned to the right column */}
