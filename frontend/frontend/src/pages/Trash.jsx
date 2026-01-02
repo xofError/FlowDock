@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import MainLayout from "../layout/MainLayout";
+import TopNavBar from "../layout/TopNavBar";
 
 export default function Trash() {
   const [items, setItems] = useState([
@@ -19,9 +19,10 @@ export default function Trash() {
   };
 
   return (
-    <MainLayout>
+    <TopNavBar>
       <div className="max-w-[1000px] mx-auto px-4 py-6">
         <h1 className="text-2xl font-bold mb-4">Trash</h1>
+        <p className="text-sm text-slate-600 mt-2">Deleted files are kept here temporarily.</p>
         <div className="bg-white border rounded">
           <table className="w-full">
             <thead className="bg-slate-50">
@@ -51,6 +52,6 @@ export default function Trash() {
           </table>
         </div>
       </div>
-    </MainLayout>
+    </TopNavBar>
   );
 }

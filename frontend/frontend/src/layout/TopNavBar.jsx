@@ -25,8 +25,7 @@ export default function TopNavBar({ children }) {
 
   const handleLogoClick = (e) => {
     e.preventDefault();
-    if (isAuthenticated) navigate("/dashboard");
-    else navigate("/");
+    navigate("/");
   };
 
   const handleHelp = (e) => {

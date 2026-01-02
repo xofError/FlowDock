@@ -50,6 +50,8 @@ export default function Dashboard() {
 
   const fileInputRef = useRef(null);
   const folderInputRef = useRef(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [appliedSearch, setAppliedSearch] = useState("");
   const [sortOrder, setSortOrder] = useState("asc");
   const [filterType, setFilterType] = useState(null);
   const [showFilterMenu, setShowFilterMenu] = useState(false);
@@ -65,6 +67,11 @@ export default function Dashboard() {
   // Apply filtering
   if (filterType) {
     displayFiles = displayFiles.filter((f) => f.type === filterType);
+  }
+  // Apply search (only when user presses Enter)
+  if (appliedSearch && appliedSearch.length > 0) {
+    const q = appliedSearch.toLowerCase();
+    displayFiles = displayFiles.filter((f) => (f.filename || "").toLowerCase().includes(q));
   }
 
   useEffect(() => {
@@ -266,8 +273,24 @@ export default function Dashboard() {
         className="flex-1 px-12 py-10 overflow-y-auto bg-white"
         style={{ /* width: "calc(100vw * 12 / 17)" */ }}
       >
-        <header className="mb-12">
+        <header className="mb-12" style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <h1 className="text-4xl font-bold text-slate-900">Dashboard</h1>
+          {/* Temporary button to preview PublicLink page design */}
+          <button
+            onClick={() => navigate("/share/demo-link-id")}
+            style={{
+              backgroundColor: "#8b5cf6",
+              color: "#ffffff",
+              border: "none",
+              padding: "0.5rem 1rem",
+              borderRadius: "6px",
+              fontSize: "0.875rem",
+              cursor: "pointer",
+              marginRight: "3.8cm",
+            }}
+          >
+            Preview Public Link Page
+          </button>
         </header>
 
         {/* Stats Cards */}
@@ -321,6 +344,14 @@ export default function Dashboard() {
           <input
             type="text"
             placeholder="Search"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                setAppliedSearch(searchQuery.trim());
+              }
+            }}
             className="flex-1 bg-slate-100 rounded-lg focus:ring-2 focus:ring-blue-500 focus:ring-offset-0 outline-none placeholder:text-slate-400"
             style={{
               border: "1px solid #e5e7eb",

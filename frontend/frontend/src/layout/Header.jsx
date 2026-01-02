@@ -6,6 +6,11 @@ export default function Header() {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
 
+  const handleLogoClick = (e) => {
+    e.preventDefault();
+    navigate("/");
+  };
+
   const handleSignIn = () => {
     setLoading(true);
     setTimeout(() => navigate("/login"), 250);
@@ -25,10 +30,15 @@ export default function Header() {
     >
       <div className="max-w-4xl mx-auto px-4 w-full grid grid-cols-3 items-center">
         {/* Left: logo + name */}
-        <div className="flex items-center gap-3 col-start-1">
-          <Anchor className="h-12 w-12 text-slate-900" />
+        <a
+          href="/"
+          onClick={handleLogoClick}
+          className="flex items-center gap-3 col-start-1 hover:opacity-80"
+          style={{ textDecoration: "none", cursor: "pointer" }}
+        >
+          <Anchor className="h-12 w-12" style={{ color: "#000000" }} />
           <span className="text-[#0d141b] font-black" style={{ fontSize: "28px", fontWeight: 900, lineHeight: "1" }}>FlowDock</span>
-        </div>
+        </a>
 
         {/* Center: reserved slot (will stay centered if content added) */}
         <div className="col-start-2 text-center">
