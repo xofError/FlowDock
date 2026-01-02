@@ -39,11 +39,20 @@ export default function TopNavBar({ children }) {
   };
 
   const handleLogout = async () => {
-    try { if (logout) await logout(); } catch (e) { /* ignore */ }
+    try {
+      if (logout) await logout();
+    } catch (e) {
+      console.error("Logout error:", e);
+    }
     // clear persisted user
-    try { if (typeof window !== "undefined") localStorage.removeItem("user"); } catch (e) {}
+    try {
+      if (typeof window !== "undefined") localStorage.removeItem("user");
+    } catch (e) {
+      console.error("Storage clear error:", e);
+    }
     setProfileOpen(false);
-    navigate("/login");
+    // Force navigate to login with replace to clear history
+    navigate("/login", { replace: true });
   };
 
   return (
@@ -120,7 +129,17 @@ export default function TopNavBar({ children }) {
                   <div style={{ fontSize: 12, color: "#64748b" }}>{profileUser?.email || ""}</div>
                 </div>
                 <div style={{ padding: "0.5rem 0.75rem", textAlign: "right" }}>
-                  <button onClick={handleLogout} style={{ background: "#fff", border: "1px solid #e5e7eb", padding: "0.4rem 0.75rem", borderRadius: 6, cursor: "pointer" }}>
+                  <button 
+                    onClick={handleLogout}
+                    style={{ 
+                      background: "#fff", 
+                      border: "1px solid #e5e7eb", 
+                      padding: "0.4rem 0.75rem", 
+                      borderRadius: 6, 
+                      cursor: "pointer",
+                      width: "100%"
+                    }}
+                  >
                     Logout
                   </button>
                 </div>
