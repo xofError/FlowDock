@@ -11,8 +11,9 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models.share import ShareLink
-from app.application.services import FileService
-from app.presentation.dependencies import get_file_service
+from app.application.services import FileService, FolderService
+from app.application.public_folder_links_service import PublicFolderLinksService
+from app.presentation.dependencies import get_file_service, get_folder_service, get_public_folder_link_service
 
 logger = logging.getLogger(__name__)
 
@@ -239,4 +240,60 @@ async def download_file_from_public_folder(
     except Exception as e:
         logger.error(f"[public-download] Error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Download failed: {str(e)}")
+
+
+# ============================================================================
+# PUBLIC FOLDER ZIP DOWNLOAD
+# ============================================================================
+@router.get("/folder/{share_token}/download-zip")
+async def download_public_folder_zip(
+    share_token: str = Path(..., description="Public folder share token"),
+    password: str = Query(None, description="Password if link is protected"),
+    folder_service: FolderService = Depends(get_folder_service),
+    service=Depends(get_public_folder_link_service),
+):
+    """
+    Download a public shared folder as a ZIP archive.
+    
+    **Parameters**:
+    - **share_token**: Public folder share token (URL-safe)
+    - **password**: Password if link is protected (optional)
+    
+    **Returns**: ZIP file stream
+    """
+    try:
+        share_token = share_token.strip()
+        
+        # 1. Verify public folder link access
+        is_valid = await service.verify_access(share_token, password)
+        if not is_valid:
+            raise HTTPException(status_code=403, detail="Invalid or expired share token")
+        
+        # 2. Get link to retrieve folder ID
+        link = await service.get_link(share_token)
+        if not link:
+            raise HTTPException(status_code=403, detail="Invalid share token")
+        
+        folder_id = link.folder_id
+        
+        # 3. Archive the folder (use system context for public access)
+        success, stream, filename, error = await folder_service.archive_folder_public(folder_id)
+        
+        if not success:
+            raise HTTPException(status_code=400, detail=error)
+        
+        # Increment download count
+        await service.increment_download_count(share_token)
+        
+        return StreamingResponse(
+            stream,
+            media_type="application/zip",
+            headers={"Content-Disposition": f"attachment; filename={filename}"}
+        )
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[download-public-folder-zip] Error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to download folder")
 

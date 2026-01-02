@@ -225,14 +225,14 @@ class MongoGridFSRepository(IFileRepository):
     async def list_files_in_folder(
         self,
         folder_id: Optional[str],
-        owner_id: str,
+        owner_id: Optional[str] = None,
     ) -> List[File]:
         """
         List all files in a specific folder (root if folder_id is None).
         
         Args:
             folder_id: The folder identifier (None = root)
-            owner_id: The owner identifier
+            owner_id: Optional owner identifier (None for public/shared lists)
             
         Returns:
             List of File entities
@@ -243,7 +243,11 @@ class MongoGridFSRepository(IFileRepository):
                 return []
 
             fs = self.db.get_collection("fs.files")
-            query = {"metadata.owner": owner_id}
+            query = {}
+            
+            # Only filter by owner if owner_id is provided
+            if owner_id:
+                query["metadata.owner"] = owner_id
             
             if folder_id is None:
                 # Root files have no folder_id
@@ -276,8 +280,47 @@ class MongoGridFSRepository(IFileRepository):
             return files
 
         except Exception as e:
-            logger.error(f"Failed to list files in folder {folder_id} for owner {owner_id}: {e}")
+            logger.error(f"Failed to list files in folder {folder_id}: {e}")
             return []
+
+    async def update_file_metadata(self, file_id: str, updates: dict) -> bool:
+        """
+        Update file metadata (e.g., moving to a new folder).
+        
+        Args:
+            file_id: ObjectId as string
+            updates: Dict of fields to update (e.g., {"folder_id": "new_folder_id"})
+            
+        Returns:
+            True if updated, False otherwise
+        """
+        try:
+            if self.db is None:
+                logger.error("Database not initialized for updates")
+                return False
+
+            oid = ObjectId(file_id)
+            mongo_updates = {}
+            
+            # Map domain fields to MongoDB metadata fields
+            if "folder_id" in updates:
+                mongo_updates["metadata.folderId"] = updates["folder_id"]
+            
+            # Add other fields as needed
+            if not mongo_updates:
+                return False
+
+            result = await self.db["fs.files"].update_one(
+                {"_id": oid},
+                {"$set": mongo_updates}
+            )
+            
+            logger.info(f"✓ Updated metadata for file {file_id}")
+            return True  # Return True even if modified_count is 0 (idempotent)
+            
+        except Exception as e:
+            logger.error(f"Failed to update metadata for {file_id}: {e}")
+            return False
 
 
 class MongoFolderRepository(IFolderRepository):
@@ -484,6 +527,7 @@ class MongoFolderRepository(IFolderRepository):
                 {
                     "$set": {
                         "name": folder.name,
+                        "parent_id": folder.parent_id,
                         "metadata": folder.metadata,
                         "updated_at": folder.updated_at,
                     }

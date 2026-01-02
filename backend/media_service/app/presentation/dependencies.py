@@ -39,12 +39,17 @@ async def get_file_service() -> FileService:
         quota_repo = HttpQuotaRepository(settings.auth_service_url)
         activity_logger = HttpActivityLogger(settings.auth_service_url, settings.internal_api_key)
 
+        # Infrastructure for folder operations
+        mongo_db = get_mongo_db()
+        folder_repo = MongoFolderRepository(mongo_db)
+        
         # Application service with injected dependencies
         service = FileService(
             repo=repo,
             crypto=crypto,
             event_publisher=publisher,
             quota_repo=quota_repo,
+            folder_repo=folder_repo,
             activity_logger=activity_logger,
         )
 

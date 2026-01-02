@@ -4,8 +4,11 @@ Handles sharing folders with users/groups and managing permissions.
 """
 
 from fastapi import APIRouter, HTTPException, Path, Depends, Request, Body
+from fastapi.responses import StreamingResponse
 from typing import Optional, List
 import logging
+import httpx
+import os
 
 from app.application.folder_sharing_service import FolderSharingService
 from app.application.dtos import (
@@ -14,12 +17,14 @@ from app.application.dtos import (
     FolderShareListResponse,
     FolderUnshareRequest,
 )
+from app.application.services import FileService
 from app.utils.security import (
     get_current_user_id,
 )
 from app.database import get_mongo_db
 from app.infrastructure.database.mongo_repository import MongoFolderRepository
-from app.presentation.dependencies import get_folder_service
+from app.presentation.dependencies import get_folder_service, get_file_service
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -62,10 +67,39 @@ async def share_folder(
         folder_id = folder_id.strip()
         logger.info(f"[share-folder] User {current_user_id} sharing folder {folder_id}")
         
+        # ===== FIX 3: Resolve emails to UUIDs =====
+        resolved_targets = []
+        auth_service_url = settings.auth_service_url
+        
+        for target in request_body.targets:
+            if "@" in target:
+                # Target is an email, try to resolve to UUID
+                try:
+                    async with httpx.AsyncClient() as client:
+                        # Call auth service to lookup user by email
+                        # Assuming endpoint: GET /api/users/by-email/{email}
+                        resp = await client.get(
+                            f"{auth_service_url}/api/users/by-email/{target}",
+                            timeout=5.0
+                        )
+                        if resp.status_code == 200:
+                            user_data = resp.json()
+                            resolved_targets.append(user_data.get('id', target))
+                            logger.info(f"[share-folder] Resolved email {target} to UUID {user_data.get('id')}")
+                        else:
+                            logger.warning(f"[share-folder] Could not resolve email {target} (status {resp.status_code})")
+                            resolved_targets.append(target)  # Fallback
+                except Exception as e:
+                    logger.error(f"[share-folder] Auth lookup failed for {target}: {e}")
+                    resolved_targets.append(target)  # Fallback to email
+            else:
+                # Already looks like a UUID
+                resolved_targets.append(target)
+        
         result = await service.share_folder(
             folder_id=folder_id,
             owner_id=current_user_id,
-            targets=request_body.targets,
+            targets=resolved_targets,
             permission=request_body.permission,
             cascade=request_body.cascade,
             expires_at=request_body.expires_at,
@@ -242,3 +276,110 @@ async def get_shared_folder_contents(
     except Exception as e:
         logger.error(f"[get-shared-contents] Error getting folder contents: {e}")
         raise HTTPException(status_code=500, detail="Failed to get folder contents")
+
+
+# ============================================================================
+# SHARED FOLDER CONTENT DOWNLOADS
+# ============================================================================
+@router.get("/folders/{folder_id}/file/{file_id}/download")
+async def download_shared_file(
+    folder_id: str = Path(..., description="Shared Folder ID"),
+    file_id: str = Path(..., description="File ID"),
+    current_user_id: str = Depends(get_current_user_id),
+    file_service: FileService = Depends(get_file_service),
+    service: FolderSharingService = Depends(get_folder_sharing_service),
+):
+    """
+    Download a file from a shared folder.
+    
+    **Security**: Requires valid JWT token and folder sharing access.
+    
+    **Parameters**:
+    - **folder_id**: Shared folder ID
+    - **file_id**: File ID to download
+    
+    **Returns**: File stream
+    """
+    try:
+        folder_id = folder_id.strip()
+        file_id = file_id.strip()
+        
+        # 1. Verify user has access to the folder
+        has_access = await service.check_folder_access(folder_id, current_user_id)
+        if not has_access:
+            raise HTTPException(status_code=403, detail="Access denied to folder")
+        
+        # 2. Verify file is in this folder
+        is_in_folder = await file_service.is_file_in_folder_tree(file_id, folder_id)
+        if not is_in_folder:
+            raise HTTPException(status_code=403, detail="File not in shared folder")
+        
+        # 3. Download the file
+        success, file_stream, metadata, error = await file_service.download_file(
+            file_id=file_id,
+            requester_user_id=current_user_id,
+            allow_shared=True,  # Already verified folder access
+        )
+        
+        if not success:
+            if error == "Access denied":
+                raise HTTPException(status_code=403, detail=error)
+            raise HTTPException(status_code=404, detail=error)
+        
+        return StreamingResponse(
+            file_stream,
+            media_type=metadata["content_type"],
+            headers={"Content-Disposition": f"attachment; filename={metadata['filename']}"}
+        )
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[download-shared-file] Error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to download file")
+
+
+@router.get("/folders/{folder_id}/download-zip")
+async def download_shared_folder_zip(
+    folder_id: str = Path(..., description="Shared Folder ID"),
+    current_user_id: str = Depends(get_current_user_id),
+    folder_service=Depends(get_folder_service),
+    service: FolderSharingService = Depends(get_folder_sharing_service),
+):
+    """
+    Download a shared folder as a ZIP archive.
+    
+    **Security**: Requires valid JWT token and folder sharing access.
+    
+    **Parameters**:
+    - **folder_id**: Shared folder ID
+    
+    **Returns**: ZIP file stream
+    """
+    try:
+        folder_id = folder_id.strip()
+        
+        # Verify user has access to the folder
+        has_access = await service.check_folder_access(folder_id, current_user_id)
+        if not has_access:
+            raise HTTPException(status_code=403, detail="Access denied to folder")
+        
+        # Archive the folder
+        success, stream, filename, error = await folder_service.archive_folder(
+            folder_id, current_user_id
+        )
+        
+        if not success:
+            raise HTTPException(status_code=400, detail=error)
+        
+        return StreamingResponse(
+            stream,
+            media_type="application/zip",
+            headers={"Content-Disposition": f"attachment; filename={filename}"}
+        )
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[download-shared-folder-zip] Error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to download folder")

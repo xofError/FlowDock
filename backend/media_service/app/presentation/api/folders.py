@@ -4,6 +4,7 @@ Supports hierarchical folder structure with parent_id pattern.
 """
 
 from fastapi import APIRouter, HTTPException, Path, Query, Depends, Request
+from fastapi.responses import StreamingResponse
 from typing import Optional
 import logging
 
@@ -331,3 +332,48 @@ async def move_folder(
     except Exception as e:
         logger.error(f"Move folder error: {e}")
         raise HTTPException(status_code=500, detail=f"Move folder failed: {str(e)}")
+
+
+# ============================================================================
+# DOWNLOAD FOLDER AS ZIP
+# ============================================================================
+@router.get("/{folder_id}/download")
+async def download_folder_zip(
+    folder_id: str = Path(..., description="Folder ID"),
+    current_user_id: str = Depends(get_current_user_id),
+    service: FolderService = Depends(get_folder_service),
+):
+    """
+    Download a folder as a ZIP archive.
+    
+    **Security**: Requires valid JWT token and folder ownership.
+    
+    **Parameters**:
+    - **folder_id**: MongoDB ObjectId of the folder
+    
+    **Returns**: ZIP file stream with all folder contents
+    
+    **Notes**: 
+    - Files are organized in the zip with full folder hierarchy
+    - Infected files are excluded from the archive
+    - Large folders may take time to process
+    """
+    try:
+        folder_id = folder_id.strip()
+        
+        success, stream, filename, error = await service.archive_folder(folder_id, current_user_id)
+        
+        if not success:
+            raise HTTPException(status_code=400, detail=error)
+
+        return StreamingResponse(
+            stream,
+            media_type="application/zip",
+            headers={"Content-Disposition": f"attachment; filename={filename}"}
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Folder download error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to download folder")
+

@@ -210,7 +210,7 @@ async def download_file(
                 # requester is owner; proceed normally
                 allow_shared = False
             else:
-                # Not owner; check direct shares in DB
+                # Not owner; check direct file shares in DB
                 try:
                     import uuid
                     uid = uuid.UUID(requester_user_id)
@@ -225,6 +225,28 @@ async def download_file(
                     ).first()
                     if share:
                         allow_shared = True
+
+                # ===== FIX 4: Check Folder Share (Inheritance) =====
+                if not allow_shared and service.folder_repo:
+                    try:
+                        # Get the file to find its folder
+                        file_meta = await service.repo.get_file_metadata(file_id)
+                        
+                        if file_meta and file_meta.folder_id:
+                            # Check if user has access to the immediate parent folder
+                            mongo_db = service.folder_repo.db
+                            if mongo_db:
+                                # Look for folder share
+                                folder_shares = mongo_db["folder_shares"]
+                                share = await folder_shares.find_one({
+                                    "folder_id": file_meta.folder_id,
+                                    "target_id": requester_user_id
+                                })
+                                if share:
+                                    allow_shared = True
+                                    logger.info(f"[download] User {requester_user_id} has folder share access for file {file_id}")
+                    except Exception as e:
+                        logger.warning(f"[download] Error checking folder share: {e}")
 
         # Download using injected service; allow shared access when applicable
         success, file_stream, metadata, error = await service.download_file(
@@ -346,7 +368,7 @@ async def move_file(
             raise HTTPException(status_code=400, detail=error)
 
         # Get updated file metadata to return full response
-        success, file_dict, error = await service.get_file(file_id, current_user_id)
+        success, file_dict, error = await service.get_file_metadata(file_id, current_user_id)
         if success:
             return FileMetadataResponse(**file_dict)
         else:

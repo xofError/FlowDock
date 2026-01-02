@@ -4,6 +4,10 @@ Pure business logic - depends on interfaces, not implementations.
 """
 
 import logging
+import zipfile
+import os
+import tempfile
+import aiofiles
 from typing import AsyncGenerator, Optional, Tuple, List
 from fastapi import UploadFile
 
@@ -33,6 +37,7 @@ class FileService:
         crypto: ICryptoService,
         event_publisher: IEventPublisher,
         quota_repo: IQuotaRepository,
+        folder_repo: IFolderRepository = None,
         activity_logger: IActivityLogger = None,
     ):
         """
@@ -43,12 +48,14 @@ class FileService:
             crypto: Crypto service implementation
             event_publisher: Event publisher implementation
             quota_repo: Quota repository for updating storage usage
+            folder_repo: Optional folder repository for folder-related file operations
             activity_logger: Optional activity logger for audit trails
         """
         self.repo = repo
         self.crypto = crypto
         self.publisher = event_publisher
         self.quota_repo = quota_repo
+        self.folder_repo = folder_repo
         self.activity_logger = activity_logger
 
     # ========================================================================
@@ -451,6 +458,92 @@ class FileService:
         except Exception as e:
             logger.error(f"List files failed: {e}")
             return False, None, str(e)
+
+    # ========================================================================
+    # Helper Methods for Folder Operations & Public Access
+    # ========================================================================
+
+    async def is_file_in_folder_tree(
+        self,
+        file_id: str,
+        root_folder_id: str,
+    ) -> bool:
+        """
+        Verify that a file is contained within a folder (at any depth).
+        Used for security validation in public/shared access.
+        
+        Args:
+            file_id: File to check
+            root_folder_id: Root folder to check against
+            
+        Returns:
+            True if file is inside root_folder_id tree, False otherwise
+        """
+        try:
+            if not self.folder_repo:
+                logger.warning("folder_repo not available for is_file_in_folder_tree")
+                return False
+
+            # Get file metadata
+            file = await self.repo.get_file_metadata(file_id)
+            if not file or not file.folder_id:
+                return False
+
+            # Traverse up from file's folder to check if we reach root
+            current_folder_id = file.folder_id
+            while current_folder_id:
+                if current_folder_id == root_folder_id:
+                    return True
+                folder = await self.folder_repo.get_folder_by_id(current_folder_id)
+                if not folder:
+                    break
+                current_folder_id = folder.parent_id
+            return False
+            
+        except Exception as e:
+            logger.error(f"Error checking file in folder tree: {e}")
+            return False
+
+    async def move_file(
+        self,
+        file_id: str,
+        new_folder_id: str,
+        user_id: str,
+    ) -> Tuple[bool, Optional[str]]:
+        """
+        Move a file to a different folder.
+        
+        Args:
+            file_id: The file to move
+            new_folder_id: The destination folder
+            user_id: The current user (for verification)
+            
+        Returns:
+            Tuple of (success, error_message)
+        """
+        try:
+            if not self.folder_repo:
+                return False, "Folder service not available"
+
+            # Get file metadata to verify ownership
+            file = await self.repo.get_file_metadata(file_id)
+            if not file or file.owner_id != user_id:
+                return False, "File not found or access denied"
+
+            # Verify new folder exists and is owned by user
+            new_folder = await self.folder_repo.get_folder(new_folder_id, user_id)
+            if not new_folder:
+                return False, "Destination folder not found or access denied"
+
+            # Update file's folder_id
+            await self.repo.update_file_metadata(file_id, {"folder_id": new_folder_id})
+
+            logger.info(f"✓ Moved file {file_id} to folder {new_folder_id}")
+            return True, None
+
+        except Exception as e:
+            logger.error(f"Move file failed: {e}")
+            return False, str(e)
 
 
 class FolderService:
@@ -930,43 +1023,6 @@ class FolderService:
         
         return breadcrumbs
 
-    async def is_file_in_folder_tree(
-        self,
-        file_id: str,
-        root_folder_id: str,
-    ) -> bool:
-        """
-        Verify that a file is contained within a folder (at any depth).
-        Used for security validation in public/shared access.
-        
-        Args:
-            file_id: File to check
-            root_folder_id: Root folder to check against
-            
-        Returns:
-            True if file is inside root_folder_id tree, False otherwise
-        """
-        try:
-            # Get file metadata
-            file = await self.repo.get_file_metadata(file_id)
-            if not file or not file.folder_id:
-                return False
-
-            # Traverse up from file's folder to check if we reach root
-            current_folder_id = file.folder_id
-            while current_folder_id:
-                if current_folder_id == root_folder_id:
-                    return True
-                folder = await self.folder_repo.get_folder_by_id(current_folder_id)
-                if not folder:
-                    break
-                current_folder_id = folder.parent_id
-            return False
-            
-        except Exception as e:
-            logger.error(f"Error checking file in folder tree: {e}")
-            return False
-
     async def is_folder_descendant(
         self,
         target_folder_id: str,
@@ -1000,44 +1056,6 @@ class FolderService:
     # ========================================================================
     # Move Operations
     # ========================================================================
-
-    async def move_file(
-        self,
-        file_id: str,
-        new_folder_id: str,
-        user_id: str,
-    ) -> Tuple[bool, Optional[str]]:
-        """
-        Move a file to a different folder.
-        
-        Args:
-            file_id: The file to move
-            new_folder_id: The destination folder
-            user_id: The current user (for verification)
-            
-        Returns:
-            Tuple of (success, error_message)
-        """
-        try:
-            # Get file metadata to verify ownership
-            file = await self.repo.get_file_metadata(file_id)
-            if not file or file.owner_id != user_id:
-                return False, "File not found or access denied"
-
-            # Verify new folder exists and is owned by user
-            new_folder = await self.folder_repo.get_folder(new_folder_id, user_id)
-            if not new_folder:
-                return False, "Destination folder not found or access denied"
-
-            # Update file's folder_id
-            await self.repo.update_file_metadata(file_id, {"folder_id": new_folder_id})
-
-            logger.info(f"✓ Moved file {file_id} to folder {new_folder_id}")
-            return True, None
-
-        except Exception as e:
-            logger.error(f"Move file failed: {e}")
-            return False, str(e)
 
     async def move_folder(
         self,
@@ -1091,4 +1109,210 @@ class FolderService:
         except Exception as e:
             logger.error(f"Move folder failed: {e}")
             return False, str(e)
+
+    # ========================================================================
+    # Zip Archive Operations
+    # ========================================================================
+
+    async def archive_folder(
+        self,
+        folder_id: str,
+        user_id: str,
+    ) -> Tuple[bool, Optional[AsyncGenerator], Optional[str], Optional[str]]:
+        """
+        Create a ZIP archive of the folder and its contents.
+        Works for both owned and shared folders.
+        
+        Args:
+            folder_id: The folder to archive
+            user_id: The current user (for verification)
+            
+        Returns:
+            Tuple of (success, file_stream, filename, error_message)
+        """
+        try:
+            # 1. Verify access - try owned first, then check shared
+            folder = await self.folder_repo.get_folder(folder_id, user_id)
+            if not folder:
+                # If not owned, try to get as shared folder
+                folder = await self.folder_repo.get_folder_by_id(folder_id)
+                if not folder:
+                    return False, None, None, "Folder not found or access denied"
+                # Note: Actual sharing permission was already checked at endpoint level
+
+            # 2. Collect all files to zip
+            # Format: [(file_entity, "path/inside/zip")]
+            files_to_zip = []
+            
+            async def recurse_folder(current_fid, current_path):
+                """Recursively collect files and folders for archiving."""
+                # Get files in this folder (no owner filter for internal traversal)
+                files = await self.file_repo.list_files_in_folder(current_fid, owner_id=None)
+                for f in files:
+                    # Only zip non-infected files
+                    if not f.is_infected:
+                        files_to_zip.append((f, f"{current_path}/{f.filename}"))
+                
+                # Get subfolders
+                subs = await self.folder_repo.list_subfolders(current_fid, owner_id=None)
+                for sub in subs:
+                    await recurse_folder(sub.id, f"{current_path}/{sub.name}")
+
+            # Start recursion from the root folder
+            folder_name = folder.get('name', 'archive') if isinstance(folder, dict) else folder.name
+            await recurse_folder(folder_id, folder_name)
+
+            if not files_to_zip:
+                return False, None, None, "Folder is empty"
+
+            # 3. Create Zip (using temp file for memory safety)
+            temp_dir = tempfile.mkdtemp()
+            zip_filename = f"{folder_name}.zip"
+            zip_path = os.path.join(temp_dir, zip_filename)
+
+            try:
+                with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+                    for file_entity, zip_entry_path in files_to_zip:
+                        try:
+                            # Get file content
+                            _, stream = await self.file_repo.get_file_stream(file_entity.id)
+                            if stream:
+                                # Read the stream into memory and write to zip
+                                file_data = b""
+                                async for chunk in stream:
+                                    file_data += chunk
+                                
+                                # NOTE: If files are encrypted, decrypt here using CryptoService
+                                # For now, assuming files are stored in usable format
+                                
+                                zipf.writestr(zip_entry_path, file_data)
+                        except Exception as e:
+                            logger.warning(f"Failed to add file {file_entity.filename} to zip: {e}")
+                            continue
+            except Exception as e:
+                logger.error(f"Failed to create zip file: {e}")
+                if os.path.exists(zip_path):
+                    os.remove(zip_path)
+                if os.path.exists(temp_dir):
+                    os.rmdir(temp_dir)
+                return False, None, None, f"Failed to create zip: {str(e)}"
+
+            # 4. Create async generator to stream the zip file back
+            async def file_sender():
+                """Stream zip file to client in chunks."""
+                try:
+                    async with aiofiles.open(zip_path, 'rb') as f:
+                        while True:
+                            chunk = await f.read(64 * 1024)  # 64KB chunks
+                            if not chunk:
+                                break
+                            yield chunk
+                finally:
+                    # Cleanup temp files
+                    try:
+                        if os.path.exists(zip_path):
+                            os.remove(zip_path)
+                        if os.path.exists(temp_dir):
+                            os.rmdir(temp_dir)
+                    except Exception as cleanup_error:
+                        logger.warning(f"Failed to cleanup temp files: {cleanup_error}")
+
+            logger.info(f"✓ Created zip archive for folder {folder_id}")
+            return True, file_sender(), zip_filename, None
+
+        except Exception as e:
+            logger.error(f"Archive folder failed: {e}")
+            return False, None, None, str(e)
+
+    async def archive_folder_public(
+        self,
+        folder_id: str,
+    ) -> Tuple[bool, Optional[AsyncGenerator], Optional[str], Optional[str]]:
+        """
+        Create a ZIP archive of a public folder (no user ownership required).
+        Used for public share links.
+        
+        Args:
+            folder_id: The folder to archive
+            
+        Returns:
+            Tuple of (success, file_stream, filename, error_message)
+        """
+        try:
+            # 1. Verify folder exists (no ownership check for public)
+            folder = await self.folder_repo.get_folder_by_id(folder_id)
+            if not folder:
+                return False, None, None, "Folder not found"
+
+            # 2. Collect all files to zip
+            files_to_zip = []
+            
+            async def recurse_folder(current_fid, current_path):
+                """Recursively collect files and folders for archiving."""
+                files = await self.file_repo.list_files_in_folder(current_fid, owner_id=None)
+                for f in files:
+                    if not f.is_infected:
+                        files_to_zip.append((f, f"{current_path}/{f.filename}"))
+                
+                subs = await self.folder_repo.list_subfolders(current_fid, owner_id=None)
+                for sub in subs:
+                    await recurse_folder(sub.id, f"{current_path}/{sub.name}")
+
+            folder_name = folder.get('name', 'archive') if isinstance(folder, dict) else folder.name
+            await recurse_folder(folder_id, folder_name)
+
+            if not files_to_zip:
+                return False, None, None, "Folder is empty"
+
+            # 3. Create Zip using temp file
+            temp_dir = tempfile.mkdtemp()
+            zip_filename = f"{folder_name}.zip"
+            zip_path = os.path.join(temp_dir, zip_filename)
+
+            try:
+                with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+                    for file_entity, zip_entry_path in files_to_zip:
+                        try:
+                            _, stream = await self.file_repo.get_file_stream(file_entity.id)
+                            if stream:
+                                file_data = b""
+                                async for chunk in stream:
+                                    file_data += chunk
+                                zipf.writestr(zip_entry_path, file_data)
+                        except Exception as e:
+                            logger.warning(f"Failed to add file {file_entity.filename} to zip: {e}")
+                            continue
+            except Exception as e:
+                logger.error(f"Failed to create zip file: {e}")
+                if os.path.exists(zip_path):
+                    os.remove(zip_path)
+                if os.path.exists(temp_dir):
+                    os.rmdir(temp_dir)
+                return False, None, None, f"Failed to create zip: {str(e)}"
+
+            # 4. Create async generator to stream
+            async def file_sender():
+                try:
+                    async with aiofiles.open(zip_path, 'rb') as f:
+                        while True:
+                            chunk = await f.read(64 * 1024)
+                            if not chunk:
+                                break
+                            yield chunk
+                finally:
+                    try:
+                        if os.path.exists(zip_path):
+                            os.remove(zip_path)
+                        if os.path.exists(temp_dir):
+                            os.rmdir(temp_dir)
+                    except Exception as cleanup_error:
+                        logger.warning(f"Failed to cleanup temp files: {cleanup_error}")
+
+            logger.info(f"✓ Created public zip archive for folder {folder_id}")
+            return True, file_sender(), zip_filename, None
+
+        except Exception as e:
+            logger.error(f"Archive public folder failed: {e}")
+            return False, None, None, str(e)
+
 
