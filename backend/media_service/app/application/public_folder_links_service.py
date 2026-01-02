@@ -259,6 +259,72 @@ class PublicFolderLinksService:
         logger.info(f"[verify-access] Access verified for link {link.link_id}")
         return True
     
+    async def check_folder_public_access(
+        self,
+        token: str,
+        folder_id: str,
+        password: Optional[str] = None,
+    ) -> bool:
+        """
+        Check if a folder is accessible via a public link.
+        
+        Implements recursive access check: if a public link exists for a parent folder,
+        new subfolders created after the link creation are automatically accessible.
+        This fixes the "New Folder" gap for public sharing.
+        
+        Args:
+            token: The public link token
+            folder_id: The folder to check access for
+            password: Password if link is protected
+            
+        Returns:
+            True if accessible, False otherwise
+        """
+        try:
+            # First, verify the token itself is valid
+            if not await self.verify_access(token, password):
+                return False
+            
+            # Get the link to find the shared folder
+            link = await self.get_link(token)
+            if not link:
+                return False
+            
+            shared_folder_id = link.folder_id
+            
+            # 1. Check if accessing the exact shared folder
+            if folder_id == shared_folder_id:
+                return True
+            
+            # 2. Recursive Parent Check (Fixes "New Folder" gap for public links)
+            # Check if the folder is a descendant of the shared folder
+            current_folder_id = folder_id
+            depth_limit = 10  # Prevent infinite loops
+            
+            while current_folder_id and depth_limit > 0:
+                # Get folder to find parent
+                folder = await self.folder_repo.get_folder_by_id(current_folder_id)
+                if not folder or not folder.parent_id:
+                    break
+                
+                parent_id = folder.parent_id
+                
+                # If parent is the shared folder, this folder is a descendant
+                if parent_id == shared_folder_id:
+                    logger.info(f"[check-public-access] Folder {folder_id} is descendant of shared folder {shared_folder_id}")
+                    return True
+                
+                # Move up one level
+                current_folder_id = parent_id
+                depth_limit -= 1
+            
+            logger.info(f"[check-public-access] Folder {folder_id} is not in shared folder hierarchy {shared_folder_id}")
+            return False
+            
+        except Exception as e:
+            logger.error(f"[check-public-access] Error checking public folder access: {e}")
+            return False
+    
     async def increment_download_count(self, token: str) -> bool:
         """
         Increment download count for a link.

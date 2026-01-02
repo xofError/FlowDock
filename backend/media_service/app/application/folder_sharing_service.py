@@ -38,6 +38,7 @@ class FolderShare:
         target_type: str,  # "user" or "group"
         target_id: str,    # email for user, group_id for group
         permission: str,
+        cascade: bool = True,  # Track if permissions cascade to children
         created_at: Optional[datetime] = None,
         expires_at: Optional[datetime] = None,
     ):
@@ -46,6 +47,7 @@ class FolderShare:
         self.target_type = target_type
         self.target_id = target_id
         self.permission = permission
+        self.cascade = cascade  # Critical: enables recursive access check
         self.created_at = created_at or datetime.utcnow()
         self.expires_at = expires_at
     
@@ -57,6 +59,7 @@ class FolderShare:
             "target_type": self.target_type,
             "target_id": self.target_id,
             "permission": self.permission,
+            "cascade": self.cascade,
             "created_at": self.created_at,
             "expires_at": self.expires_at,
         }
@@ -70,6 +73,7 @@ class FolderShare:
             target_type=data.get("target_type"),
             target_id=data.get("target_id"),
             permission=data.get("permission"),
+            cascade=data.get("cascade", True),
             created_at=data.get("created_at"),
             expires_at=data.get("expires_at"),
         )
@@ -147,16 +151,25 @@ class FolderSharingService:
                     target_type=target_type,
                     target_id=target,
                     permission=permission,
+                    cascade=True,  # Enable cascading to children
                     expires_at=expires_at,
                 )
                 
-                # Store in MongoDB
-                await self.shares_collection.insert_one(share.to_dict())
+                # FIX #1: Use update_one with upsert to prevent duplicate shares
+                # If share already exists, update permissions. If not, create it.
+                await self.shares_collection.update_one(
+                    {
+                        "folder_id": folder_id,
+                        "target_id": target
+                    },
+                    {"$set": share.to_dict()},
+                    upsert=True
+                )
                 shared_count += 1
                 logger.info(f"[share-folder] Shared with {target} at {permission} level")
                 
                 # Cascade to subfolders if requested
-                if cascade:
+                if True:  # cascade is always True for now
                     await self._cascade_sharing(
                         folder_id, target_type, target, permission, expires_at
                     )
@@ -202,9 +215,19 @@ class FolderSharingService:
                     target_type=target_type,
                     target_id=target_id,
                     permission=permission,
+                    cascade=True,  # Inherited shares continue to cascade
                     expires_at=expires_at,
                 )
-                await self.shares_collection.insert_one(share.to_dict())
+                
+                # FIX #1: Use upsert to prevent duplicates
+                await self.shares_collection.update_one(
+                    {
+                        "folder_id": child.id,
+                        "target_id": target_id
+                    },
+                    {"$set": share.to_dict()},
+                    upsert=True
+                )
             
             logger.info(f"[share-folder] Cascaded sharing to {len(all_children)} subfolders")
             
@@ -331,7 +354,12 @@ class FolderSharingService:
         user_id: str,
     ) -> Optional[str]:
         """
-        Check if user has access to folder and return permission level.
+        Check if user has access to folder - including inherited permissions.
+        
+        This implements a recursive access check that handles the "New Folder" gap:
+        If a user has access to a parent folder via sharing, they automatically
+        have access to new subfolders created after the share, without needing
+        explicit DB records for every child.
         
         Args:
             folder_id: Folder ID
@@ -341,7 +369,7 @@ class FolderSharingService:
             Permission level if accessible (view/edit/admin), None if not
         """
         try:
-            # Check for direct share
+            # 1. Check for direct share (most common case)
             share = await self.shares_collection.find_one({
                 "folder_id": folder_id,
                 "target_id": user_id,
@@ -353,10 +381,40 @@ class FolderSharingService:
                     logger.info(f"[check-access] Share expired for {user_id} on {folder_id}")
                     return None
                 return share.get("permission")
+
+            # 2. Recursive Parent Check (FIX #2: Solves "New Folder" gap)
+            # If no direct share exists, walk up the folder tree to check for
+            # inherited permissions. This allows new subfolders to inherit parent
+            # sharing without explicit DB records.
+            current_folder_id = folder_id
+            depth_limit = 10  # Prevent infinite loops from corrupt data
             
-            # Check group memberships (would require group service integration)
-            # For now, just return None
-            
+            while current_folder_id and depth_limit > 0:
+                # Get folder to find parent
+                folder = await self.folder_repo.get_folder_by_id(current_folder_id)
+                if not folder or not folder.parent_id:
+                    break
+                
+                parent_id = folder.parent_id
+                
+                # Check if parent has a cascading share with this user
+                parent_share = await self.shares_collection.find_one({
+                    "folder_id": parent_id,
+                    "target_id": user_id,
+                    "cascade": True  # Only cascading shares apply to children
+                })
+                
+                if parent_share:
+                    # Found an inherited permission!
+                    if parent_share.get("expires_at") and parent_share["expires_at"] < datetime.utcnow():
+                        return None
+                    logger.info(f"[check-access] Found inherited access for {user_id} on {folder_id}")
+                    return parent_share.get("permission")
+                
+                # Move up one level
+                current_folder_id = parent_id
+                depth_limit -= 1
+
             return None
             
         except Exception as e:
@@ -370,6 +428,8 @@ class FolderSharingService:
         """
         List all folders shared with a user.
         
+        FIX #3: Optimized with bulk folder fetch instead of N+1 queries.
+        
         Args:
             user_id: User ID
             
@@ -379,35 +439,49 @@ class FolderSharingService:
         logger.info(f"[list-shared] Listing folders shared with user {user_id}")
         
         try:
-            # Find all shares where target is this user
+            # 1. Get all active shares for this user
             shares = await self.shares_collection.find({
                 "target_id": user_id,
             }).to_list(None)
             
-            # Filter out expired shares
-            active_shares = []
-            for share in shares:
-                # Check expiration
-                if share.get("expires_at") and share["expires_at"] < datetime.utcnow():
-                    logger.info(f"[list-shared] Skipping expired share for folder {share['folder_id']}")
-                    continue
-                active_shares.append(share)
+            if not shares:
+                return []
             
-            # Get folder details for each share
+            # 2. Filter out expired shares
+            active_shares = [
+                s for s in shares 
+                if not (s.get("expires_at") and s["expires_at"] < datetime.utcnow())
+            ]
+            
+            if not active_shares:
+                return []
+
+            # 3. FIX #3: Bulk fetch all folder details (prevents N+1 queries)
+            # Instead of querying DB for each share separately, collect all folder IDs
+            # and fetch them all at once
+            folder_ids = []
+            for share in active_shares:
+                oid = self.folder_repo._to_object_id(share.get("folder_id"))
+                if oid:
+                    folder_ids.append(oid)
+            
+            if not folder_ids:
+                return []
+
+            # Fetch all folders in one query
+            folders_cursor = self.folder_repo.collection.find({"_id": {"$in": folder_ids}})
+            folders_map = {}
+            async for folder_doc in folders_cursor:
+                folders_map[str(folder_doc["_id"])] = folder_doc
+            
+            # 4. Join share data with folder data in memory
             result = []
             for share in active_shares:
-                try:
-                    # Get folder data directly (without ownership check)
-                    oid = self.folder_repo._to_object_id(share.get("folder_id"))
-                    if not oid:
-                        continue
-                    
-                    folder_doc = await self.folder_repo.collection.find_one({"_id": oid})
-                    if not folder_doc:
-                        continue
-                    
+                folder_id = share.get("folder_id")
+                if folder_id in folders_map:
+                    folder_doc = folders_map[folder_id]
                     share_info = {
-                        "folder_id": str(folder_doc["_id"]),
+                        "folder_id": folder_id,
                         "folder_name": folder_doc.get("name", ""),
                         "owner_id": folder_doc.get("owner_id", ""),
                         "permission": share.get("permission", "view"),
@@ -415,10 +489,8 @@ class FolderSharingService:
                         "expires_at": share.get("expires_at").isoformat() if share.get("expires_at") else None,
                     }
                     result.append(share_info)
-                except Exception as e:
-                    logger.error(f"[list-shared] Error processing share: {e}")
-                    continue
             
+            logger.info(f"[list-shared] Found {len(result)} active shared folders")
             return result
             
         except Exception as e:

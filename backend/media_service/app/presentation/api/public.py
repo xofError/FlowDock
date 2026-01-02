@@ -154,6 +154,7 @@ async def check_share_link(
 # PUBLIC FOLDER LINK - FILE DOWNLOAD
 # ============================================================================
 @router.get("/folder/{share_token}/download/{file_id}")
+@router.get("/folder/{share_token}/file/{file_id}/download")
 async def download_file_from_public_folder(
     share_token: str = Path(..., description="Public folder link token"),
     file_id: str = Path(..., description="File ID to download"),
