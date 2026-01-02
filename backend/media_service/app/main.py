@@ -9,6 +9,10 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.presentation.api import files as files_router
+from app.presentation.api import folders as folders_router
+from app.presentation.api import public as public_router
+from app.presentation.api import folder_sharing as folder_sharing_router
+from app.presentation.api import public_folder_links as public_folder_links_router
 from app.database import connect_to_mongo, close_mongo_connection, init_db
 from app.core.config import settings
 # Import models to register them with SQLAlchemy Base
@@ -16,7 +20,7 @@ from app.models import share
 
 # Configure logging
 logging.basicConfig(
-    level=settings.LOG_LEVEL,
+    level=settings.log_level,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
@@ -43,7 +47,7 @@ async def lifespan(app: FastAPI):
         await connect_to_mongo()
         
         logger.info("=" * 70)
-        logger.info(f"✓ {settings.SERVICE_NAME} v{settings.SERVICE_VERSION}")
+        logger.info(f"✓ {settings.service_name} v{settings.service_version}")
         logger.info("=" * 70)
         
     except Exception as e:
@@ -66,9 +70,9 @@ async def lifespan(app: FastAPI):
 # ============================================================================
 
 app = FastAPI(
-    title=settings.SERVICE_NAME,
+    title=settings.service_name,
     description="Handles file uploads, downloads, and metadata storage with async communication",
-    version=settings.SERVICE_VERSION,
+    version=settings.service_version,
     lifespan=lifespan
 )
 
@@ -82,7 +86,11 @@ app.add_middleware(
 )
 
 # Include routers
-app.include_router(files_router.router, prefix=settings.API_PREFIX, tags=["files"])
+app.include_router(files_router.router, prefix=settings.api_prefix, tags=["files"])
+app.include_router(folders_router.router, prefix=settings.api_prefix, tags=["folders"])
+app.include_router(folder_sharing_router.router, prefix=settings.api_prefix, tags=["folder-sharing"])
+app.include_router(public_folder_links_router.router, prefix=settings.api_prefix, tags=["public-folder-links"])
+app.include_router(public_router.router, tags=["public"])  # No prefix for public endpoint
 
 
 # ============================================================================
@@ -93,7 +101,7 @@ app.include_router(files_router.router, prefix=settings.API_PREFIX, tags=["files
 async def root():
     """Root endpoint"""
     return {
-        "service": settings.SERVICE_NAME,
-        "version": settings.SERVICE_VERSION,
+        "service": settings.service_name,
+        "version": settings.service_version,
         "status": "running"
     }

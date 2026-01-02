@@ -2,35 +2,36 @@
 Configuration management for Media Service
 """
 
-import os
+from pydantic_settings import BaseSettings
 from typing import List
 
 
-class Settings:
+class Settings(BaseSettings):
     """Application settings and environment variables"""
-    JWT_SECRET= "secret"
+    
     # Service info
-    SERVICE_NAME: str = "FlowDock Media Service"
-    SERVICE_VERSION: str = "2.0.0"
+    service_name: str = "FlowDock Media Service"
+    service_version: str = "2.0.0"
 
+    # JWT configuration - must match Auth Service
+    jwt_secret: str = "secret"
+    jwt_algorithm: str = "HS256"
+    
+    # Internal Service Authentication - must match Auth Service internal_api_key
+    internal_api_key: str = "internal-api-key-change-in-production"
+    
     # New: 32-byte Hex Key
-    ENCRYPTION_MASTER_KEY: str = os.getenv("ENCRYPTION_MASTER_KEY" , "a2d446b1587fd0afbf338055123deb317193c3406794b451296b6b3c16f85166")
+    encryption_master_key: str = "a2d446b1587fd0afbf338055123deb317193c3406794b451296b6b3c16f85166"
 
     # MongoDB
-    MONGO_URL: str = os.getenv(
-        "MONGO_URL",
-        "mongodb://root:mongopass@mongo_meta:27017"
-    )
-    MONGO_DB_NAME: str = "flowdock_media"
+    mongo_url: str = "mongodb://root:mongopass@mongo_meta:27017"
+    mongo_db_name: str = "flowdock_media"
     
-    # Auth Service (for quota updates)
-    AUTH_SERVICE_URL: str = os.getenv(
-        "AUTH_SERVICE_URL",
-        "http://auth_service:8000"
-    )
+    # Auth Service (for activity logging and quota updates)
+    auth_service_url: str = "http://auth_service:8000"
     
     # File validation
-    ALLOWED_MIMES: List[str] = [
+    allowed_mimes: List[str] = [
         # Images
         "image/jpeg",
         "image/png",
@@ -79,22 +80,21 @@ class Settings:
         "video/x-msvideo"
     ]
     
-    MAX_FILE_SIZE: int = 100 * 1024 * 1024  # 100MB
-    MIN_FILE_SIZE: int = 1  # 1 byte
+    max_file_size: int = 100 * 1024 * 1024  # 100MB
+    min_file_size: int = 1  # 1 byte
     
     # GridFS
-    GRIDFS_CHUNK_SIZE: int = 262144  # 256KB (MongoDB default)
+    gridfs_chunk_size: int = 262144  # 256KB (MongoDB default)
     
     # Logging
-    LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")
+    log_level: str = "INFO"
     
     # API
-    API_PREFIX: str = "/media"
+    api_prefix: str = "/media"
     
-    @classmethod
-    def get_settings(cls):
-        """Get settings instance"""
-        return cls()
+    class Config:
+        env_file = ".env"
+        env_file_encoding = "utf-8"
 
 
-settings = Settings.get_settings()
+settings = Settings()

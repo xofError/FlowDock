@@ -8,14 +8,15 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import jwt, JWTError
 from typing import Dict, Any, Optional
-import os
 import logging
+
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
 # JWT configuration - matches Auth Service
-JWT_SECRET = os.getenv("JWT_SECRET", "secret")
-JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
+JWT_SECRET = settings.jwt_secret
+JWT_ALGORITHM = settings.jwt_algorithm
 
 security = HTTPBearer()
 
@@ -111,19 +112,20 @@ def verify_user_ownership(token_user_id: str, requested_user_id: str) -> bool:
     return True
 
 
-def create_download_token(file_id: str) -> str:
+def create_download_token(file_id: str, expires_in: int = 60) -> str:
     """
-    Generates a short-lived (1 minute) token that grants access 
+    Generates a short-lived token that grants access 
     to download a SINGLE specific file.
     
     Args:
         file_id: MongoDB ObjectId or identifier of the file to download
+        expires_in: Expiration time in seconds (default: 60 seconds = 1 minute)
         
     Returns:
         JWT token string
     """
     now = datetime.now(timezone.utc)
-    expire = now + timedelta(minutes=1)
+    expire = now + timedelta(seconds=expires_in)
 
     payload = {
         "sub": "download_permit",

@@ -8,8 +8,9 @@ import logging
 
 from app.presentation.api import auth as auth_router
 from app.presentation.api import users as users_router
+from app.presentation.api import logs as logs_router
 from app.database import Base, engine, SessionLocal
-from app.infrastructure.database.models import UserModel, SessionModel, RecoveryTokenModel
+from app.infrastructure.database.models import UserModel, SessionModel, RecoveryTokenModel, ActivityLogModel
 from app.application.user_util_service import UserUtilService
 from app.infrastructure.database.repositories import PostgresUserRepository
 from app.infrastructure.security.security import ArgonPasswordHasher
@@ -85,6 +86,7 @@ app.add_middleware(
 )
 app.include_router(auth_router.router, prefix="/auth", tags=["auth"])
 app.include_router(users_router.router, tags=["users"])
+app.include_router(logs_router.router, prefix="/logs")
 
 
 @app.get("/")

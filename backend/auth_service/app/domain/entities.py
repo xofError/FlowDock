@@ -55,3 +55,21 @@ class RecoveryToken:
     created_at: Optional[datetime] = None
     expires_at: Optional[datetime] = None
     used: bool = False
+
+
+@dataclass
+class ActivityLog:
+    """Activity log entity - tracks user actions for audit and analytics."""
+    id: Optional[UUID] = None
+    user_id: Optional[UUID] = None
+    action: str = ""  # e.g., "USER_LOGIN", "FILE_UPLOAD", "USER_REGISTER"
+    details: Optional[dict] = None  # JSON-like data for context (filename, size, etc.)
+    ip_address: Optional[str] = None
+    created_at: Optional[datetime] = None
+
+    def __post_init__(self):
+        """Initialize defaults if not provided."""
+        if self.details is None:
+            self.details = {}
+        if self.created_at is None:
+            self.created_at = datetime.utcnow()

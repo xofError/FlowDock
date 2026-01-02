@@ -51,23 +51,6 @@ services:
       timeout: 5s
       retries: 5
 
-  rabbitmq:
-    image: rabbitmq:3.13-management-alpine
-    container_name: media_rabbitmq
-    restart: unless-stopped
-    ports:
-      - "5672:5672"
-      - "15672:15672"
-    environment:
-      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-guest}
-      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-guest}
-    volumes:
-      - rabbitmq_data:/var/lib/rabbitmq
-    healthcheck:
-      test: rabbitmq-diagnostics -q ping
-      interval: 10s
-      timeout: 5s
-      retries: 5
 
   media_service:
     build:
@@ -83,15 +66,11 @@ services:
       POSTGRES_PORT: 5432
       MONGO_URL: ${MONGO_URL:-mongodb://root:mongopass@mongodb:27017}
       MONGO_DB: ${MONGO_DB:-flowdock_media}
-      JWT_SECRET: ${JWT_SECRET:-your-super-secret-key}
+      JWT_SECRET: ${JWT_SECRET:-secret}
       JWT_ALGORITHM: ${JWT_ALGORITHM:-HS256}
       REDIS_HOST: redis
       REDIS_PORT: 6379
       REDIS_DB: 1
-      RABBITMQ_HOST: rabbitmq
-      RABBITMQ_PORT: 5672
-      RABBITMQ_USER: ${RABBITMQ_USER:-guest}
-      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-guest}
       MAX_FILE_SIZE: ${MAX_FILE_SIZE:-104857600}
       ALLOWED_EXTENSIONS: ${ALLOWED_EXTENSIONS:-pdf,doc,docx,xls,xlsx,ppt,pptx,jpg,jpeg,png,gif,txt,zip,rar}
       APP_ENV: ${APP_ENV:-development}
@@ -112,4 +91,3 @@ volumes:
   postgres_data:
   redis_data:
   mongodb_data:
-  rabbitmq_data:

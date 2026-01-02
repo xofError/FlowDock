@@ -21,7 +21,7 @@ def validate_file_type(content_type: Optional[str]) -> bool:
     """
     if not content_type:
         return False
-    return content_type in settings.ALLOWED_MIMES
+    return content_type in settings.allowed_mimes
 
 
 def validate_file_size(file_size: int) -> tuple[bool, Optional[str]]:
@@ -34,12 +34,12 @@ def validate_file_size(file_size: int) -> tuple[bool, Optional[str]]:
     Returns:
         Tuple of (is_valid, error_message)
     """
-    if file_size < settings.MIN_FILE_SIZE:
+    if file_size < settings.min_file_size:
         return False, "Empty file not allowed"
     
-    if file_size > settings.MAX_FILE_SIZE:
+    if file_size > settings.max_file_size:
         size_mb = file_size / (1024 * 1024)
-        max_mb = settings.MAX_FILE_SIZE / (1024 * 1024)
+        max_mb = settings.max_file_size / (1024 * 1024)
         return False, f"File too large: {size_mb:.2f}MB. Max: {max_mb:.0f}MB"
     
     return True, None
@@ -64,4 +64,4 @@ def format_file_size(size_bytes: int) -> str:
 
 def get_allowed_mimes_description() -> str:
     """Get comma-separated list of allowed MIME types"""
-    return ", ".join(settings.ALLOWED_MIMES)
+    return ", ".join(settings.allowed_mimes)

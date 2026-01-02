@@ -4,7 +4,6 @@ Infrastructure Layer: Security Implementations
 Implementations of password hashing and JWT token operations.
 """
 
-import os
 import hmac
 import hashlib
 import secrets
@@ -15,13 +14,14 @@ from uuid import UUID
 from jose import jwt, JWTError
 from passlib.context import CryptContext
 
+from app.core.config import settings
 from app.domain.interfaces import IPasswordHasher, ITokenGenerator
 
 
-JWT_SECRET = os.getenv("JWT_SECRET", "secret")
-JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
-ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "15"))
-REFRESH_TOKEN_EXPIRE_DAYS = int(os.getenv("REFRESH_TOKEN_EXPIRE_DAYS", "30"))
+JWT_SECRET = settings.secret_key
+JWT_ALGORITHM = settings.jwt_algorithm
+ACCESS_TOKEN_EXPIRE_MINUTES = settings.access_token_expire_minutes
+REFRESH_TOKEN_EXPIRE_DAYS = 30  # You can add this to settings if needed
 
 # Argon2 password hashing
 pwd_context = CryptContext(schemes=["argon2"], deprecated="auto")
