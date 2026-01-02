@@ -1,5 +1,6 @@
 import React, { useEffect } from "react";
 import { Routes, Route, Navigate } from "react-router-dom";
+import Home from "./pages/Home.jsx";
 import Login from "./pages/auth/Login.jsx";
 import SignUp from "./pages/auth/SignUp.jsx";
 import VerifyEmail from "./pages/auth/VerifyEmail.jsx";
@@ -13,6 +14,13 @@ import SignInEmail from "./pages/auth/SignInEmail.jsx";
 import PasscodeCheck from "./pages/auth/PasscodeCheck.jsx";
 import AdminUserManagement from "./pages/AdminUserManagement.jsx";
 import Dashboard from "./pages/dashboard/Dashboard.jsx";
+import MyFiles from "./pages/dashboard/MyFiles.jsx";
+import Shared from "./pages/dashboard/Shared.jsx";
+import Trash from "./pages/dashboard/Trash.jsx";
+import Settings from "./pages/dashboard/Settings.jsx";
+import PublicLink from "./pages/PublicLink.jsx";
+import NotFound from "./pages/NotFound.jsx";
+import Help from "./pages/Help.jsx"; // << added import
 import { useAuthContext } from "./context/AuthContext.jsx";
 
 // Simple Error Boundary to avoid blank page and show error details
@@ -65,6 +73,8 @@ function ProtectedRoute({ children }) {
 }
 
 function App() {
+  const { isAuthenticated } = useAuthContext();
+
   useEffect(() => {
     // quick runtime check that App mounted in browser
     // Open browser console to see this message
@@ -74,12 +84,12 @@ function App() {
   return (
     <ErrorBoundary>
       <Routes>
-        {/* Redirect root to login */}
-        <Route path="/" element={<Navigate to="/login" />} />
+        {/* Home page (public) */}
+        <Route path="/" element={<Home />} />
 
-        {/* Public pages */}
-        <Route path="/login" element={<Login />} />
-        <Route path="/signup" element={<SignUp />} />
+        {/* Public pages (redirect to dashboard if already authenticated) */}
+        <Route path="/login" element={isAuthenticated ? <Navigate to="/dashboard" /> : <Login />} />
+        <Route path="/signup" element={isAuthenticated ? <Navigate to="/dashboard" /> : <SignUp />} />
         <Route path="/verify-email" element={<VerifyEmail />} />
         <Route path="/verify-totp" element={<VerifyTOTP />} />
         <Route path="/auth/callback" element={<OAuthCallback />} />
@@ -93,15 +103,25 @@ function App() {
         <Route path="/pass-recovery-verify" element={<PassRecoveryVerify />} />
         <Route path="/reset-password" element={<ResetPassword />} />
 
+        {/* Help page used by TopNavBar */}
+        <Route path="/help" element={<Help />} />
+
         {/* Protected pages */}
         <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+        <Route path="/my-files" element={<ProtectedRoute><MyFiles /></ProtectedRoute>} />
+        <Route path="/shared" element={<ProtectedRoute><Shared /></ProtectedRoute>} />
+        <Route path="/trash" element={<ProtectedRoute><Trash /></ProtectedRoute>} />
+        <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
         <Route path="/admin/users" element={<ProtectedRoute><AdminUserManagement /></ProtectedRoute>} />
 
         {/* Two-Factor Authentication after signup */}
         <Route path="/2fa" element={<TwoFactorAuth />} />
 
-        {/* Fallback route to avoid blank page when no route matches */}
-        <Route path="*" element={<div style={{ padding: 20, textAlign: "center" }}>No route matched — app mounted</div>} />
+        {/* Public link sharing (no auth required) */}
+        <Route path="/share/:linkId" element={<PublicLink />} />
+
+        {/* 404 Not Found - must be last */}
+        <Route path="*" element={<NotFound />} />
       </Routes>
     </ErrorBoundary>
   );

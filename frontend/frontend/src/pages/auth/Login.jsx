@@ -3,6 +3,7 @@ import { useState, useEffect } from "react";
 import MainLayout from "../../layout/MainLayout.jsx";
 import { useAuthContext } from "../../context/AuthContext.jsx";
 import Button from "../../components/Button.jsx";
+import LegalModal from "../../components/LegalModal.jsx";
 import GoogleIcon from "../../resources/icons/social-google-plus-svgrepo-com.svg";
 import { AUTH_API_URL } from "../../services/api.js";
 
@@ -15,13 +16,7 @@ export default function Login() {
   const [totpCode, setTotpCode] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
-
-  // Redirect to dashboard if already authenticated
-  useEffect(() => {
-    if (isAuthenticated) {
-      navigate("/dashboard", { replace: true });
-    }
-  }, [isAuthenticated, navigate]);
+  const [legalModal, setLegalModal] = useState(null); // "privacy" | "terms" | null
 
   // Redirect to dashboard if already authenticated
   useEffect(() => {
@@ -38,6 +33,16 @@ export default function Login() {
     try {
       // Call the real login function which may return totp_required
       const response = await login(email, password, totpCode || null);
+
+      // persist user (backend / login hook may already do this, but force here)
+      try {
+        const userToStore = response?.user || { email };
+        if (typeof window !== "undefined" && userToStore) {
+          localStorage.setItem("user", JSON.stringify(userToStore));
+        }
+      } catch (e) {
+        // ignore storage errors
+      }
 
       // If backend requires TOTP, navigate to the verify-TOTP page with credentials
       if (response?.totp_required) {
@@ -168,7 +173,49 @@ export default function Login() {
             Sign Up
           </Link>
         </p>
+
+        {/* Privacy & Terms Links */}
+        <div className="text-center text-xs text-gray-600" style={{ marginTop: "1rem" }}>
+          <button
+            type="button"
+            onClick={() => setLegalModal("privacy")}
+            style={{
+              background: "none",
+              border: "none",
+              color: "#4c739a",
+              textDecoration: "underline",
+              cursor: "pointer",
+              padding: 0,
+              fontSize: "0.75rem",
+            }}
+          >
+            Privacy Policy
+          </button>
+          <span style={{ margin: "0 0.5rem" }}>•</span>
+          <button
+            type="button"
+            onClick={() => setLegalModal("terms")}
+            style={{
+              background: "none",
+              border: "none",
+              color: "#4c739a",
+              textDecoration: "underline",
+              cursor: "pointer",
+              padding: 0,
+              fontSize: "0.75rem",
+            }}
+          >
+            Terms of Service
+          </button>
+        </div>
       </div>
+
+      {/* Legal Modal */}
+      <LegalModal
+        type={legalModal}
+        isOpen={legalModal !== null}
+        onClose={() => setLegalModal(null)}
+      />
     </MainLayout>
   );
 }
