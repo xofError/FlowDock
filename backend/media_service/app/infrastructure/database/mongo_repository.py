@@ -650,6 +650,72 @@ class MongoFolderRepository(IFolderRepository):
             logger.error(f"Failed to get children for {folder_id}: {e}")
             return []
 
+    async def get_folder_tree_size(self, folder_id: str) -> int:
+        """
+        Calculate the total size of all files in the folder AND its subfolders.
+        Uses MongoDB aggregation pipeline with $graphLookup for efficiency.
+        
+        Args:
+            folder_id: The folder identifier
+            
+        Returns:
+            Total size in bytes of all files in the folder tree
+        """
+        try:
+            # Convert to ObjectId for matching
+            oid = self._to_object_id(folder_id)
+            if not oid:
+                return 0
+
+            # 1. Use $graphLookup to find all descendant folders efficiently
+            pipeline = [
+                {"$match": {"_id": oid}},
+                {
+                    "$graphLookup": {
+                        "from": "folders",
+                        "startWith": "$_id",
+                        "connectFromField": "_id",
+                        "connectToField": "parent_id",
+                        "as": "descendants"
+                    }
+                },
+                {
+                    "$project": {
+                        "all_ids": {
+                            "$map": {
+                                "input": {"$concatArrays": [["$$ROOT"], "$descendants"]},
+                                "as": "item",
+                                "in": {"$toString": "$$item._id"}  # Convert to string to match metadata.folderId
+                            }
+                        }
+                    }
+                }
+            ]
+            
+            cursor = self.collection.aggregate(pipeline)
+            result = await cursor.to_list(1)
+            if not result:
+                return 0
+                
+            all_folder_ids = result[0]['all_ids']
+
+            # 2. Sum file sizes in all these folders
+            fs_files = self.db["fs.files"]
+            size_cursor = fs_files.aggregate([
+                {"$match": {"metadata.folderId": {"$in": all_folder_ids}}},
+                {"$group": {"_id": None, "total": {"$sum": "$length"}}}
+            ])
+            
+            size_result = await size_cursor.to_list(1)
+            total_size = size_result[0]['total'] if size_result else 0
+            
+            logger.info(f"✓ Calculated folder tree size: {folder_id} = {total_size} bytes")
+            return total_size
+            
+        except Exception as e:
+            logger.error(f"Failed to calculate tree size for {folder_id}: {e}")
+            return 0
+
     async def delete_folder_recursive(self, folder_id: str, owner_id: str) -> bool:
         """
         Delete folder and all its contents (files and subfolders).

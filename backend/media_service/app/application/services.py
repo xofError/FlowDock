@@ -59,6 +59,48 @@ class FileService:
         self.activity_logger = activity_logger
 
     # ========================================================================
+    # Helper Methods
+    # ========================================================================
+
+    async def _get_unique_filename(self, folder_id: str, filename: str) -> str:
+        """
+        Check for duplicate filenames in a folder and append counter if needed.
+        
+        If folder contains "report.pdf", returns "report (1).pdf"
+        If folder contains both, returns "report (2).pdf", etc.
+        
+        Args:
+            folder_id: ID of the folder to check
+            filename: Original filename to check
+            
+        Returns:
+            Unique filename (original or with counter appended)
+        """
+        try:
+            # Get all files in the folder
+            existing_files = await self.folder_repo.get_folder_contents(folder_id)
+            existing_filenames = {f.filename for f in existing_files}
+            
+            # If filename doesn't exist, return as-is
+            if filename not in existing_filenames:
+                return filename
+            
+            # Extract base name and extension
+            base_name, ext = os.path.splitext(filename)
+            
+            # Find next available counter
+            counter = 1
+            while True:
+                new_filename = f"{base_name} ({counter}){ext}"
+                if new_filename not in existing_filenames:
+                    return new_filename
+                counter += 1
+                
+        except Exception as e:
+            logger.warning(f"Could not check for duplicate filenames: {e}. Using original: {filename}")
+            return filename
+
+    # ========================================================================
     # Upload Operations
     # ========================================================================
 
@@ -69,6 +111,7 @@ class FileService:
         file_content: bytes,
         content_type: str,
         ip_address: Optional[str] = None,
+        folder_id: Optional[str] = None,
     ) -> Tuple[bool, Optional[str], Optional[str]]:
         """
         Upload an unencrypted file.
@@ -79,6 +122,7 @@ class FileService:
             file_content: File bytes
             content_type: MIME type
             ip_address: Optional client IP for logging
+            folder_id: Optional folder ID for file placement
             
         Returns:
             Tuple of (success, file_id, error_message)
@@ -92,12 +136,17 @@ class FileService:
             return False, None, error_msg
 
         try:
+            # [FIX #3] Check for duplicate filenames in the folder and rename if needed
+            if folder_id:
+                filename = await self._get_unique_filename(folder_id, filename)
+            
             # 2. Create domain entity
             file = File(
                 filename=filename,
                 content_type=content_type,
                 size=len(file_content),
                 owner_id=user_id,
+                folder_id=folder_id,  # Include folder placement
                 encrypted=False,
             )
 
@@ -156,13 +205,18 @@ class FileService:
             return False, None, 0, "Invalid file type"
 
         try:
+            # [FIX #3] Check for duplicate filenames in the folder and rename if needed
+            filename = file.filename
+            if folder_id:
+                filename = await self._get_unique_filename(folder_id, filename)
+
             # 2. Generate encryption keys
             file_key, nonce = self.crypto.generate_key_pair()
             encrypted_key = self.crypto.wrap_key(file_key)
 
             # 3. Create domain entity with encryption metadata
             file_entity = File(
-                filename=file.filename,
+                filename=filename,
                 content_type=file.content_type,
                 owner_id=user_id,
                 folder_id=folder_id,  # NEW: Include folder placement
@@ -716,10 +770,11 @@ class FolderService:
             if not folder:
                 return False, "Folder not found or not owned by user"
 
-            # [FIX #2] Calculate total size before deletion for quota rollback
-            total_size = 0
-            if hasattr(self.folder_repo, 'get_folder_contents_size'):
-                total_size = await self.folder_repo.get_folder_contents_size(folder_id)
+            # [FIX #1] Calculate TOTAL tree size (all files in folder + subfolders)
+            # Use the new get_folder_tree_size method for accurate calculation
+            total_tree_size = 0
+            if hasattr(self.folder_repo, 'get_folder_tree_size'):
+                total_tree_size = await self.folder_repo.get_folder_tree_size(folder_id)
             
             # Use repository's recursive delete
             success = await self.folder_repo.delete_folder_recursive(folder_id, user_id)
@@ -727,12 +782,28 @@ class FolderService:
             if not success:
                 return False, "Failed to delete folder"
 
-            # [FIX #2] Update Quota to reflect freed space
-            if self.quota_repo and total_size > 0:
-                await self.quota_repo.update_usage(user_id, -total_size)
-                logger.info(f"✓ Updated quota: freed {total_size} bytes for user {user_id}")
+            # [FIX #1 & #2] After successful deletion, clean up orphaned records
+            if hasattr(self.folder_repo, 'db'):
+                try:
+                    # Clean up folder shares
+                    shares_deleted = await self.folder_repo.db["folder_shares"].delete_many({"folder_id": folder_id})
+                    if shares_deleted.deleted_count > 0:
+                        logger.info(f"✓ Cleaned up {shares_deleted.deleted_count} orphaned folder shares")
+                    
+                    # Clean up public links
+                    links_deleted = await self.folder_repo.db["public_folder_links"].delete_many({"folder_id": folder_id})
+                    if links_deleted.deleted_count > 0:
+                        logger.info(f"✓ Cleaned up {links_deleted.deleted_count} orphaned public links")
+                except Exception as cleanup_error:
+                    logger.warning(f"Failed to cleanup orphaned records: {cleanup_error}")
+                    # Don't fail the deletion - cleanup is secondary
 
-            logger.info(f"✓ Recursively deleted folder {folder_id} and all contents (Freed {total_size} bytes)")
+            # [FIX #1] Update Quota to reflect freed space (use total tree size)
+            if self.quota_repo and total_tree_size > 0:
+                await self.quota_repo.update_usage(user_id, -total_tree_size)
+                logger.info(f"✓ Updated quota: freed {total_tree_size} bytes for user {user_id}")
+
+            logger.info(f"✓ Recursively deleted folder {folder_id} and all contents (Freed {total_tree_size} bytes)")
             return True, None
 
         except Exception as e:
