@@ -19,6 +19,7 @@ import Shared from "./pages/dashboard/Shared.jsx";
 import Trash from "./pages/dashboard/Trash.jsx";
 import Settings from "./pages/dashboard/Settings.jsx";
 import PublicLink from "./pages/PublicLink.jsx";
+import NotFound from "./pages/NotFound.jsx";
 import { useAuthContext } from "./context/AuthContext.jsx";
 
 function Help() {
@@ -127,8 +128,8 @@ function App() {
         {/* Public link sharing (no auth required) */}
         <Route path="/share/:linkId" element={<PublicLink />} />
 
-        {/* Fallback route to avoid blank page when no route matches */}
-        <Route path="*" element={<div style={{ padding: 20, textAlign: "center" }}>No route matched — app mounted</div>} />
+        {/* 404 Not Found - must be last */}
+        <Route path="*" element={<NotFound />} />
       </Routes>
     </ErrorBoundary>
   );
