@@ -6,6 +6,7 @@ Handles all MongoDB/GridFS-specific logic.
 import logging
 from typing import AsyncGenerator, Optional, Tuple, List
 from bson import ObjectId
+from bson.errors import InvalidId
 from motor.motor_asyncio import AsyncIOMotorGridFSBucket, AsyncIOMotorDatabase
 from datetime import datetime
 
@@ -22,14 +23,16 @@ class MongoGridFSRepository(IFileRepository):
     Handles ObjectId conversions and GridFS-specific operations.
     """
 
-    def __init__(self, fs: AsyncIOMotorGridFSBucket):
+    def __init__(self, fs: AsyncIOMotorGridFSBucket, db: AsyncIOMotorDatabase = None):
         """
-        Initialize repository with GridFS bucket.
+        Initialize repository with GridFS bucket and optional database.
         
         Args:
             fs: AsyncIOMotorGridFSBucket instance
+            db: Optional AsyncIOMotorDatabase for querying fs.files collection
         """
         self.fs = fs
+        self.db = db
 
     async def save_file_stream(
         self,
@@ -219,6 +222,63 @@ class MongoGridFSRepository(IFileRepository):
             logger.error(f"Failed to list files for {owner_id}: {e}")
             return []
 
+    async def list_files_in_folder(
+        self,
+        folder_id: Optional[str],
+        owner_id: str,
+    ) -> List[File]:
+        """
+        List all files in a specific folder (root if folder_id is None).
+        
+        Args:
+            folder_id: The folder identifier (None = root)
+            owner_id: The owner identifier
+            
+        Returns:
+            List of File entities
+        """
+        try:
+            if self.db is None:
+                logger.error("Database not initialized for file queries")
+                return []
+
+            fs = self.db.get_collection("fs.files")
+            query = {"metadata.owner": owner_id}
+            
+            if folder_id is None:
+                # Root files have no folder_id
+                query["metadata.folderId"] = {"$in": [None, ""]}
+            else:
+                # Files in specific folder
+                query["metadata.folderId"] = folder_id
+
+            cursor = fs.find(query).sort("uploadDate", -1)
+            files = []
+
+            async for doc in cursor:
+                meta = doc.get("metadata", {})
+                file = File(
+                    id=str(doc["_id"]),
+                    filename=doc.get("filename", ""),
+                    content_type=meta.get("contentType", ""),
+                    size=doc.get("length", 0),
+                    owner_id=meta.get("owner", ""),
+                    folder_id=meta.get("folderId"),
+                    upload_date=doc.get("uploadDate"),
+                    encrypted=meta.get("encrypted", False),
+                    nonce=meta.get("nonce", ""),
+                    encrypted_key=meta.get("encryptedKey", ""),
+                    is_infected=meta.get("isInfected", False),
+                    metadata=meta,
+                )
+                files.append(file)
+
+            return files
+
+        except Exception as e:
+            logger.error(f"Failed to list files in folder {folder_id} for owner {owner_id}: {e}")
+            return []
+
 
 class MongoFolderRepository(IFolderRepository):
     """
@@ -235,6 +295,24 @@ class MongoFolderRepository(IFolderRepository):
         """
         self.db = db
         self.collection = db["folders"]
+
+    @staticmethod
+    def _to_object_id(id_str: Optional[str]) -> Optional[ObjectId]:
+        """
+        Safely convert a string to ObjectId.
+        
+        Args:
+            id_str: String to convert
+            
+        Returns:
+            ObjectId or None if invalid format
+        """
+        if not id_str:
+            return None
+        try:
+            return ObjectId(id_str)
+        except InvalidId:
+            return None
 
     async def create_folder(self, folder: Folder) -> str:
         """
@@ -277,10 +355,52 @@ class MongoFolderRepository(IFolderRepository):
             Folder entity or None
         """
         try:
+            # Validate folder_id is a valid ObjectId
+            oid = self._to_object_id(folder_id)
+            if oid is None:
+                logger.error(f"Invalid folder ID format: {folder_id}")
+                return None
+
             doc = await self.collection.find_one({
-                "_id": ObjectId(folder_id),
+                "_id": oid,
                 "owner_id": owner_id,
             })
+
+            if not doc:
+                return None
+
+            return Folder(
+                id=str(doc["_id"]),
+                name=doc["name"],
+                owner_id=doc["owner_id"],
+                parent_id=doc.get("parent_id"),
+                created_at=doc.get("created_at"),
+                updated_at=doc.get("updated_at"),
+                metadata=doc.get("metadata", {}),
+            )
+
+        except Exception as e:
+            logger.error(f"Failed to get folder {folder_id}: {e}")
+            return None
+
+    async def get_folder_by_id(self, folder_id: str) -> Optional[Folder]:
+        """
+        Get a folder by ID without ownership verification (for public access).
+        
+        Args:
+            folder_id: The folder identifier
+            
+        Returns:
+            Folder entity or None
+        """
+        try:
+            # Validate folder_id is a valid ObjectId
+            oid = self._to_object_id(folder_id)
+            if oid is None:
+                logger.error(f"Invalid folder ID format: {folder_id}")
+                return None
+
+            doc = await self.collection.find_one({"_id": oid})
 
             if not doc:
                 return None
@@ -353,9 +473,14 @@ class MongoFolderRepository(IFolderRepository):
             True if updated, False if not found
         """
         try:
+            oid = self._to_object_id(folder.id)
+            if oid is None:
+                logger.error(f"Invalid folder ID format: {folder.id}")
+                return False
+
             folder.updated_at = datetime.utcnow()
             result = await self.collection.update_one(
-                {"_id": ObjectId(folder.id)},
+                {"_id": oid},
                 {
                     "$set": {
                         "name": folder.name,
@@ -387,10 +512,15 @@ class MongoFolderRepository(IFolderRepository):
             True if deleted, False if not found/not owned/not empty
         """
         try:
+            oid = self._to_object_id(folder_id)
+            if oid is None:
+                logger.error(f"Invalid folder ID format: {folder_id}")
+                return False
+
             # Check if folder is empty
             # Need to check both files collection and subfolders
             file_count = await self.db["files"].count_documents({
-                "folder_id": ObjectId(folder_id)
+                "folder_id": oid
             })
             
             subfolder_count = await self.collection.count_documents({
@@ -403,7 +533,7 @@ class MongoFolderRepository(IFolderRepository):
                 return False
 
             result = await self.collection.delete_one({
-                "_id": ObjectId(folder_id),
+                "_id": oid,
                 "owner_id": owner_id,
             })
 
@@ -428,8 +558,13 @@ class MongoFolderRepository(IFolderRepository):
             Total size in bytes
         """
         try:
+            oid = self._to_object_id(folder_id)
+            if oid is None:
+                logger.error(f"Invalid folder ID format: {folder_id}")
+                return 0
+
             pipeline = [
-                {"$match": {"folder_id": ObjectId(folder_id)}},
+                {"$match": {"folder_id": oid}},
                 {"$group": {"_id": None, "total": {"$sum": "$size"}}},
             ]
 
@@ -501,7 +636,9 @@ class MongoFolderRepository(IFolderRepository):
 
             # 3. Delete all folders
             for fid in all_folders_to_delete:
-                await self.collection.delete_one({"_id": ObjectId(fid)})
+                oid = self._to_object_id(fid)
+                if oid is not None:
+                    await self.collection.delete_one({"_id": oid})
 
             logger.info(f"✓ Recursively deleted folder {folder_id} and all contents")
             return True
@@ -517,21 +654,24 @@ class MongoFolderRepository(IFolderRepository):
     async def list_files_in_folder(
         self,
         folder_id: Optional[str],
-        owner_id: str,
+        owner_id: Optional[str] = None,
     ) -> List[File]:
         """
         List all files in a specific folder (root if folder_id is None).
         
         Args:
             folder_id: The folder identifier (None = root)
-            owner_id: The owner identifier
+            owner_id: The owner identifier (None = no owner restriction)
             
         Returns:
             List of File entities
         """
         try:
             fs = self.db.get_collection("fs.files")
-            query = {"metadata.owner": owner_id}
+            query = {}
+            
+            if owner_id:
+                query["metadata.owner"] = owner_id
             
             if folder_id is None:
                 # Root files have no folder_id
@@ -570,20 +710,23 @@ class MongoFolderRepository(IFolderRepository):
     async def list_subfolders(
         self,
         parent_id: Optional[str],
-        owner_id: str,
+        owner_id: Optional[str] = None,
     ) -> List[Folder]:
         """
         List direct subfolders (not recursive).
         
         Args:
             parent_id: The parent folder ID (None = root)
-            owner_id: The owner identifier
+            owner_id: The owner identifier (None = no owner restriction)
             
         Returns:
             List of Folder entities
         """
         try:
-            query = {"owner_id": owner_id}
+            query = {}
+            if owner_id:
+                query["owner_id"] = owner_id
+                
             if parent_id is None:
                 query["parent_id"] = {"$in": [None]}
             else:

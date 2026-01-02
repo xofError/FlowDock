@@ -91,6 +91,7 @@ async def get_folder(
     **Returns**: Folder metadata
     """
     try:
+        folder_id = folder_id.strip()
         success, folder_dict, error = await service.get_folder(folder_id, current_user_id)
         
         if not success:
@@ -130,6 +131,7 @@ async def get_folder_contents(
     }
     """
     try:
+        folder_id = folder_id.strip()
         success, contents_dict, error = await service.get_folder_contents(folder_id, current_user_id)
         
         if not success:
@@ -206,6 +208,7 @@ async def update_folder(
     **Returns**: Updated folder metadata
     """
     try:
+        folder_id = folder_id.strip()
         if not folder_data:
             raise HTTPException(status_code=400, detail="No update data provided")
 
@@ -255,6 +258,7 @@ async def delete_folder(
     **Notes**: Recursively deletes all files and subfolders within.
     """
     try:
+        folder_id = folder_id.strip()
         ip_address = request.client.host if request else None
         
         success, error = await service.delete_folder_recursive(

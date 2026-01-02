@@ -112,19 +112,20 @@ def verify_user_ownership(token_user_id: str, requested_user_id: str) -> bool:
     return True
 
 
-def create_download_token(file_id: str) -> str:
+def create_download_token(file_id: str, expires_in: int = 60) -> str:
     """
-    Generates a short-lived (1 minute) token that grants access 
+    Generates a short-lived token that grants access 
     to download a SINGLE specific file.
     
     Args:
         file_id: MongoDB ObjectId or identifier of the file to download
+        expires_in: Expiration time in seconds (default: 60 seconds = 1 minute)
         
     Returns:
         JWT token string
     """
     now = datetime.now(timezone.utc)
-    expire = now + timedelta(minutes=1)
+    expire = now + timedelta(seconds=expires_in)
 
     payload = {
         "sub": "download_permit",

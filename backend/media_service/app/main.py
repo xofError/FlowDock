@@ -11,6 +11,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.presentation.api import files as files_router
 from app.presentation.api import folders as folders_router
 from app.presentation.api import public as public_router
+from app.presentation.api import folder_sharing as folder_sharing_router
+from app.presentation.api import public_folder_links as public_folder_links_router
 from app.database import connect_to_mongo, close_mongo_connection, init_db
 from app.core.config import settings
 # Import models to register them with SQLAlchemy Base
@@ -86,6 +88,8 @@ app.add_middleware(
 # Include routers
 app.include_router(files_router.router, prefix=settings.api_prefix, tags=["files"])
 app.include_router(folders_router.router, prefix=settings.api_prefix, tags=["folders"])
+app.include_router(folder_sharing_router.router, prefix=settings.api_prefix, tags=["folder-sharing"])
+app.include_router(public_folder_links_router.router, prefix=settings.api_prefix, tags=["public-folder-links"])
 app.include_router(public_router.router, tags=["public"])  # No prefix for public endpoint
 
 

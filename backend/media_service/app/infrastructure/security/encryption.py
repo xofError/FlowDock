@@ -33,9 +33,9 @@ class AESCryptoService(ICryptoService):
         Returns:
             32-byte key for AES-256
         """
-        key_hex = settings.ENCRYPTION_MASTER_KEY
+        key_hex = settings.encryption_master_key
         if not key_hex:
-            raise ValueError("ENCRYPTION_MASTER_KEY is missing in .env")
+            raise ValueError("encryption_master_key is missing in .env")
         return bytes.fromhex(key_hex)
 
     def generate_key_pair(self) -> Tuple[bytes, bytes]:

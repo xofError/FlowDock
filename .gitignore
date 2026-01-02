@@ -19411,3 +19411,11 @@ backend/media_service/app/presentation/api/__pycache__/folders.cpython-313.pyc
 backend/media_service/app/presentation/api/__pycache__/public.cpython-313.pyc
 backend/media_service/app/services/__pycache__/__init__.cpython-313.pyc
 backend/media_service/app/utils/__pycache__/security.cpython-313.pyc
+backend/media_service/DEPLOYMENT_CHECKLIST.md
+API_ROUTING_CLARITY.md
+
+FOLDER_NEW_FEATURES_PLAN.md
+FOLDER_OPERATIONS_BUG_FIXES.md
+IMPLEMENTATION_SUMMARY.md
+backend/media_service/PHASE_2_3_4_IMPLEMENTATION.md
+backend/media_service/PHASE_2_3_4_QUICK_REFERENCE.md

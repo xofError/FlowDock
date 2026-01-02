@@ -6,7 +6,7 @@ class Settings(BaseSettings):
     app_name: str = "Auth Service"
     
     # JWT configuration - shared with Media Service
-    secret_key: str = "your-super-secret-key-change-this"
+    secret_key: str = "secret"
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 60
     

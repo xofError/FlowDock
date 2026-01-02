@@ -7,7 +7,7 @@ import logging
 from fastapi import Depends
 
 from app.core.config import settings
-from app.database import get_fs, get_db
+from app.database import get_fs, get_mongo_db
 from app.application.services import FileService, FolderService
 from app.infrastructure.database.mongo_repository import MongoGridFSRepository, MongoFolderRepository
 from app.infrastructure.security.encryption import AESCryptoService
@@ -31,10 +31,11 @@ async def get_file_service() -> FileService:
     try:
         # Infrastructure layer implementations
         fs = get_fs()
-        repo = MongoGridFSRepository(fs)
+        db = get_mongo_db()
+        repo = MongoGridFSRepository(fs, db)
         crypto = AESCryptoService()
         publisher = NoOpEventPublisher()  # No-op since we removed RabbitMQ
-        quota_repo = HttpQuotaRepository(settings.auth_service_url, settings.internal_api_key)
+        quota_repo = HttpQuotaRepository(settings.auth_service_url)
         activity_logger = HttpActivityLogger(settings.auth_service_url, settings.internal_api_key)
 
         # Application service with injected dependencies
@@ -53,7 +54,7 @@ async def get_file_service() -> FileService:
         raise
 
 
-async def get_folder_service(db = Depends(get_db)) -> FolderService:
+async def get_folder_service() -> FolderService:
     """
     Factory function for FolderService dependency injection.
     Builds the complete FolderService with all dependencies.
@@ -65,8 +66,10 @@ async def get_folder_service(db = Depends(get_db)) -> FolderService:
     """
     try:
         # Infrastructure layer implementations
-        folder_repo = MongoFolderRepository(db)
-        file_repo = MongoGridFSRepository(db)
+        mongo_db = get_mongo_db()
+        folder_repo = MongoFolderRepository(mongo_db)
+        fs = get_fs()
+        file_repo = MongoGridFSRepository(fs, mongo_db)
 
         # Application service with injected dependencies
         service = FolderService(

@@ -10,7 +10,7 @@ from typing import Optional
 import logging
 
 from app.application.services import FileService
-from app.presentation.dependencies import get_file_service
+from app.presentation.dependencies import get_file_service, get_folder_service
 from app.application.dtos import (
     FileUploadResponse,
     FileMetadataResponse,
@@ -94,6 +94,7 @@ async def health_check():
 async def upload_file(
     user_id: str = Path(..., description="User ID"),
     file: UploadFile = File(..., description="File to upload"),
+    folder_id: Optional[str] = Query(None, description="Optional folder ID for file placement"),
     request: Request = None,
     current_user_id: str = Depends(get_current_user_id),
     service: FileService = Depends(get_file_service),
@@ -109,6 +110,7 @@ async def upload_file(
     Parameters:
     - **user_id**: User identifier (from path, must match JWT token)
     - **file**: Binary file to upload
+    - **folder_id**: Optional folder ID to place file in (must be owned by user)
 
     Returns:
     - **file_id**: ObjectId of stored encrypted file
@@ -128,7 +130,8 @@ async def upload_file(
         success, file_id, original_size, error = await service.upload_file_encrypted(
             user_id=user_id,
             file=file,
-            ip_address=ip_address
+            ip_address=ip_address,
+            folder_id=folder_id,  # NEW: Pass folder_id parameter
         )
 
         if not success:
@@ -763,3 +766,122 @@ def access_shared_file_post(
     except Exception as e:
         logger.error(f"Access share link error: {e}")
         raise HTTPException(status_code=500, detail="Failed to access share link")
+
+
+# ============================================================================
+# FOLDER UPLOAD (Phase 2)
+# ============================================================================
+@router.post("/upload-folder/{user_id}", response_model=dict)
+async def upload_folder(
+    user_id: str = Path(..., description="User ID"),
+    files: list[UploadFile] = File(..., description="Files to upload as folder structure"),
+    parent_folder_id: Optional[str] = Query(None, description="Parent folder to upload into"),
+    request: Request = None,
+    current_user_id: str = Depends(get_current_user_id),
+    service: FileService = Depends(get_file_service),
+    folder_service = Depends(get_folder_service),
+):
+    """
+    Upload multiple files maintaining directory structure.
+    
+    Files are expected to have paths like: folder1/file.txt, folder1/subfolder/file2.txt
+    This endpoint will create the folder hierarchy and place files accordingly.
+    
+    Args:
+        user_id: User uploading the files
+        files: List of files with relative paths
+        parent_folder_id: Parent folder to create structure under
+        
+    Returns:
+        FolderUploadResponse with created folder ID and upload statistics
+    """
+    if not files:
+        raise HTTPException(status_code=400, detail="No files provided")
+    
+    # Verify user ownership
+    verify_user_ownership(user_id, current_user_id)
+    
+    logger.info(f"[folder-upload] User {user_id} uploading {len(files)} files")
+    
+    # Extract folder structure from file paths
+    folder_structure = {}  # path -> folder_id mapping
+    files_uploaded = 0
+    failed_files = 0
+    total_size = 0
+    
+    try:
+        # Create root folder for this upload
+        root_folder_name = files[0].filename.split('/')[0] if '/' in files[0].filename else "uploaded_folder"
+        success, root_folder_id, error = await folder_service.create_folder(
+            user_id=user_id,
+            name=root_folder_name,
+            parent_id=parent_folder_id,
+        )
+        if not success:
+            raise HTTPException(status_code=400, detail=f"Failed to create root folder: {error}")
+        
+        folder_structure[""] = root_folder_id
+        
+        # Process each file
+        for file in files:
+            try:
+                # Extract path components
+                path_parts = file.filename.split('/')
+                file_name = path_parts[-1]
+                folder_path = '/'.join(path_parts[:-1])
+                
+                # Create folder hierarchy if needed
+                current_folder_id = root_folder_id
+                if folder_path:
+                    # Create intermediate folders
+                    parts = folder_path.split('/')
+                    for i, part in enumerate(parts):
+                        partial_path = '/'.join(parts[:i+1])
+                        if partial_path not in folder_structure:
+                            success, folder_id, error = await folder_service.create_folder(
+                                user_id=user_id,
+                                name=part,
+                                parent_id=current_folder_id,
+                            )
+                            if not success:
+                                logger.error(f"Failed to create folder {part}: {error}")
+                                failed_files += 1
+                                continue
+                            folder_structure[partial_path] = folder_id
+                        current_folder_id = folder_structure[partial_path]
+                
+                # Upload file to the target folder
+                success, file_id, size, error = await service.upload_file_encrypted(
+                    user_id=user_id,
+                    file=file,
+                    ip_address=request.client.host if request else None,
+                    folder_id=current_folder_id,
+                )
+                
+                if success:
+                    files_uploaded += 1
+                    total_size += size
+                    logger.info(f"[folder-upload] Uploaded {file_name} to folder {current_folder_id}")
+                else:
+                    failed_files += 1
+                    logger.error(f"[folder-upload] Failed to upload {file_name}: {error}")
+                    
+            except Exception as e:
+                failed_files += 1
+                logger.error(f"[folder-upload] Error uploading {file.filename}: {e}")
+                continue
+        
+        logger.info(f"[folder-upload] Completed: {files_uploaded} uploaded, {failed_files} failed")
+        
+        return {
+            "status": "uploaded",
+            "folder_id": root_folder_id,
+            "files_uploaded": files_uploaded,
+            "total_size": total_size,
+            "failed_files": failed_files,
+        }
+        
+    except Exception as e:
+        logger.error(f"[folder-upload] Unexpected error: {e}")
+        raise HTTPException(status_code=500, detail=f"Folder upload failed: {str(e)}")
+

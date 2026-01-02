@@ -130,6 +130,7 @@ class FileService:
         user_id: str,
         file: UploadFile,
         ip_address: Optional[str] = None,
+        folder_id: Optional[str] = None,
     ) -> Tuple[bool, Optional[str], int, Optional[str]]:
         """
         Upload file with envelope encryption using streaming.
@@ -138,6 +139,7 @@ class FileService:
             user_id: Owner of the file
             file: UploadFile object (streaming)
             ip_address: Optional client IP for logging
+            folder_id: Optional folder ID for file placement
             
         Returns:
             Tuple of (success, file_id, original_size, error_message)
@@ -156,6 +158,7 @@ class FileService:
                 filename=file.filename,
                 content_type=file.content_type,
                 owner_id=user_id,
+                folder_id=folder_id,  # NEW: Include folder placement
                 encrypted=True,
                 nonce=nonce.hex(),
                 encrypted_key=encrypted_key.hex(),
@@ -499,10 +502,8 @@ class FolderService:
                 parent = await self.folder_repo.get_folder(parent_id, user_id)
                 if not parent:
                     return False, None, "Parent folder not found or not owned by user"
-
-                # Check for circular dependency
-                if await self._has_circular_dependency(user_id, parent_id, parent_id):
-                    return False, None, "Cannot create folder: would create circular dependency"
+                # Note: No circular dependency check needed here because we're creating a new folder
+                # with no existing children. Cycles only possible when moving folders.
 
             # Create domain entity
             from app.domain.entities import Folder
@@ -650,6 +651,7 @@ class FolderService:
         self,
         folder_id: str,
         user_id: str,
+        allow_public: bool = False,
     ) -> Tuple[bool, Optional[dict], Optional[str]]:
         """
         Get folder contents (files and subfolders).
@@ -657,6 +659,7 @@ class FolderService:
         Args:
             folder_id: The folder identifier
             user_id: The requesting user (for ownership verification)
+            allow_public: If True, skip ownership verification (for public links)
             
         Returns:
             Tuple of (success, contents_dict, error_message)
@@ -668,27 +671,42 @@ class FolderService:
             }
         """
         try:
-            # Verify folder exists and is owned by user
-            folder = await self.folder_repo.get_folder(folder_id, user_id)
+            # Verify folder exists
+            if allow_public:
+                # For public access, just verify folder exists (no ownership check)
+                folder = await self.folder_repo.get_folder_by_id(folder_id)
+            else:
+                # Normal access: verify ownership
+                folder = await self.folder_repo.get_folder(folder_id, user_id)
             
             if not folder:
                 return False, None, "Folder not found"
 
             # Get all files in this folder
-            files = await self.file_repo.list_files_in_folder(folder_id)
+            if allow_public:
+                # For public access, list all files without ownership restriction
+                files = await self.file_repo.list_files_in_folder(folder_id, owner_id=None)
+            else:
+                files = await self.file_repo.list_files_in_folder(folder_id, owner_id=user_id)
+            
             files_list = [
                 {
                     "file_id": f.id,
-                    "name": f.name,
+                    "name": f.filename,
                     "size": f.size,
-                    "created_at": f.created_at,
+                    "created_at": f.upload_date,
                     "is_infected": f.is_infected,
                 }
                 for f in files
             ]
 
             # Get direct subfolders only
-            subfolders = await self.folder_repo.list_subfolders(folder_id)
+            if allow_public:
+                # For public access, list all subfolders without ownership restriction
+                subfolders = await self.folder_repo.list_subfolders(folder_id, owner_id=None)
+            else:
+                subfolders = await self.folder_repo.list_subfolders(folder_id, owner_id=user_id)
+            
             subfolders_list = [
                 {
                     "folder_id": sf.id,
