@@ -309,6 +309,57 @@ async def delete_file(
 
 
 # ============================================================================
+# MOVE FILE
+# ============================================================================
+@router.patch("/files/{file_id}/move", response_model=FileMetadataResponse)
+async def move_file(
+    file_id: str = Path(..., description="File ID (ObjectId)"),
+    folder_id: str = Query(..., description="Destination folder ID"),
+    current_user_id: str = Depends(get_current_user_id),
+    service: FileService = Depends(get_file_service),
+):
+    """
+    Move a file to a different folder.
+
+    **Security**: Requires valid JWT token. User can only move their own files.
+
+    Parameters:
+    - **file_id**: MongoDB ObjectId of the file
+    - **folder_id**: MongoDB ObjectId of the destination folder
+
+    Returns:
+    - Updated file metadata
+    """
+    try:
+        file_id = file_id.strip()
+        folder_id = folder_id.strip()
+
+        success, error = await service.move_file(
+            file_id=file_id,
+            new_folder_id=folder_id,
+            user_id=current_user_id,
+        )
+
+        if not success:
+            if error == "File not found or access denied":
+                raise HTTPException(status_code=403, detail=error)
+            raise HTTPException(status_code=400, detail=error)
+
+        # Get updated file metadata to return full response
+        success, file_dict, error = await service.get_file(file_id, current_user_id)
+        if success:
+            return FileMetadataResponse(**file_dict)
+        else:
+            raise HTTPException(status_code=500, detail="Failed to retrieve moved file")
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Move file error: {e}")
+        raise HTTPException(status_code=500, detail="Move file failed")
+
+
+# ============================================================================
 # FILE METADATA
 # ============================================================================
 @router.get("/files/{file_id}/metadata", response_model=FileMetadataResponse)

@@ -147,3 +147,96 @@ async def check_share_link(
     except Exception as e:
         logger.error(f"Check share link error: {e}")
         raise HTTPException(status_code=500, detail="Check failed")
+
+
+# ============================================================================
+# PUBLIC FOLDER LINK - FILE DOWNLOAD
+# ============================================================================
+@router.get("/folder/{share_token}/download/{file_id}")
+async def download_file_from_public_folder(
+    share_token: str = Path(..., description="Public folder link token"),
+    file_id: str = Path(..., description="File ID to download"),
+    password: str = Query(None, description="Password if folder link is protected"),
+    file_service: FileService = Depends(get_file_service),
+):
+    """
+    Download a file from a publicly shared folder.
+    
+    **No authentication required** - user only needs a valid folder share token.
+    
+    **Security Checks**:
+    1. Token must be valid and not expired
+    2. File must be inside the shared folder (or its subfolders)
+    3. If password-protected, password must be correct
+    
+    **Parameters**:
+    - **share_token**: Public folder link token
+    - **file_id**: File ID to download
+    - **password**: Optional password if folder link is protected
+    
+    **Returns**: File content stream
+    """
+    try:
+        from app.presentation.dependencies import get_public_folder_link_service
+        from app.application.public_folder_links_service import PublicFolderLinksService
+        
+        # Get public folder link service
+        link_service: PublicFolderLinksService = get_public_folder_link_service()
+        
+        # 1. Validate the public folder link
+        logger.info(f"[public-download] Validating token {share_token[:10]}...")
+        link = await link_service.get_link(share_token)
+        if not link:
+            logger.warning(f"[public-download] Link not found: {share_token}")
+            raise HTTPException(status_code=404, detail="Link not found or expired")
+        
+        # 2. Check if link is accessible
+        if not link.is_accessible():
+            logger.warning(f"[public-download] Link not accessible (expired/disabled/limit-reached)")
+            raise HTTPException(status_code=410, detail="Link has expired or been disabled")
+        
+        # 3. Verify password if required
+        if link.password_hash:
+            if not password:
+                raise HTTPException(status_code=403, detail="Password required")
+            if not link_service._verify_password(password, link.password_hash):
+                logger.warning(f"[public-download] Wrong password for link {link.link_id}")
+                raise HTTPException(status_code=403, detail="Wrong password")
+        
+        # 4. Verify file is inside the shared folder tree (critical security check)
+        logger.info(f"[public-download] Checking if file {file_id} is in folder {link.folder_id}")
+        is_in_scope = await file_service.is_file_in_folder_tree(file_id, link.folder_id)
+        if not is_in_scope:
+            logger.error(f"[public-download] File {file_id} is NOT in folder {link.folder_id} - access denied")
+            raise HTTPException(status_code=403, detail="File not in shared folder")
+        
+        # 5. Increment download counter
+        await link_service.increment_download_count(share_token)
+        
+        # 6. Download and decrypt file
+        logger.info(f"[public-download] Downloading file {file_id}")
+        success, file_stream, metadata, error = await file_service.download_file(
+            file_id=file_id,
+            requester_user_id="public_link",
+            allow_shared=False,
+        )
+        
+        if not success:
+            logger.error(f"[public-download] Download failed: {error}")
+            if error == "Access denied":
+                raise HTTPException(status_code=403, detail="Cannot download file")
+            raise HTTPException(status_code=404, detail=error or "File not found")
+        
+        logger.info(f"[public-download] Streaming file {metadata['filename']}")
+        return StreamingResponse(
+            file_stream,
+            media_type=metadata["content_type"],
+            headers={"Content-Disposition": f"attachment; filename=\"{metadata['filename']}\""}
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[public-download] Error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Download failed: {str(e)}")
+

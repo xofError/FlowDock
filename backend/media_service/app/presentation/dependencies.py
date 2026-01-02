@@ -9,6 +9,7 @@ from fastapi import Depends
 from app.core.config import settings
 from app.database import get_fs, get_mongo_db
 from app.application.services import FileService, FolderService
+from app.application.public_folder_links_service import PublicFolderLinksService
 from app.infrastructure.database.mongo_repository import MongoGridFSRepository, MongoFolderRepository
 from app.infrastructure.security.encryption import AESCryptoService
 from app.infrastructure.messaging.no_op_publisher import NoOpEventPublisher
@@ -81,5 +82,33 @@ async def get_folder_service() -> FolderService:
 
     except Exception as e:
         logger.error(f"Failed to build FolderService: {e}")
+        raise
+
+
+def get_public_folder_link_service() -> PublicFolderLinksService:
+    """
+    Factory function for PublicFolderLinksService dependency injection.
+    Builds the PublicFolderLinksService with all dependencies.
+    
+    Usage in endpoint:
+        @router.get("/public-link/{token}")
+        async def access_link(token: str, service: PublicFolderLinksService = Depends(get_public_folder_link_service)):
+            ...
+    """
+    try:
+        # Infrastructure layer implementations
+        mongo_db = get_mongo_db()
+        folder_repo = MongoFolderRepository(mongo_db)
+
+        # Application service with injected dependencies
+        service = PublicFolderLinksService(
+            folder_repo=folder_repo,
+            mongo_db=mongo_db,
+        )
+
+        return service
+
+    except Exception as e:
+        logger.error(f"Failed to build PublicFolderLinksService: {e}")
         raise
 

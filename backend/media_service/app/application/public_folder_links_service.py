@@ -319,6 +319,30 @@ class PublicFolderLinksService:
     
     async def list_all_links(self, user_id: str) -> list[PublicFolderLink]:
         """
+        List ALL public links created by a user (across all folders).
+        
+        Args:
+            user_id: User ID
+            
+        Returns:
+            List of all PublicFolderLink objects created by this user
+        """
+        logger.info(f"[list-all-links] Listing all links for user {user_id}")
+        
+        try:
+            # Get all links created by this user
+            links_data = await self.links_collection.find(
+                {"created_by": user_id}
+            ).to_list(None)
+            
+            return [PublicFolderLink.from_dict(data) for data in links_data]
+            
+        except Exception as e:
+            logger.error(f"[list-all-links] Error listing links: {e}")
+            return []
+    
+    async def list_all_links(self, user_id: str) -> list[PublicFolderLink]:
+        """
         List all public links created by a user across all folders.
         
         Args:

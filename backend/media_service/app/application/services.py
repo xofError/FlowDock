@@ -671,13 +671,34 @@ class FolderService:
             }
         """
         try:
-            # Verify folder exists
+            # Verify folder exists and user has access
             if allow_public:
                 # For public access, just verify folder exists (no ownership check)
                 folder = await self.folder_repo.get_folder_by_id(folder_id)
             else:
-                # Normal access: verify ownership
+                # Try to get folder as owner first
                 folder = await self.folder_repo.get_folder(folder_id, user_id)
+                
+                # If not owner, check if folder is shared with user
+                if not folder:
+                    try:
+                        db = self.folder_repo.db if hasattr(self.folder_repo, 'db') else None
+                        if db:
+                            shares_coll = db["folder_shares"]
+                            share = await shares_coll.find_one({
+                                "folder_id": folder_id,
+                                "target_id": user_id,
+                            })
+                            if share:
+                                # User has shared access, get the folder without owner check
+                                folder = await self.folder_repo.get_folder_by_id(folder_id)
+                            else:
+                                return False, None, "Folder not found or access denied"
+                        else:
+                            return False, None, "Folder not found or access denied"
+                    except Exception as e:
+                        logger.warning(f"Failed to check shared access: {e}")
+                        return False, None, "Folder not found or access denied"
             
             if not folder:
                 return False, None, "Folder not found"
@@ -727,6 +748,15 @@ class FolderService:
                 "files": files_list,
                 "subfolders": subfolders_list,
             }
+            
+            # Add breadcrumbs for navigation (unless public access)
+            if not allow_public:
+                try:
+                    breadcrumbs = await self.get_breadcrumbs(folder_id, user_id)
+                    contents_dict["breadcrumbs"] = breadcrumbs
+                except Exception as e:
+                    logger.warning(f"Failed to generate breadcrumbs: {e}")
+                    contents_dict["breadcrumbs"] = []
             
             return True, contents_dict, None
 
@@ -780,14 +810,16 @@ class FolderService:
         folder_id: str,
         user_id: str,
         name: Optional[str] = None,
+        parent_id: Optional[str] = None,
     ) -> Tuple[bool, Optional[str]]:
         """
-        Update folder metadata.
+        Update folder metadata and/or parent.
         
         Args:
             folder_id: The folder identifier
             user_id: The owner (for verification)
             name: New folder name
+            parent_id: New parent folder ID (for moving)
             
         Returns:
             Tuple of (success, error_message)
@@ -803,6 +835,20 @@ class FolderService:
                 if len(name) > 255:
                     return False, "Folder name too long (max 255 characters)"
                 folder.name = name
+
+            # Handle parent_id change (move folder)
+            if parent_id is not None:
+                # Prevent moving folder into itself
+                if parent_id == folder_id:
+                    return False, "Cannot move folder into itself"
+                
+                # Prevent moving folder into its own descendant (circular dependency)
+                if parent_id:  # None is valid (root)
+                    is_descendant = await self.is_folder_descendant(parent_id, folder_id)
+                    if is_descendant:
+                        return False, "Cannot move folder into its own subfolder (circular dependency)"
+                
+                folder.parent_id = parent_id
 
             # Save changes
             success = await self.folder_repo.update_folder(folder)
@@ -845,5 +891,204 @@ class FolderService:
 
         except Exception as e:
             logger.error(f"Delete folder failed: {e}")
+            return False, str(e)
+
+    # ========================================================================
+    # Helper Methods for Folder Navigation & Public Access
+    # ========================================================================
+
+    async def get_breadcrumbs(
+        self,
+        folder_id: Optional[str],
+        owner_id: str,
+    ) -> List[dict]:
+        """
+        Build breadcrumb path from root to current folder.
+        
+        Args:
+            folder_id: Current folder ID (None = root)
+            owner_id: Owner for verification
+            
+        Returns:
+            List of {id, name} dicts representing path from root to folder
+            Example: [{"id": None, "name": "Home"}, {"id": "123", "name": "Work"}]
+        """
+        breadcrumbs = []
+        current_id = folder_id
+
+        # Traverse up the tree
+        while current_id:
+            folder = await self.folder_repo.get_folder(current_id, owner_id)
+            if not folder:
+                break
+            # Insert at beginning to build path from root to leaf
+            breadcrumbs.insert(0, {"id": folder.id, "name": folder.name})
+            current_id = folder.parent_id
+
+        # Add root/home at the beginning
+        breadcrumbs.insert(0, {"id": None, "name": "Home"})
+        
+        return breadcrumbs
+
+    async def is_file_in_folder_tree(
+        self,
+        file_id: str,
+        root_folder_id: str,
+    ) -> bool:
+        """
+        Verify that a file is contained within a folder (at any depth).
+        Used for security validation in public/shared access.
+        
+        Args:
+            file_id: File to check
+            root_folder_id: Root folder to check against
+            
+        Returns:
+            True if file is inside root_folder_id tree, False otherwise
+        """
+        try:
+            # Get file metadata
+            file = await self.repo.get_file_metadata(file_id)
+            if not file or not file.folder_id:
+                return False
+
+            # Traverse up from file's folder to check if we reach root
+            current_folder_id = file.folder_id
+            while current_folder_id:
+                if current_folder_id == root_folder_id:
+                    return True
+                folder = await self.folder_repo.get_folder_by_id(current_folder_id)
+                if not folder:
+                    break
+                current_folder_id = folder.parent_id
+            return False
+            
+        except Exception as e:
+            logger.error(f"Error checking file in folder tree: {e}")
+            return False
+
+    async def is_folder_descendant(
+        self,
+        target_folder_id: str,
+        root_folder_id: str,
+    ) -> bool:
+        """
+        Check if target_folder_id is a descendant of root_folder_id.
+        Used for preventing circular dependencies and access validation.
+        
+        Args:
+            target_folder_id: Folder to check
+            root_folder_id: Parent folder to check against
+            
+        Returns:
+            True if target is descendant of root, False otherwise
+        """
+        try:
+            current_id = target_folder_id
+            while current_id:
+                if current_id == root_folder_id:
+                    return True
+                folder = await self.folder_repo.get_folder_by_id(current_id)
+                if not folder:
+                    return False
+                current_id = folder.parent_id
+            return False
+        except Exception as e:
+            logger.error(f"Error checking folder descendant: {e}")
+            return False
+
+    # ========================================================================
+    # Move Operations
+    # ========================================================================
+
+    async def move_file(
+        self,
+        file_id: str,
+        new_folder_id: str,
+        user_id: str,
+    ) -> Tuple[bool, Optional[str]]:
+        """
+        Move a file to a different folder.
+        
+        Args:
+            file_id: The file to move
+            new_folder_id: The destination folder
+            user_id: The current user (for verification)
+            
+        Returns:
+            Tuple of (success, error_message)
+        """
+        try:
+            # Get file metadata to verify ownership
+            file = await self.repo.get_file_metadata(file_id)
+            if not file or file.owner_id != user_id:
+                return False, "File not found or access denied"
+
+            # Verify new folder exists and is owned by user
+            new_folder = await self.folder_repo.get_folder(new_folder_id, user_id)
+            if not new_folder:
+                return False, "Destination folder not found or access denied"
+
+            # Update file's folder_id
+            await self.repo.update_file_metadata(file_id, {"folder_id": new_folder_id})
+
+            logger.info(f"✓ Moved file {file_id} to folder {new_folder_id}")
+            return True, None
+
+        except Exception as e:
+            logger.error(f"Move file failed: {e}")
+            return False, str(e)
+
+    async def move_folder(
+        self,
+        folder_id: str,
+        new_parent_id: Optional[str],
+        user_id: str,
+    ) -> Tuple[bool, Optional[str]]:
+        """
+        Move a folder to a different parent folder.
+        Prevents circular dependencies (cannot move into descendant).
+        
+        Args:
+            folder_id: The folder to move
+            new_parent_id: The destination parent folder (None for root)
+            user_id: The current user (for verification)
+            
+        Returns:
+            Tuple of (success, error_message)
+        """
+        try:
+            # Get folder to verify ownership
+            folder = await self.folder_repo.get_folder(folder_id, user_id)
+            if not folder:
+                return False, "Folder not found or access denied"
+
+            # Prevent moving into itself
+            if new_parent_id == folder_id:
+                return False, "Cannot move folder into itself"
+
+            # If new_parent_id is not None, verify it exists and is owned by user
+            if new_parent_id:
+                parent_folder = await self.folder_repo.get_folder(new_parent_id, user_id)
+                if not parent_folder:
+                    return False, "Destination parent folder not found or access denied"
+
+                # Prevent circular dependency (cannot move into descendant)
+                is_descendant = await self.is_folder_descendant(new_parent_id, folder_id)
+                if is_descendant:
+                    return False, "Cannot move folder into its own subfolder (circular dependency)"
+
+            # Update folder's parent_id
+            folder.parent_id = new_parent_id
+            success = await self.folder_repo.update_folder(folder)
+            
+            if not success:
+                return False, "Move failed"
+
+            logger.info(f"✓ Moved folder {folder_id} to parent {new_parent_id}")
+            return True, None
+
+        except Exception as e:
+            logger.error(f"Move folder failed: {e}")
             return False, str(e)
 

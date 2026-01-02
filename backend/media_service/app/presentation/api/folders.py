@@ -280,3 +280,54 @@ async def delete_folder(
     except Exception as e:
         logger.error(f"Delete folder error: {e}")
         raise HTTPException(status_code=500, detail=f"Delete folder failed: {str(e)}")
+
+
+# ============================================================================
+# MOVE FOLDER
+# ============================================================================
+@router.patch("/{folder_id}/move", response_model=FolderResponse)
+async def move_folder(
+    folder_id: str = Path(..., description="Folder ID to move"),
+    parent_id: Optional[str] = Query(None, description="New parent folder ID (None for root)"),
+    current_user_id: str = Depends(get_current_user_id),
+    service: FolderService = Depends(get_folder_service),
+):
+    """
+    Move a folder to a different parent folder.
+    
+    **Security**: Requires valid JWT token and folder ownership.
+    
+    **Parameters**:
+    - **folder_id**: MongoDB ObjectId of the folder to move
+    - **parent_id**: New parent folder ID (optional, None moves to root)
+    
+    **Returns**: Updated folder metadata
+    
+    **Notes**: Prevents circular dependencies (cannot move into descendant folder).
+    """
+    try:
+        folder_id = folder_id.strip()
+        if parent_id:
+            parent_id = parent_id.strip()
+
+        success, error = await service.move_folder(
+            folder_id=folder_id,
+            new_parent_id=parent_id,
+            user_id=current_user_id,
+        )
+        
+        if not success:
+            raise HTTPException(status_code=400, detail=error)
+
+        # Get updated folder to return full response
+        success, folder_dict, error = await service.get_folder(folder_id, current_user_id)
+        if success:
+            return FolderResponse(**folder_dict)
+        else:
+            raise HTTPException(status_code=500, detail="Failed to retrieve moved folder")
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Move folder error: {e}")
+        raise HTTPException(status_code=500, detail=f"Move folder failed: {str(e)}")
