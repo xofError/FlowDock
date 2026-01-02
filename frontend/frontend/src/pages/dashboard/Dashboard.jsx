@@ -420,7 +420,7 @@ export default function Dashboard() {
               </thead>
               <tbody>
                 {displayFiles.map((f, idx) => (
-                  <tr key={f.id || idx} className="hover:bg-slate-50 transition-colors" style={{ backgroundColor: "#ffffff", height: "2.75rem" }}>
+                  <tr key={f.id || idx} className="hover:bg-slate-50 transition-colors" style={{ backgroundColor: "#ffffff", height: "2.75rem", borderBottom: idx === displayFiles.length - 1 ? "none" : "1px solid #e5e7eb" }}>
                     <td className="text-sm font-medium text-slate-900">{f.filename}</td>
                     <td className="text-sm col-muted">{formatDateYYYYMMDD(f.uploaded_at)}</td>
                     <td className="text-sm col-muted">{formatFileSize(f.size)}</td>

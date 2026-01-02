@@ -1,5 +1,6 @@
-import React from "react";
+import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { X } from "lucide-react";
 import TopNavBar from "../../layout/TopNavBar";
 import DashboardIcon from "../../resources/icons/dashboard.svg";
 import MyFilesIcon from "../../resources/icons/my_files.svg";
@@ -15,8 +16,119 @@ const navItems = [
   { icon: SettingsIcon, label: "Settings", to: "/settings" },
 ];
 
+const SAMPLE_TRASH = [
+  { id: 1, name: "VacationPhotos.zip", originalLocation: "My Files/Pictures", dateDeleted: "2025-12-24", size: "50 MB" },
+  { id: 2, name: "OldProject.pdf", originalLocation: "My Files/Documents", dateDeleted: "2025-12-20", size: "8.3 MB" },
+  { id: 3, name: "BackupData.xlsx", originalLocation: "My Files/Archive", dateDeleted: "2025-12-18", size: "12.7 MB" },
+  { id: 4, name: "TempVideo.mp4", originalLocation: "My Files/Videos", dateDeleted: "2025-12-15", size: "120 MB" },
+];
+
 export default function Trash() {
   const routerNavigate = useNavigate();
+  const [deletedFiles, setDeletedFiles] = useState(SAMPLE_TRASH);
+  const [actionStates, setActionStates] = useState({}); // Track clicked actions
+  const [deleteWarning, setDeleteWarning] = useState(null); // Track delete warning modal
+
+  const handleRestore = (fileId) => {
+    setActionStates(prev => ({ ...prev, [fileId]: "restored" }));
+    setTimeout(() => {
+      setDeletedFiles(prev => prev.filter(f => f.id !== fileId));
+      setActionStates(prev => {
+        const newState = { ...prev };
+        delete newState[fileId];
+        return newState;
+      });
+    }, 1500);
+  };
+
+  const handlePermanentlyDelete = (fileId) => {
+    setDeleteWarning(fileId);
+  };
+
+  const confirmPermanentDelete = () => {
+    if (deleteWarning) {
+      setActionStates(prev => ({ ...prev, [deleteWarning]: "deleted" }));
+      setTimeout(() => {
+        setDeletedFiles(prev => prev.filter(f => f.id !== deleteWarning));
+        setActionStates(prev => {
+          const newState = { ...prev };
+          delete newState[deleteWarning];
+          return newState;
+        });
+        setDeleteWarning(null);
+      }, 1500);
+    }
+  };
+
+  const cancelPermanentDelete = () => {
+    setDeleteWarning(null);
+  };
+
+  const SharedTable = ({ title, data }) => (
+    <div style={{ marginBottom: "2rem" }}>
+      <h3 style={{ fontSize: "1.125rem", fontWeight: 600, color: "#0f172a", marginBottom: "1rem" }}>{title}</h3>
+      <div style={{ border: "1px solid #e5e7eb", borderRadius: "8px", overflow: "hidden", padding: "1rem" }}>
+        <table style={{ width: "100%", textAlign: "left", borderCollapse: "collapse", tableLayout: "fixed" }}>
+          <colgroup>
+            <col style={{ width: "25%" }} />
+            <col style={{ width: "25%" }} />
+            <col style={{ width: "15%" }} />
+            <col style={{ width: "20%" }} />
+            <col style={{ width: "15%" }} />
+          </colgroup>
+          <thead>
+            <tr style={{ backgroundColor: "transparent", borderBottom: "1px solid #e5e7eb" }}>
+              <th style={{ padding: "1rem 0", fontSize: "0.875rem", fontWeight: 600, color: "#374151", textAlign: "left", verticalAlign: "top" }}>Name</th>
+              <th style={{ padding: "1rem 0", fontSize: "0.875rem", fontWeight: 600, color: "#374151", textAlign: "left", verticalAlign: "top" }}>Original Location</th>
+              <th style={{ padding: "1rem 0", fontSize: "0.875rem", fontWeight: 600, color: "#374151", textAlign: "left", verticalAlign: "top" }}>Date Deleted</th>
+              <th style={{ padding: "1rem 0", fontSize: "0.875rem", fontWeight: 600, color: "#374151", textAlign: "left", verticalAlign: "top" }}>Size</th>
+              <th style={{ padding: "1rem 0", fontSize: "0.875rem", fontWeight: 600, color: "#374151", textAlign: "left", verticalAlign: "top" }}>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {data.map((file, idx) => (
+              <tr key={file.id} style={{ backgroundColor: "#ffffff", borderBottom: idx === data.length - 1 ? "none" : "1px solid #e5e7eb" }}>
+                <td style={{ padding: "1rem 0", fontSize: "0.875rem", color: "#0f172a", verticalAlign: "top" }}>{file.name}</td>
+                <td style={{ padding: "1rem 0", fontSize: "0.875rem", color: "#64748b", verticalAlign: "top" }}>{file.originalLocation}</td>
+                <td style={{ padding: "1rem 0", fontSize: "0.875rem", color: "#64748b", verticalAlign: "top" }}>{file.dateDeleted}</td>
+                <td style={{ padding: "1rem 0", fontSize: "0.875rem", color: "#64748b", verticalAlign: "top" }}>{file.size}</td>
+                <td style={{ padding: "1rem 0", verticalAlign: "top" }}>
+                  <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+                    <span
+                      onClick={() => handleRestore(file.id)}
+                      style={{ 
+                        color: actionStates[file.id] === "restored" ? "#16a34a" : "#2563eb",
+                        textDecoration: "underline",
+                        cursor: "pointer",
+                        fontWeight: 500,
+                        fontSize: "0.875rem",
+                        transition: "all 0.2s"
+                      }}
+                    >
+                      {actionStates[file.id] === "restored" ? "✓ Restored" : "Restore"}
+                    </span>
+                    <span
+                      onClick={() => handlePermanentlyDelete(file.id)}
+                      style={{
+                        color: actionStates[file.id] === "deleted" ? "#dc2626" : "#2563eb",
+                        textDecoration: "underline",
+                        cursor: "pointer",
+                        fontWeight: 500,
+                        fontSize: "0.875rem",
+                        transition: "all 0.2s"
+                      }}
+                    >
+                      {actionStates[file.id] === "deleted" ? "✓ Deleted" : "Permanently Delete"}
+                    </span>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
 
   return (
     <TopNavBar>
@@ -47,6 +159,139 @@ export default function Trash() {
           background-color: #e2e8f0;
           color: #0f172a;
           font-weight: 500;
+        }
+        .trash-table {
+          border: 1px solid #e5e7eb;
+          border-radius: 8px;
+          overflow: hidden;
+          width: 90%;
+          max-width: 90%;
+        }
+        .trash-table table {
+          width: 100%;
+          border-collapse: collapse;
+          tableLayout: "fixed";
+        }
+        .trash-table thead tr {
+          background-color: transparent;
+          border-bottom: 1px solid #e5e7eb;
+        }
+        .trash-table th {
+          padding: 1rem;
+          fontSize: "0.875rem";
+          fontWeight: 600;
+          color: "#374151";
+          textAlign: "left";
+        }
+        .trash-table tbody tr {
+          background-color: #ffffff;
+          border-bottom: 1px solid #e5e7eb;
+          height: 2.75rem;
+        }
+        .trash-table td {
+          padding: 1rem;
+          fontSize: "0.875rem";
+          color: "#0f172a";
+        }
+        .action-link {
+          color: #2563eb;
+          textDecoration: "underline";
+          cursor: pointer;
+          marginRight: 1rem;
+          transition: all 0.2s;
+          fontWeight: 500;
+        }
+        .action-link:hover {
+          opacity: 0.7;
+        }
+        .action-link.restored {
+          color: #16a34a;
+        }
+        .action-link.deleted {
+          color: #dc2626;
+        }
+        .modal-overlay {
+          position: fixed;
+          top: 0;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          background-color: rgba(0, 0, 0, 0.5);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          z-index: 100;
+        }
+        .modal-content {
+          background: #ffffff;
+          border-radius: 8px;
+          padding: 1.5rem;
+          max-width: 400px;
+          width: 90%;
+          box-shadow: 0 10px 40px rgba(0, 0, 0, 0.15);
+        }
+        .modal-header {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          margin-bottom: 1rem;
+        }
+        .modal-title {
+          font-size: 1.25rem;
+          font-weight: 600;
+          color: #0f172a;
+        }
+        .modal-close-btn {
+          background: none;
+          border: none;
+          cursor: pointer;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          padding: 0;
+        }
+        .modal-close-btn svg {
+          color: #dc2626;
+          width: 1.5rem;
+          height: 1.5rem;
+        }
+        .modal-text {
+          font-size: 0.875rem;
+          color: #64748b;
+          margin-bottom: 1.5rem;
+          lineHeight: 1.6;
+        }
+        .warning-text {
+          color: #dc2626;
+          fontWeight: 600;
+        }
+        .modal-buttons {
+          display: flex;
+          gap: 0.75rem;
+          justifyContent: flex-end;
+        }
+        .modal-btn {
+          padding: 0.5rem 1rem;
+          borderRadius: 6px;
+          cursor: pointer;
+          fontWeight: 500;
+          fontSize: 0.875rem;
+          border: none;
+          transition: background-color 0.2s;
+        }
+        .modal-btn-cancel {
+          background-color: #e5e7eb;
+          color: #0f172a;
+        }
+        .modal-btn-cancel:hover {
+          background-color: #d1d5db;
+        }
+        .modal-btn-delete {
+          background-color: #dc2626;
+          color: #ffffff;
+        }
+        .modal-btn-delete:hover {
+          background-color: #b91c1c;
         }
       `}</style>
 
@@ -94,9 +339,51 @@ export default function Trash() {
           backgroundColor: "#ffffff" 
         }}
       >
-        <h1 className="text-2xl font-bold">Trash</h1>
-        <p className="text-sm text-slate-600 mt-2">Deleted files are kept here temporarily.</p>
+        <header style={{ marginBottom: "2rem" }}>
+          <h1 style={{ fontSize: "2rem", fontWeight: "bold", color: "#0f172a", marginBottom: "0.5rem" }}>
+            Deleted Files
+          </h1>
+          <p style={{ fontSize: "0.75rem", color: "#64748b" }}>
+            Files in your trash will be automatically deleted after 30 days.
+          </p>
+        </header>
+
+        {/* Trash Table */}
+        {deletedFiles.length > 0 ? (
+          <SharedTable title="Deleted Files" data={deletedFiles} />
+        ) : (
+          <div style={{ textAlign: "center", padding: "3rem", color: "#64748b" }}>
+            <p>Your trash is empty.</p>
+          </div>
+        )}
       </main>
+
+      {/* Delete Confirmation Modal */}
+      {deleteWarning && (
+        <div className="modal-overlay" onClick={cancelPermanentDelete}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2 className="modal-title">Permanently Delete File?</h2>
+              <button className="modal-close-btn" onClick={cancelPermanentDelete}>
+                <X />
+              </button>
+            </div>
+
+            <div className="modal-text">
+              Are you sure you want to <span className="warning-text">permanently delete</span> this file? This action cannot be undone.
+            </div>
+
+            <div className="modal-buttons">
+              <button className="modal-btn modal-btn-cancel" onClick={cancelPermanentDelete}>
+                No, Cancel
+              </button>
+              <button className="modal-btn modal-btn-delete" onClick={confirmPermanentDelete}>
+                Yes, Delete Permanently
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </TopNavBar>
   );
 }

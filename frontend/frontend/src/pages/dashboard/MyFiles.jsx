@@ -549,7 +549,7 @@ export default function MyFiles() {
               </thead>
               <tbody>
                 {displayFiles.map((file) => (
-                  <tr key={file.id} style={{ backgroundColor: "#ffffff", height: "2.75rem" }}>
+                  <tr key={file.id} style={{ backgroundColor: "#ffffff", height: "2.75rem", borderBottom: displayFiles.indexOf(file) === displayFiles.length - 1 ? "none" : "1px solid #e5e7eb" }}>
                     <td style={{ fontSize: "0.875rem", fontWeight: 500, color: "#0f172a" }}>
                       <span className="file-link" onClick={() => setSelectedFile(file)}>
                         {file.name}
