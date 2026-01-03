@@ -287,7 +287,7 @@ class APIClient {
     const formData = new FormData();
     formData.append("file", file);
 
-    return fetch(`${MEDIA_API_URL}/media/upload/${userId}`, {
+    return fetch(`${MEDIA_API_URL}/upload/${userId}`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${this.authToken}`,
@@ -303,7 +303,7 @@ class APIClient {
    * Download file
    */
   async downloadFile(fileId) {
-    const response = await fetch(`${MEDIA_API_URL}/media/download/${fileId}`, {
+    const response = await fetch(`${MEDIA_API_URL}/download/${fileId}`, {
       headers: {
         Authorization: `Bearer ${this.authToken}`,
       },
@@ -347,7 +347,7 @@ class APIClient {
    * Share file with user
    */
   async shareFileWithUser(fileId, targetUserId, permission = "view") {
-    return this.request(`${MEDIA_API_URL}/media/share/user`, {
+    return this.request(`${MEDIA_API_URL}/share/user`, {
       method: "POST",
       body: JSON.stringify({
         file_id: fileId,
@@ -361,7 +361,7 @@ class APIClient {
    * Create share link
    */
   async createShareLink(fileId, expiresIn = null) {
-    return this.request(`${MEDIA_API_URL}/media/share/link`, {
+    return this.request(`${MEDIA_API_URL}/share/link`, {
       method: "POST",
       body: JSON.stringify({
         file_id: fileId,
@@ -374,7 +374,7 @@ class APIClient {
    * Get files shared with me
    */
   async getSharedWithMe(userId) {
-    return this.request(`${MEDIA_API_URL}/media/users/${userId}/files/shared-with-me`, {
+    return this.request(`${MEDIA_API_URL}/users/${userId}/files/shared-with-me`, {
       method: "GET",
     });
   }
@@ -383,7 +383,7 @@ class APIClient {
    * Get files shared by me
    */
   async getSharedByMe(userId) {
-    return this.request(`${MEDIA_API_URL}/media/users/${userId}/files/shared-by-me`, {
+    return this.request(`${MEDIA_API_URL}/users/${userId}/files/shared-by-me`, {
       method: "GET",
     });
   }
@@ -392,7 +392,7 @@ class APIClient {
    * Access shared link
    */
   async accessSharedLink(token) {
-    return this.request(`${MEDIA_API_URL}/media/s/${token}/access`, {
+    return this.request(`${MEDIA_API_URL}/s/${token}/access`, {
       method: "POST",
     });
   }
@@ -401,7 +401,7 @@ class APIClient {
    * Download public file
    */
   async downloadPublicFile(fileId) {
-    const response = await fetch(`${MEDIA_API_URL}/media/public-download/${fileId}`);
+    const response = await fetch(`${MEDIA_API_URL}/public-download/${fileId}`);
 
     if (!response.ok) {
       throw new Error(`Download failed: ${response.status}`);

@@ -8,7 +8,6 @@ import {
   List,
   Grid,
   ChevronRight,
-  MoreVertical,
 } from "lucide-react";
 import DashboardIcon from "../../resources/icons/dashboard.svg";
 import MyFilesIcon from "../../resources/icons/my_files.svg";
@@ -31,7 +30,7 @@ const navItems = [
 
 export default function Dashboard() {
   const navigate = useNavigate();
-  const { user, logout, isAuthenticated } = useAuthContext();
+  const { user, logout, isAuthenticated, loading: authLoading } = useAuthContext();
   const {
     files,
     loading,
@@ -103,8 +102,7 @@ export default function Dashboard() {
     if (user?.id) {
       loadUserContent();
     }
-  }, [authLoading, isAuthenticated, user?.id, navigate];
-
+  }, [authLoading, isAuthenticated, user?.id, navigate]);
   // Load files for the dashboard
   const loadFiles = async () => {
     try {
@@ -267,19 +265,6 @@ export default function Dashboard() {
       setSelectedItem(null);
     } catch (err) {
       console.error("Delete failed:", err);
-    }
-  };
-
-  const loadFileMetadata = async (fileId) => {
-    try {
-      setLoadingMetadata(true);
-      const metadata = await api.getFileMetadata(fileId);
-      setFileMetadata(metadata);
-    } catch (err) {
-      console.error("Failed to load file metadata:", err);
-      setFileMetadata(null);
-    } finally {
-      setLoadingMetadata(false);
     }
   };
 
@@ -1004,31 +989,7 @@ export default function Dashboard() {
             loading={folderLoading}
           />
         )}
-            <div className="w-full bg-blue-200 rounded-full h-2">
-              <div
-                className="bg-blue-600 h-2 rounded-full transition-all duration-300"
-                style={{ width: `${uploadProgress}%` }}
-              ></div>
-            </div>
-          </div>
-        )}
       </main>
-
-      <input ref={fileInputRef} type="file" onChange={handleFileSelect} className="hidden" disabled={loading} />
-      <input
-        ref={folderInputRef}
-        type="file"
-        onChange={handleFolderSelect}
-        className="hidden"
-        disabled={loading}
-        webkitdirectory="true"
-        mozdirectory="true"
-      />
-
-      <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
-        body { font-family: 'Inter', sans-serif; }
-      `}</style>
     </TopNavBar>
   );
 }
