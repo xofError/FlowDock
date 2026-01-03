@@ -125,6 +125,14 @@ class FolderListResponse(BaseModel):
     total: int = Field(..., description="Total number of folders")
 
 
+class UserContentResponse(BaseModel):
+    """Response containing all folders and files for a user (consolidated view)"""
+    folders: list = Field(default_factory=list, description="List of root folders")
+    files: list = Field(default_factory=list, description="List of root level files")
+    total_folders: int = Field(default=0, description="Total number of folders")
+    total_files: int = Field(default=0, description="Total number of files")
+
+
 class FolderUpdateRequest(BaseModel):
     """Request to update folder metadata"""
     name: Optional[str] = Field(None, min_length=1, max_length=255, description="New folder name")

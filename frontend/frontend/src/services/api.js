@@ -320,7 +320,7 @@ class APIClient {
    * Get user's files
    */
   async getUserFiles(userId) {
-    return this.request(`${MEDIA_API_URL}/media/user/${userId}/files`, {
+    return this.request(`${MEDIA_API_URL}/user/${userId}/files`, {
       method: "GET",
     });
   }
@@ -408,6 +408,90 @@ class APIClient {
     }
 
     return response.blob();
+  }
+
+  // =====================================================
+  // FOLDER OPERATIONS
+  // =====================================================
+
+  /**
+   * Get folder contents (files and subfolders)
+   */
+  async getFolderContents(folderId) {
+    // Get contents of a specific folder (files + subfolders)
+    // folderId must be a valid MongoDB ObjectId, not null/undefined
+    if (!folderId) {
+      throw new Error("folderId is required for getFolderContents. Use listRootFolders() for root.");
+    }
+    
+    return this.request(`${MEDIA_API_URL}/folders/${folderId}/contents`, {
+      method: "GET",
+    });
+  }
+
+  /**
+   * List folders (root if parent_id omitted, or children of a parent)
+   */
+  async listFolders(parentId = null) {
+    const url = parentId
+      ? `${MEDIA_API_URL}/folders?parent_id=${parentId}`
+      : `${MEDIA_API_URL}/folders`;
+    
+    return this.request(url, {
+      method: "GET",
+    });
+  }
+
+  /**
+   * Create a new folder
+   */
+  async createFolder(name, parentId = null) {
+    return this.request(`${MEDIA_API_URL}/folders`, {
+      method: "POST",
+      body: JSON.stringify({
+        name,
+        parent_id: parentId,
+      }),
+    });
+  }
+
+  /**
+   * Delete a folder
+   */
+  async deleteFolder(folderId) {
+    return this.request(`${MEDIA_API_URL}/folders/${folderId}`, {
+      method: "DELETE",
+    });
+  }
+
+  /**
+   * Rename a folder
+   */
+  async renameFolder(folderId, newName) {
+    return this.request(`${MEDIA_API_URL}/folders/${folderId}`, {
+      method: "PATCH",
+      body: JSON.stringify({
+        name: newName,
+      }),
+    });
+  }
+
+  /**
+   * Get folder information
+   */
+  async getFolderInfo(folderId) {
+    return this.request(`${MEDIA_API_URL}/folders/${folderId}`, {
+      method: "GET",
+    });
+  }
+
+  /**
+   * Get all user content (folders and files at root level)
+   */
+  async getUserContent(userId) {
+    return this.request(`${MEDIA_API_URL}/user/${userId}/content`, {
+      method: "GET",
+    });
   }
 }
 

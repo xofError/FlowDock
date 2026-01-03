@@ -17,6 +17,7 @@ from app.application.dtos import (
     FileDeleteResponse,
     FileListResponse,
     HealthCheckResponse,
+    UserContentResponse,
 )
 from app.services.sharing_service import SharingService
 from datetime import datetime, timezone
@@ -85,6 +86,94 @@ async def health_check():
         service="media_service",
         mongodb="connected"
     )
+
+
+# ============================================================================
+# GET USER CONTENT (Consolidated: Folders + Files at root level)
+# ============================================================================
+@router.get("/user/{user_id}/content", response_model=UserContentResponse)
+async def get_user_content(
+    user_id: str = Path(..., description="User ID"),
+    current_user_id: str = Depends(get_current_user_id),
+    file_service: FileService = Depends(get_file_service),
+    folder_service = Depends(get_folder_service),
+):
+    """
+    Get all root-level folders and files for a user.
+    
+    **Security**: Requires valid JWT token. Users can only access their own content.
+    
+    **Parameters**:
+    - **user_id**: User identifier (must match JWT token)
+    
+    **Returns**:
+    - folders: List of root folders
+    - files: List of root-level files
+    - total_folders: Total folder count
+    - total_files: Total file count
+    """
+    try:
+        # Verify ownership
+        if user_id != current_user_id:
+            raise HTTPException(
+                status_code=403,
+                detail="Cannot access content for other users"
+            )
+
+        # Get root folders
+        success, folders_list, error = await folder_service.list_folders(
+            user_id=current_user_id,
+            parent_id=None,
+        )
+
+        if not success:
+            folders_list = []
+            logger.warning(f"Failed to list folders for user {user_id}: {error}")
+
+        # Get root files
+        success, files, error = await file_service.list_user_files(user_id)
+
+        if not success:
+            files = []
+            logger.warning(f"Failed to list files for user {user_id}: {error}")
+
+        # Convert folders to response format
+        formatted_folders = []
+        if folders_list:
+            for folder in folders_list:
+                # folders_list already contains dicts from the service
+                formatted_folders.append({
+                    "folder_id": folder.get("folder_id"),
+                    "name": folder.get("name"),
+                    "parent_id": folder.get("parent_id"),
+                    "created_at": folder.get("created_at"),
+                    "updated_at": folder.get("updated_at"),
+                })
+
+        # Convert files to response format
+        formatted_files = []
+        if files:
+            for file_info in files:
+                formatted_files.append({
+                    "file_id": file_info["file_id"],
+                    "filename": file_info["filename"],
+                    "size": file_info["size"],
+                    "content_type": file_info["content_type"],
+                    "upload_date": file_info["upload_date"],
+                })
+
+        return UserContentResponse(
+            folders=formatted_folders,
+            files=formatted_files,
+            total_folders=len(formatted_folders),
+            total_files=len(formatted_files),
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Get user content error: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to get user content: {str(e)}")
 
 
 # ============================================================================
