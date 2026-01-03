@@ -8,18 +8,41 @@ import api from "../services/api";
 
 export const useAuth = () => {
   const [user, setUser] = useState(null);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true); // Start as true to block rendering
   const [error, setError] = useState(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
 
   // Check if user is authenticated on mount
   useEffect(() => {
-    const token = localStorage.getItem("access_token");
-    
-    if (token) {
-      setIsAuthenticated(true);
-      // Don't auto-load user data on mount to avoid unnecessary API calls
-    }
+    const checkAuth = async () => {
+      try {
+        const token = localStorage.getItem("access_token");
+        
+        if (token) {
+          setIsAuthenticated(true);
+          // Optionally load user data if needed
+          const userId = localStorage.getItem("user_id");
+          if (userId) {
+            try {
+              const userData = await api.getCurrentUser(userId);
+              setUser(userData);
+            } catch (err) {
+              console.warn("Could not load user profile:", err);
+              // Don't throw - auth check still succeeded
+            }
+          }
+        } else {
+          setIsAuthenticated(false);
+        }
+      } catch (err) {
+        console.error("Auth check failed:", err);
+        setIsAuthenticated(false);
+      } finally {
+        setLoading(false); // Auth check is complete
+      }
+    };
+
+    checkAuth();
   }, []);
 
   const loadUser = useCallback(async (userId = null) => {

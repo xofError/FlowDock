@@ -11,7 +11,12 @@ const AuthContext = createContext(null);
 export const AuthProvider = ({ children }) => {
   const auth = useAuth();
 
-  return <AuthContext.Provider value={auth}>{children}</AuthContext.Provider>;
+  return (
+    <AuthContext.Provider value={auth}>
+      {/* Don't render children until auth check is complete */}
+      {!auth.loading && children}
+    </AuthContext.Provider>
+  );
 };
 
 /**

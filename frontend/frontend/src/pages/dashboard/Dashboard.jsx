@@ -18,6 +18,7 @@ import SettingsIcon from "../../resources/icons/settings.svg";
 import { useAuthContext } from "../../context/AuthContext";
 import useFileOperations from "../../hooks/useFileOperations";
 import TopNavBar from "../../layout/TopNavBar";
+import FileDetailsModal from "../../components/FileDetailsModal";
 import api from "../../services/api";
 
 const navItems = [
@@ -61,6 +62,8 @@ export default function Dashboard() {
   const [showItemMenu, setShowItemMenu] = useState(null);
   const [fileMetadata, setFileMetadata] = useState(null);
   const [loadingMetadata, setLoadingMetadata] = useState(false);
+  const [showFileModal, setShowFileModal] = useState(false);
+  const [selectedFile, setSelectedFile] = useState(null);
   
   // Storage quota (mock data - can be updated from backend)
   const [storageUsed] = useState(12.5); // GB
@@ -87,14 +90,20 @@ export default function Dashboard() {
 
   // Load files and root folders on mount
   useEffect(() => {
+    // 1. Wait for Auth Check to finish
+    if (authLoading) return;
+
+    // 2. If not logged in, redirect
     if (!isAuthenticated) {
       navigate("/login", { replace: true });
       return;
     }
+
+    // 3. Only fetch if we have a valid user
     if (user?.id) {
       loadUserContent();
     }
-  }, [user?.id, isAuthenticated, navigate, getUserFiles]);
+  }, [authLoading, isAuthenticated, user?.id, navigate];
 
   // Load files for the dashboard
   const loadFiles = async () => {
@@ -232,8 +241,8 @@ export default function Dashboard() {
     const file = e.target.files?.[0];
     if (!file || !user?.id) return;
     try {
-      await uploadFile(user.id, file);
-      await loadFiles();
+      await uploadFile(user.id, file, null, currentFolderId);
+      await loadFolders(currentFolderId);
     } catch (err) {
       console.error("Upload failed:", err);
     } finally {
@@ -283,9 +292,9 @@ export default function Dashboard() {
     if (!folderFiles?.length || !user?.id) return;
     try {
       for (let file of folderFiles) {
-        await uploadFile(user.id, file);
+        await uploadFile(user.id, file, null, currentFolderId);
       }
-      await loadFiles();
+      await loadFolders(currentFolderId);
     } catch (err) {
       console.error("Folder upload failed:", err);
     } finally {
@@ -643,7 +652,8 @@ export default function Dashboard() {
                           handleFolderClick(item.id);
                         } else {
                           setSelectedItem(item);
-                          loadFileMetadata(item.id);
+                          setSelectedFile(item);
+                          setShowFileModal(true);
                         }
                       }}
                       onContextMenu={(e) => {
@@ -745,6 +755,8 @@ export default function Dashboard() {
                     handleFolderClick(item.id);
                   } else {
                     setSelectedItem(item);
+                    setSelectedFile(item);
+                    setShowFileModal(true);
                   }
                 }}
               >
@@ -969,6 +981,29 @@ export default function Dashboard() {
               <span className="text-sm font-medium text-blue-900">Upload Progress</span>
               <span className="text-sm font-medium text-blue-700">{Math.round(uploadProgress)}%</span>
             </div>
+            <div className="w-full bg-blue-200 rounded-full h-2">
+              <div
+                className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                style={{ width: `${uploadProgress}%` }}
+              ></div>
+            </div>
+          </div>
+        )}
+
+        {/* File Details Modal */}
+        {showFileModal && selectedFile && (
+          <FileDetailsModal
+            file={selectedFile}
+            onClose={() => {
+              setShowFileModal(false);
+              setSelectedFile(null);
+              setFileMetadata(null);
+            }}
+            onDownload={handleDownload}
+            onDelete={handleDelete}
+            loading={folderLoading}
+          />
+        )}
             <div className="w-full bg-blue-200 rounded-full h-2">
               <div
                 className="bg-blue-600 h-2 rounded-full transition-all duration-300"

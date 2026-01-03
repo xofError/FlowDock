@@ -76,12 +76,13 @@ class IFileRepository(ABC):
         pass
 
     @abstractmethod
-    async def list_by_owner(self, owner_id: str) -> List[File]:
+    async def list_by_owner(self, owner_id: str, folder_id: Optional[str] = None) -> List[File]:
         """
-        List all files owned by a user.
+        List all files owned by a user, optionally filtered by folder.
         
         Args:
             owner_id: The owner's identifier
+            folder_id: Optional folder ID to filter by (None = root files only)
             
         Returns:
             List of File entities

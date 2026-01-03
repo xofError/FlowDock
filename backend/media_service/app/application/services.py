@@ -484,18 +484,21 @@ class FileService:
     async def list_user_files(
         self,
         user_id: str,
+        folder_id: Optional[str] = None,
     ) -> Tuple[bool, Optional[List[dict]], Optional[str]]:
         """
-        List all files owned by a user.
+        List all files owned by a user, optionally filtered by folder.
+        When folder_id is None, returns only root-level files.
         
         Args:
             user_id: Owner identifier
+            folder_id: Optional folder ID to filter by (None = root files only)
             
         Returns:
             Tuple of (success, files_list, error_message)
         """
         try:
-            files = await self.repo.list_by_owner(user_id)
+            files = await self.repo.list_by_owner(user_id, folder_id=folder_id)
             files_list = [
                 {
                     "file_id": f.id,
@@ -504,6 +507,7 @@ class FileService:
                     "content_type": f.content_type,
                     "upload_date": f.upload_date,
                     "encrypted": f.encrypted,
+                    "folder_id": f.folder_id,
                 }
                 for f in files
             ]

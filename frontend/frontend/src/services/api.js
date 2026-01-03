@@ -329,7 +329,7 @@ class APIClient {
    * Get file metadata
    */
   async getFileMetadata(fileId) {
-    return this.request(`${MEDIA_API_URL}/media/files/${fileId}/metadata`, {
+    return this.request(`${MEDIA_API_URL}/files/${fileId}/metadata`, {
       method: "GET",
     });
   }
@@ -338,7 +338,7 @@ class APIClient {
    * Delete file
    */
   async deleteFile(fileId) {
-    return this.request(`${MEDIA_API_URL}/media/files/${fileId}`, {
+    return this.request(`${MEDIA_API_URL}/files/${fileId}`, {
       method: "DELETE",
     });
   }

@@ -186,18 +186,31 @@ class MongoGridFSRepository(IFileRepository):
             logger.error(f"Failed to delete {file_id}: {e}")
             return False
 
-    async def list_by_owner(self, owner_id: str) -> List[File]:
+    async def list_by_owner(self, owner_id: str, folder_id: Optional[str] = None) -> List[File]:
         """
-        List all files owned by a user.
+        List all files owned by a user, optionally filtered by folder.
         
         Args:
             owner_id: Owner identifier
+            folder_id: Optional folder ID to filter by (None = root files only)
             
         Returns:
             List of File entities
         """
         try:
-            cursor = self.fs.find({"metadata.owner": owner_id})
+            # Build query: always filter by owner
+            query = {"metadata.owner": owner_id}
+            
+            # CRITICAL FIX: When folder_id is None, only get root files
+            # When folder_id is provided, get files in that folder
+            if folder_id is None:
+                # Root files: no folder_id or folder_id is None/null
+                query["metadata.folder_id"] = None
+            else:
+                # Files in specific folder
+                query["metadata.folder_id"] = folder_id
+            
+            cursor = self.fs.find(query)
             files = []
 
             async for grid_out in cursor:
@@ -208,6 +221,7 @@ class MongoGridFSRepository(IFileRepository):
                     content_type=meta.get("contentType", grid_out.content_type),
                     size=grid_out.length,
                     owner_id=meta.get("owner", ""),
+                    folder_id=meta.get("folder_id"),
                     upload_date=grid_out.upload_date,
                     encrypted=meta.get("encrypted", False),
                     nonce=meta.get("nonce", ""),

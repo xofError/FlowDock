@@ -15,7 +15,7 @@ export const useFileOperations = () => {
   /**
    * Upload file
    */
-  const uploadFile = useCallback(async (userId, file, onProgress = null) => {
+  const uploadFile = useCallback(async (userId, file, onProgress = null, folderId = null) => {
     setLoading(true);
     setError(null);
     setUploadProgress(0);
@@ -51,9 +51,15 @@ export const useFileOperations = () => {
           reject(new Error("Upload failed"));
         });
 
+        // Build URL with optional folder_id query parameter
+        let uploadUrl = `${import.meta.env.VITE_MEDIA_API_URL || "http://localhost:8001"}/media/upload/${userId}`;
+        if (folderId) {
+          uploadUrl += `?folder_id=${folderId}`;
+        }
+
         xhr.open(
           "POST",
-          `${import.meta.env.VITE_MEDIA_API_URL || "http://localhost:8001"}/media/upload/${userId}`
+          uploadUrl
         );
         const token = localStorage.getItem("access_token");
         if (token) {
