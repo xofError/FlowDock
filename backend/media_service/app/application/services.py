@@ -490,6 +490,10 @@ class FileService:
         List all files owned by a user, optionally filtered by folder.
         When folder_id is None, returns only root-level files.
         
+        [FIX FOR ISSUE 1 - Scope/Leaking Files]
+        Explicitly filter by folder_id to prevent scoping leaks if repository
+        returns all files when folder_id is None.
+        
         Args:
             user_id: Owner identifier
             folder_id: Optional folder ID to filter by (None = root files only)
@@ -499,6 +503,19 @@ class FileService:
         """
         try:
             files = await self.repo.list_by_owner(user_id, folder_id=folder_id)
+            
+            # Explicitly filter by folder_id to ensure proper scoping
+            filtered_files = []
+            for f in files:
+                # If requesting root (None), ensure file has no folder_id
+                if folder_id is None:
+                    if not f.folder_id:
+                        filtered_files.append(f)
+                # If requesting specific folder, ensure IDs match
+                else:
+                    if str(f.folder_id) == str(folder_id):
+                        filtered_files.append(f)
+            
             files_list = [
                 {
                     "file_id": f.id,
@@ -509,7 +526,7 @@ class FileService:
                     "encrypted": f.encrypted,
                     "folder_id": f.folder_id,
                 }
-                for f in files
+                for f in filtered_files
             ]
             return True, files_list, None
 

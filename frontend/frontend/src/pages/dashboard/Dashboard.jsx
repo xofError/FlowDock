@@ -30,15 +30,11 @@ const navItems = [
 
 export default function Dashboard() {
   const navigate = useNavigate();
-  const { user, logout, isAuthenticated, loading: authLoading } = useAuthContext();
+  const { user, isAuthenticated, loading: authLoading } = useAuthContext();
   const {
-    files,
-    loading,
-    error,
     uploadProgress,
     uploadFile,
     downloadFile,
-    getUserFiles,
     deleteFile,
   } = useFileOperations();
 
@@ -48,30 +44,29 @@ export default function Dashboard() {
   // Folder navigation state
   const [currentFolderId, setCurrentFolderId] = useState(null);
   const [folders, setFolders] = useState([]);
-  const [rootFiles, setRootFiles] = useState([]); // Files at root level
+  const [currentFiles, setCurrentFiles] = useState([]); 
   const [folderLoading, setFolderLoading] = useState(false);
   const [breadcrumbs, setBreadcrumbs] = useState([]);
   
   // UI state
-  const [viewMode, setViewMode] = useState("list"); // "list" or "grid"
+  const [viewMode, setViewMode] = useState("list"); 
   const [sortOrder, setSortOrder] = useState("asc");
   const [filterType, setFilterType] = useState(null);
   const [showFilterMenu, setShowFilterMenu] = useState(false);
+  const [selectedFile, setSelectedFile] = useState(null);
   const [selectedItem, setSelectedItem] = useState(null);
   const [showItemMenu, setShowItemMenu] = useState(null);
-  const [fileMetadata, setFileMetadata] = useState(null);
-  const [loadingMetadata, setLoadingMetadata] = useState(false);
   const [showFileModal, setShowFileModal] = useState(false);
-  const [selectedFile, setSelectedFile] = useState(null);
+  const [error] = useState(null);
   
-  // Storage quota (mock data - can be updated from backend)
-  const [storageUsed] = useState(12.5); // GB
-  const [storageTotal] = useState(100); // GB
+  // Storage quota (mock)
+  const [storageUsed] = useState(12.5);
+  const [storageTotal] = useState(100);
 
-  // Combine files and folders for display
-  const displayItems = currentFolderId === null ? [...folders, ...rootFiles] : [...folders, ...rootFiles];
+  // Combine for display
+  const displayItems = [...folders, ...currentFiles];
 
-  // Apply sorting
+  // Sorting
   let sortedItems = [...displayItems].sort((a, b) => {
     const aName = (a.name || a.filename || "").toLowerCase();
     const bName = (b.name || b.filename || "").toLowerCase();
@@ -79,119 +74,62 @@ export default function Dashboard() {
     return sortOrder === "asc" ? comparison : -comparison;
   });
 
-  // Apply filtering (only files)
+  // Filtering
   if (filterType) {
     sortedItems = sortedItems.filter((item) => {
-      if (item.type === "folder") return false; // Always show folders
+      if (item.type === "folder") return false;
       return item.type === filterType;
     });
   }
 
-  // Load files and root folders on mount
-  useEffect(() => {
-    // 1. Wait for Auth Check to finish
-    if (authLoading) return;
+  // Calculate unique file types for filter menu
+  const fileTypes = [...new Set(currentFiles.map((f) => f.type))].filter(Boolean);
 
-    // 2. If not logged in, redirect
+  useEffect(() => {
+    if (authLoading) return;
     if (!isAuthenticated) {
       navigate("/login", { replace: true });
       return;
     }
-
-    // 3. Only fetch if we have a valid user
     if (user?.id) {
-      loadUserContent();
+      loadFolders(null); // Load root on mount
     }
   }, [authLoading, isAuthenticated, user?.id, navigate]);
-  // Load files for the dashboard
-  const loadFiles = async () => {
-    try {
-      await getUserFiles(user.id);
-    } catch (err) {
-      console.error("Failed to load files:", err);
-    }
-  };
 
-  // Load folders from API
   const loadFolders = async (folderId = null) => {
     try {
       setFolderLoading(true);
       let response;
 
       if (folderId === null) {
-        // Load root folders
-        response = await api.request(`${api.MEDIA_API_URL || '/media'}/folders`, {
-          method: "GET",
-          headers: { "Content-Type": "application/json" },
-        });
+        // [FIX] Load ROOT content using specific user endpoint (gets root files + folders)
+        response = await api.getUserContent(user.id);
+        
         setFolders((response.folders || []).map(f => ({
-          ...f,
-          type: "folder",
-          id: f._id || f.folder_id || f.id,
-          name: f.name,
+          ...f, type: "folder", id: f._id || f.folder_id || f.id, name: f.name,
         })));
-        setRootFiles([]);
+        
+        setCurrentFiles((response.files || []).map(f => ({
+          ...f, type: "file", id: f._id || f.file_id || f.id, filename: f.filename || f.name,
+        })));
+        
         setBreadcrumbs([]);
       } else {
-        // Load folder contents (includes both files and subfolders)
+        // Load folder contents
         response = await api.getFolderContents(folderId);
         
-        // Parse subfolders
-        const folderList = (response.subfolders || []).map(f => ({
-          ...f,
-          type: "folder",
-          id: f._id || f.folder_id || f.id,
-          name: f.name,
-        }));
+        setFolders((response.subfolders || []).map(f => ({
+          ...f, type: "folder", id: f._id || f.folder_id || f.id, name: f.name,
+        })));
         
-        // Parse files in this folder
-        const fileList = (response.files || []).map(f => ({
-          ...f,
-          type: "file",
-          id: f._id || f.file_id || f.id,
-          filename: f.filename || f.name,
-        }));
+        setCurrentFiles((response.files || []).map(f => ({
+          ...f, type: "file", id: f._id || f.file_id || f.id, filename: f.filename || f.name,
+        })));
         
-        // Set folders and files for this folder
-        setFolders(folderList);
-        setRootFiles(fileList);
         setBreadcrumbs(response.breadcrumbs || []);
       }
     } catch (err) {
-      console.error("Failed to load folders:", err);
-    } finally {
-      setFolderLoading(false);
-    }
-  };
-
-  // Load all user content (files and folders) at once
-  const loadUserContent = async () => {
-    try {
-      setFolderLoading(true);
-      
-      // Load folders and files from the consolidated endpoint
-      const response = await api.getUserContent(user.id);
-
-      // Parse folders
-      const folderList = (response.folders || []).map(f => ({
-        ...f,
-        type: "folder",
-        id: f._id || f.folder_id || f.id,
-        name: f.name,
-      }));
-      setFolders(folderList);
-
-      // Parse files from the response
-      const fileList = (response.files || []).map(f => ({
-        ...f,
-        type: "file",
-        id: f._id || f.file_id || f.id,
-        filename: f.filename || f.name,
-      }));
-      setRootFiles(fileList);
-      setBreadcrumbs([]); // No breadcrumbs for root
-    } catch (err) {
-      console.error("Failed to load user content:", err);
+      console.error("Failed to load content:", err);
     } finally {
       setFolderLoading(false);
     }
@@ -200,7 +138,7 @@ export default function Dashboard() {
   const handleFolderClick = (folderId) => {
     setCurrentFolderId(folderId);
     loadFolders(folderId);
-    setSelectedItem(null);
+    setShowItemMenu(null);
   };
 
   const handleBreadcrumbClick = (folderId) => {
@@ -215,7 +153,6 @@ export default function Dashboard() {
       await api.createFolder(name, currentFolderId);
       await loadFolders(currentFolderId);
     } catch (err) {
-      console.error("Create folder failed:", err);
       alert("Failed to create folder");
     }
   };
@@ -226,13 +163,8 @@ export default function Dashboard() {
       await api.deleteFolder(folderId);
       await loadFolders(currentFolderId);
     } catch (err) {
-      console.error("Delete folder failed:", err);
       alert("Failed to delete folder");
     }
-  };
-
-  const handleUploadClick = () => {
-    fileInputRef.current?.click();
   };
 
   const handleFileSelect = async (e) => {
@@ -241,18 +173,8 @@ export default function Dashboard() {
     try {
       await uploadFile(user.id, file, null, currentFolderId);
       await loadFolders(currentFolderId);
-    } catch (err) {
-      console.error("Upload failed:", err);
     } finally {
       if (fileInputRef.current) fileInputRef.current.value = "";
-    }
-  };
-
-  const handleDownload = async (fileId, fileName) => {
-    try {
-      await downloadFile(fileId, fileName);
-    } catch (err) {
-      console.error("Download failed:", err);
     }
   };
 
@@ -260,16 +182,12 @@ export default function Dashboard() {
     if (!confirm("Are you sure you want to delete this file?")) return;
     try {
       await deleteFile(fileId);
-      await loadFiles();
-      setFileMetadata(null);
-      setSelectedItem(null);
+      await loadFolders(currentFolderId);
+      setShowFileModal(false);
+      setSelectedFile(null);
     } catch (err) {
-      console.error("Delete failed:", err);
+      console.error(err);
     }
-  };
-
-  const handleUploadFolderClick = () => {
-    folderInputRef.current?.click();
   };
 
   const handleFolderSelect = async (e) => {
@@ -280,10 +198,24 @@ export default function Dashboard() {
         await uploadFile(user.id, file, null, currentFolderId);
       }
       await loadFolders(currentFolderId);
-    } catch (err) {
-      console.error("Folder upload failed:", err);
     } finally {
       if (folderInputRef.current) folderInputRef.current.value = "";
+    }
+  };
+
+  const handleUploadClick = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleUploadFolderClick = () => {
+    folderInputRef.current?.click();
+  };
+
+  const handleDownload = async (fileId, fileName) => {
+    try {
+      await downloadFile(fileId, fileName);
+    } catch (err) {
+      console.error("Download failed:", err);
     }
   };
 
@@ -299,8 +231,6 @@ export default function Dashboard() {
     setFilterType(filterType === type ? null : type);
     setShowFilterMenu(false);
   };
-
-  const fileTypes = [...new Set(files.map((f) => f.type))];
 
   return (
     <TopNavBar>
@@ -518,7 +448,7 @@ export default function Dashboard() {
             }}
           >
             <p className="text-slate-600 text-sm font-medium mb-3">Recent uploads</p>
-            <p className="text-3xl font-bold text-blue-600">{files.length}</p>
+            <p className="text-3xl font-bold text-blue-600">{currentFiles.length}</p>
           </div>
         </div>
 
@@ -760,207 +690,8 @@ export default function Dashboard() {
           </div>
         )}
 
-        {/* File Details Modal */}
-        {selectedItem && selectedItem.type !== "folder" && (
-          <div style={{
-            position: "fixed",
-            top: 0,
-            left: 0,
-            width: "100%",
-            height: "100%",
-            backgroundColor: "rgba(0, 0, 0, 0.5)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            zIndex: 10000
-          }} onClick={() => { setSelectedItem(null); setFileMetadata(null); }}>
-            <div style={{
-              backgroundColor: "#ffffff",
-              borderRadius: "16px",
-              padding: "0",
-              maxWidth: "450px",
-              width: "90%",
-              boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.25)",
-              position: "relative",
-              overflow: "hidden"
-            }} onClick={(e) => e.stopPropagation()}>
-              {/* Header */}
-              <div style={{
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-                padding: "1.5rem",
-                borderBottom: "1px solid #e5e7eb",
-                backgroundColor: "#f8fafc"
-              }}>
-                <h3 className="text-lg font-semibold text-slate-900">File Details</h3>
-                <button 
-                  onClick={() => { setSelectedItem(null); setFileMetadata(null); }} 
-                  style={{
-                    background: "none",
-                    border: "none",
-                    cursor: "pointer",
-                    fontSize: "1.5rem",
-                    color: "#6b7280",
-                    padding: "0.5rem"
-                  }}
-                >
-                  ✕
-                </button>
-              </div>
-              
-              {/* Content */}
-              <div style={{ padding: "2rem" }}>
-                {loadingMetadata ? (
-                  <p className="text-sm text-slate-500 text-center">Loading metadata...</p>
-                ) : (
-                  <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
-                    {/* File Icon and Name */}
-                    <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
-                      <div style={{
-                        fontSize: "3rem",
-                        width: "60px",
-                        height: "60px",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        backgroundColor: "#f3f4f6",
-                        borderRadius: "12px"
-                      }}>
-                        📄
-                      </div>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <p className="text-sm text-slate-500 mb-1">Filename</p>
-                        <p style={{
-                          fontSize: "1rem",
-                          fontWeight: "600",
-                          color: "#1f2937",
-                          wordBreak: "break-word"
-                        }}>
-                          {selectedItem.filename}
-                        </p>
-                      </div>
-                    </div>
-
-                    {/* Details Grid */}
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1.5rem" }}>
-                      <div>
-                        <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-2">File Size</p>
-                        <p style={{
-                          fontSize: "1rem",
-                          fontWeight: "500",
-                          color: "#374151"
-                        }}>
-                          {formatFileSize(selectedItem.size || (fileMetadata?.size || 0))}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-2">File Type</p>
-                        <p style={{
-                          fontSize: "1rem",
-                          fontWeight: "500",
-                          color: "#374151"
-                        }}>
-                          {selectedItem.type || (fileMetadata?.type || "Unknown")}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-2">Uploaded On</p>
-                        <p style={{
-                          fontSize: "1rem",
-                          fontWeight: "500",
-                          color: "#374151"
-                        }}>
-                          {formatDateYYYYMMDD(selectedItem.uploaded_at || (fileMetadata?.created_at || ""))}
-                        </p>
-                      </div>
-                      {fileMetadata?.mime_type && (
-                        <div>
-                          <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-2">MIME Type</p>
-                          <p style={{
-                            fontSize: "0.875rem",
-                            fontWeight: "500",
-                            color: "#374151",
-                            wordBreak: "break-all"
-                          }}>
-                            {fileMetadata.mime_type}
-                          </p>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* Footer with Actions */}
-              <div style={{
-                display: "flex",
-                gap: "1rem",
-                padding: "1.5rem",
-                borderTop: "1px solid #e5e7eb",
-                backgroundColor: "#f8fafc",
-                justifyContent: "flex-end"
-              }}>
-                <button 
-                  onClick={() => { setSelectedItem(null); setFileMetadata(null); }}
-                  style={{
-                    background: "#e5e7eb",
-                    color: "#1f2937",
-                    border: "none",
-                    borderRadius: "8px",
-                    padding: "0.65rem 1.5rem",
-                    cursor: "pointer",
-                    fontSize: "0.875rem",
-                    fontWeight: "500",
-                    transition: "all 0.2s ease"
-                  }}
-                  onMouseEnter={(e) => e.target.style.background = "#d1d5db"}
-                  onMouseLeave={(e) => e.target.style.background = "#e5e7eb"}
-                >
-                  Close
-                </button>
-                <button 
-                  onClick={() => handleDownload(selectedItem.id, selectedItem.filename)}
-                  style={{
-                    background: "#3b82f6",
-                    color: "white",
-                    border: "none",
-                    borderRadius: "8px",
-                    padding: "0.65rem 1.5rem",
-                    cursor: "pointer",
-                    fontSize: "0.875rem",
-                    fontWeight: "500",
-                    transition: "all 0.2s ease"
-                  }}
-                  onMouseEnter={(e) => e.target.style.background = "#2563eb"}
-                  onMouseLeave={(e) => e.target.style.background = "#3b82f6"}
-                >
-                  Download
-                </button>
-                <button 
-                  onClick={() => { handleDelete(selectedItem.id); setSelectedItem(null); setFileMetadata(null); }}
-                  style={{
-                    background: "#ef4444",
-                    color: "white",
-                    border: "none",
-                    borderRadius: "8px",
-                    padding: "0.65rem 1.5rem",
-                    cursor: "pointer",
-                    fontSize: "0.875rem",
-                    fontWeight: "500",
-                    transition: "all 0.2s ease"
-                  }}
-                  onMouseEnter={(e) => e.target.style.background = "#dc2626"}
-                  onMouseLeave={(e) => e.target.style.background = "#ef4444"}
-                >
-                  Delete
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {uploadProgress > 0 && loading && (
+        {/* Upload Progress */}
+        {uploadProgress > 0 && (
           <div className="mt-8 p-6 bg-blue-50 rounded-lg border border-blue-200">
             <div className="flex justify-between mb-3">
               <span className="text-sm font-medium text-blue-900">Upload Progress</span>
@@ -975,17 +706,24 @@ export default function Dashboard() {
           </div>
         )}
 
-        {/* File Details Modal */}
+        {/* File Details Modal Component */}
         {showFileModal && selectedFile && (
           <FileDetailsModal
             file={selectedFile}
             onClose={() => {
               setShowFileModal(false);
               setSelectedFile(null);
-              setFileMetadata(null);
             }}
-            onDownload={handleDownload}
-            onDelete={handleDelete}
+            onDownload={(fileId, fileName) => {
+              downloadFile(fileId, fileName);
+              setShowFileModal(false);
+              setSelectedFile(null);
+            }}
+            onDelete={(fileId) => {
+              handleDelete(fileId);
+              setShowFileModal(false);
+              setSelectedFile(null);
+            }}
             loading={folderLoading}
           />
         )}
