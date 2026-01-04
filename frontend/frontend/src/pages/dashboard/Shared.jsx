@@ -2,6 +2,8 @@ import React, { useState, useEffect } from "react";
 import { Calendar, X } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import TopNavBar from "../../layout/TopNavBar";
+import { api } from "../../services/api";
+import { useAuth } from "../../hooks/useAuth";
 import DashboardIcon from "../../resources/icons/dashboard.svg";
 import MyFilesIcon from "../../resources/icons/my_files.svg";
 import SharedIcon from "../../resources/icons/shared.svg";
@@ -16,25 +18,9 @@ const navItems = [
   { icon: SettingsIcon, label: "Settings", to: "/settings" },
 ];
 
-const SHARED_BY_ME_ACTIVE = [
-  { id: 1, name: "BlockChain.pptx", sharedWith: "parmidabeiki@outlook.com", status: "Active", expiration: "2026-08-09" },
-  { id: 2, name: "Report.pdf", sharedWith: "john@example.com", status: "Active", expiration: "2025-12-15" },
-];
-
-const SHARED_BY_ME_EXPIRED = [
-  { id: 3, name: "Archive.zip", sharedWith: "alice@example.com", status: "Expired", expiration: "2025-01-10" },
-];
-
-const SHARED_WITH_ME_ACTIVE = [
-  { id: 4, name: "Project.xlsx", sharedWith: "boss@company.com", status: "Active", expiration: "2026-03-20" },
-];
-
-const SHARED_WITH_ME_EXPIRED = [
-  { id: 5, name: "OldFile.doc", sharedWith: "colleague@company.com", status: "Expired", expiration: "2025-02-28" },
-];
-
 export default function Shared() {
   const routerNavigate = useNavigate();
+  const { user } = useAuth();
   const [extendFile, setExtendFile] = useState(null);
   const [extendDate, setExtendDate] = useState("");
   const [showCalendar, setShowCalendar] = useState(false);
@@ -44,6 +30,10 @@ export default function Shared() {
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [showAlertModal, setShowAlertModal] = useState(false);
   const [alertMessage, setAlertMessage] = useState("");
+  const [sharedByMe, setSharedByMe] = useState([]);
+  const [sharedWithMe, setSharedWithMe] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
   useEffect(() => {
     function onToggle() { setMobileSidebarOpen(s => !s); }
@@ -55,6 +45,115 @@ export default function Shared() {
     document.body.style.overflow = mobileSidebarOpen ? "hidden" : "";
     return () => { document.body.style.overflow = ""; };
   }, [mobileSidebarOpen]);
+
+  // Fetch shared files
+  useEffect(() => {
+    const fetchSharedFiles = async () => {
+      if (!user || !user.id) {
+        setLoading(false);
+        return;
+      }
+
+      try {
+        setLoading(true);
+        setError(null);
+
+        // Fetch files shared by me
+        const byMeResponse = await api.getSharedByMe(user.id);
+        const processedByMe = await Promise.all((byMeResponse || []).map(async (share) => {
+          let userEmail = "Unknown";
+          try {
+            const userInfo = await api.getCurrentUser(share.shared_with_user_id);
+            userEmail = userInfo.email || "Unknown";
+          } catch (err) {
+            console.error("Failed to fetch user info:", err);
+          }
+          
+          return {
+            id: share.share_id,
+            share_id: share.share_id,
+            file_id: share.file_id,
+            name: share.file_name || `File (${share.file_id.substring(0, 8)})`,
+            sharedWith: userEmail,
+            status: share.expires_at && new Date(share.expires_at) < new Date() ? "Expired" : "Active",
+            expiration: share.expires_at ? new Date(share.expires_at).toLocaleDateString() : "Never",
+            direction: "by_me"
+          };
+        }));
+
+        // Fetch files shared with me
+        const withMeResponse = await api.getSharedWithMe(user.id);
+        const processedWithMe = await Promise.all((withMeResponse || []).map(async (share) => {
+          let userEmail = "Unknown";
+          try {
+            const userInfo = await api.getCurrentUser(share.shared_by_user_id);
+            userEmail = userInfo.email || "Unknown";
+          } catch (err) {
+            console.error("Failed to fetch user info:", err);
+          }
+          
+          return {
+            id: share.share_id,
+            share_id: share.share_id,
+            file_id: share.file_id,
+            name: share.file_name || `File (${share.file_id.substring(0, 8)})`,
+            sharedWith: userEmail,
+            status: share.expires_at && new Date(share.expires_at) < new Date() ? "Expired" : "Active",
+            expiration: share.expires_at ? new Date(share.expires_at).toLocaleDateString() : "Never",
+            direction: "with_me"
+          };
+        }));
+
+        setSharedByMe(processedByMe);
+        setSharedWithMe(processedWithMe);
+      } catch (err) {
+        console.error("Failed to fetch shared files:", err);
+        setError(err.message || "Failed to load shared files");
+        setSharedByMe([]);
+        setSharedWithMe([]);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchSharedFiles();
+  }, [user?.id]);
+
+  const handleRevoke = async (file) => {
+    try {
+      await api.revokeFileShare(file.share_id);
+      
+      // Remove from shared by me list
+      setSharedByMe(prev => prev.filter(f => f.share_id !== file.share_id));
+      
+      setAlertMessage(`✓ Successfully revoked access to "${file.name}"`);
+      setShowAlertModal(true);
+    } catch (err) {
+      console.error("Revoke failed:", err);
+      setAlertMessage("Failed to revoke: " + (err.message || "Unknown error"));
+      setShowAlertModal(true);
+    }
+  };
+
+  const handleDownload = async (file) => {
+    try {
+      const blob = await api.downloadFile(file.file_id);
+      
+      // Create a download link
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = file.name || `file_${file.file_id.substring(0, 8)}`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error("Download failed:", err);
+      setAlertMessage("Failed to download: " + (err.message || "Unknown error"));
+      setShowAlertModal(true);
+    }
+  };
 
   const validateDate = (dateStr) => {
     if (!dateStr) return false;
@@ -170,7 +269,7 @@ export default function Shared() {
     );
   };
 
-  const SharedTable = ({ title, data }) => (
+  const SharedTable = ({ title, data, isSharedByMe = false }) => (
     <div style={{ marginBottom: "2rem" }}>
       <h3 style={{ fontSize: "1.125rem", fontWeight: "600", color: "#0f172a", marginBottom: "1rem" }}>{title}</h3>
       <div className="shared-table" style={{ border: "1px solid #e5e7eb", borderRadius: "8px" }}>
@@ -186,7 +285,7 @@ export default function Shared() {
            <thead>
              <tr style={{ backgroundColor: "transparent", borderBottom: "1px solid #e5e7eb" }}>
                <th style={{ padding: "1rem", fontSize: "0.875rem", fontWeight: 600, color: "#374151" }}>Name</th>
-               <th style={{ padding: "1rem", fontSize: "0.875rem", fontWeight: 600, color: "#374151" }}>Shared With</th>
+               <th style={{ padding: "1rem", fontSize: "0.875rem", fontWeight: 600, color: "#374151" }}>{isSharedByMe ? "Shared With" : "Shared By"}</th>
                <th style={{ padding: "1rem", fontSize: "0.875rem", fontWeight: 600, color: "#374151" }}>Status</th>
                <th style={{ padding: "1rem", fontSize: "0.875rem", fontWeight: 600, color: "#374151" }}>Expiration</th>
                <th style={{ padding: "1rem", fontSize: "0.875rem", fontWeight: 600, color: "#374151" }}>Actions</th>
@@ -204,12 +303,9 @@ export default function Shared() {
                  </td>
                  <td style={{ padding: "1rem", fontSize: "0.875rem", color: "#64748b", whiteSpace: "nowrap" }}>{file.expiration}</td>
                  <td style={{ padding: "1rem" }}>
-                   {file.status === "Active" ? (
+                   <div style={{ display: "flex", gap: "0.5rem" }}>
                      <button
-                       onClick={() => {
-                         setAlertMessage(`Revoked ${file.name}`);
-                         setShowAlertModal(true);
-                       }}
+                       onClick={() => handleDownload(file)}
                        style={{
                          padding: "0.4rem 0.75rem",
                          borderRadius: "6px",
@@ -220,24 +316,40 @@ export default function Shared() {
                          cursor: "pointer",
                        }}
                      >
-                       Revoke
+                       Download
                      </button>
-                   ) : (
-                     <button
-                       onClick={() => handleExtend(file)}
-                       style={{
-                         padding: "0.4rem 0.75rem",
-                         borderRadius: "6px",
-                         border: "1px solid #d1d5db",
-                         backgroundColor: "#f3f4f6",
-                         color: "#000000",
-                         fontSize: "0.875rem",
-                         cursor: "pointer",
-                       }}
-                     >
-                       Extend
-                     </button>
-                   )}
+                     {file.status === "Active" ? (
+                       <button
+                         onClick={() => handleRevoke(file)}
+                         style={{
+                           padding: "0.4rem 0.75rem",
+                           borderRadius: "6px",
+                           border: "1px solid #d1d5db",
+                           backgroundColor: "#f3f4f6",
+                           color: "#000000",
+                           fontSize: "0.875rem",
+                           cursor: "pointer",
+                         }}
+                       >
+                         Revoke
+                       </button>
+                     ) : (
+                       <button
+                         onClick={() => handleExtend(file)}
+                         style={{
+                           padding: "0.4rem 0.75rem",
+                           borderRadius: "6px",
+                           border: "1px solid #d1d5db",
+                           backgroundColor: "#f3f4f6",
+                           color: "#000000",
+                           fontSize: "0.875rem",
+                           cursor: "pointer",
+                         }}
+                       >
+                         Extend
+                       </button>
+                     )}
+                   </div>
                  </td>
                </tr>
              ))}
@@ -357,22 +469,63 @@ export default function Shared() {
         }}
       >
         <header style={{ marginBottom: "3rem" }}>
-          <h1 style={{ fontSize: "2rem", fontWeight: "bold", color: "#0f172a" }}>Shared</h1>
+          <h1 style={{ fontSize: "2rem", fontWeight: "bold", color: "#0f172a" }}>Shared with Me</h1>
         </header>
 
+        {/* Loading State */}
+        {loading && (
+          <div style={{
+            textAlign: "center",
+            padding: "3rem 1rem",
+            color: "#64748b",
+            fontSize: "1rem"
+          }}>
+            <p>Loading shared files...</p>
+          </div>
+        )}
+
+        {/* Error State */}
+        {error && !loading && (
+          <div style={{
+            backgroundColor: "#fee2e2",
+            borderLeft: "4px solid #ef4444",
+            padding: "1rem",
+            borderRadius: "0.375rem",
+            marginBottom: "1.5rem",
+            color: "#991b1b"
+          }}>
+            <p style={{ margin: "0 0 0.5rem 0", fontWeight: "500" }}>Error loading shared files</p>
+            <p style={{ margin: 0, fontSize: "0.875rem" }}>{error}</p>
+          </div>
+        )}
+
         {/* Shared by Me Section */}
-        <section style={{ marginBottom: "4rem" }}>
-          <h2 style={{ fontSize: "1.5rem", fontWeight: "bold", color: "#0f172a", marginBottom: "1.5rem" }}>Shared by Me</h2>
-          <SharedTable title="Active" data={SHARED_BY_ME_ACTIVE} />
-          <SharedTable title="Expired" data={SHARED_BY_ME_EXPIRED} />
-        </section>
+        {!loading && (
+          <section style={{ marginBottom: "4rem" }}>
+            <h2 style={{ fontSize: "1.5rem", fontWeight: "bold", color: "#0f172a", marginBottom: "1.5rem" }}>Shared by Me</h2>
+            {sharedByMe.length === 0 ? (
+              <div style={{ textAlign: "center", padding: "2rem", color: "#9ca3af" }}>
+                No files shared yet
+              </div>
+            ) : (
+              <SharedTable title="Active Shares" data={sharedByMe.filter(f => !f.isExpired)} isSharedByMe={true} onExtend={handleExtend} />
+            )}
+          </section>
+        )}
 
         {/* Shared with Me Section */}
-        <section>
-          <h2 style={{ fontSize: "1.5rem", fontWeight: "bold", color: "#0f172a", marginBottom: "1.5rem" }}>Shared with Me</h2>
-          <SharedTable title="Active" data={SHARED_WITH_ME_ACTIVE} />
-          <SharedTable title="Expired" data={SHARED_WITH_ME_EXPIRED} />
-        </section>
+        {!loading && (
+          <section>
+            <h2 style={{ fontSize: "1.5rem", fontWeight: "bold", color: "#0f172a", marginBottom: "1.5rem" }}>Shared with Me</h2>
+            {sharedWithMe.length === 0 ? (
+              <div style={{ textAlign: "center", padding: "2rem", color: "#9ca3af" }}>
+                No files shared with you
+              </div>
+            ) : (
+              <SharedTable title="Shared Files" data={sharedWithMe} isSharedByMe={false} onExtend={handleExtend} />
+            )}
+          </section>
+        )}
       </main>
 
       {/* Extend Modal */}

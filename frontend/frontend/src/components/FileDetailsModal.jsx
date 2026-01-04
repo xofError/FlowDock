@@ -6,6 +6,7 @@ const FileDetailsModal = ({
     onClose, 
     onDownload, 
     onDelete,
+    onShare,
     loading = false 
 }) => {
     const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -183,8 +184,12 @@ const FileDetailsModal = ({
                     </button>
                     <button
                         onClick={() => {
-                            setAlertMessage("Share functionality is coming soon!");
-                            setShowAlertModal(true);
+                            if (onShare) {
+                                onShare();
+                            } else {
+                                setAlertMessage("Share functionality is not available!");
+                                setShowAlertModal(true);
+                            }
                         }}
                         style={{
                             backgroundColor: "#8b5cf6",

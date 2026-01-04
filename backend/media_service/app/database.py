@@ -85,3 +85,4 @@ def get_db():
 def init_db():
     """Create all PostgreSQL tables"""
     Base.metadata.create_all(bind=engine)
+

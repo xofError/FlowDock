@@ -372,6 +372,7 @@ async def delete_file(
     request: Request = None,
     current_user_id: str = Depends(get_current_user_id),
     service: FileService = Depends(get_file_service),
+    db: Session = Depends(get_db),
 ):
     """
     Delete an encrypted file.
@@ -406,6 +407,16 @@ async def delete_file(
             if error == "Access denied":
                 raise HTTPException(status_code=403, detail=error)
             raise HTTPException(status_code=404, detail=error)
+
+        # Cascade: Delete all shares for this file
+        try:
+            shares_deleted = db.query(Share).filter(Share.file_id == file_id).delete()
+            db.commit()
+            if shares_deleted > 0:
+                logger.info(f"✓ Cascade deleted {shares_deleted} share(s) for file {file_id}")
+        except Exception as share_error:
+            logger.warning(f"Failed to cascade delete shares for file {file_id}: {share_error}")
+            db.rollback()
 
         return FileDeleteResponse(
             status="deleted",
@@ -583,12 +594,13 @@ async def list_user_files(
 async def get_files_shared_with_user(
     user_id: str = Path(..., description="User ID"),
     db: Session = Depends(get_db),
-    current_user_id: str = Depends(get_current_user_id)
+    current_user_id: str = Depends(get_current_user_id),
+    file_service: FileService = Depends(get_file_service),
 ):
     """
     Get all files that have been shared with the user by others.
 
-    Returns list of direct shares (not public links).
+    Returns list of direct shares (not public links) with file metadata.
 
     **Security**: Requires valid JWT token. Users can only view shares intended for them.
     """
@@ -609,9 +621,19 @@ async def get_files_shared_with_user(
 
         result = []
         for share in shares:
+            # Fetch file metadata to get actual file name
+            file_name = "Unknown"
+            try:
+                ok, metadata, err = await file_service.get_file_metadata(share.file_id, requester_user_id=current_user_id, allow_shared=True)
+                if ok and metadata:
+                    file_name = metadata.get("filename", "Unknown")
+            except Exception as e:
+                logger.warning(f"Failed to fetch metadata for file {share.file_id}: {e}")
+            
             result.append({
                 "share_id": str(share.id),
                 "file_id": share.file_id,
+                "file_name": file_name,
                 "shared_by_user_id": str(share.shared_by_user_id),
                 "permission": share.permission,
                 "expires_at": share.expires_at,
@@ -628,12 +650,13 @@ async def get_files_shared_with_user(
 async def get_files_shared_by_user(
     user_id: str = Path(..., description="User ID"),
     db: Session = Depends(get_db),
-    current_user_id: str = Depends(get_current_user_id)
+    current_user_id: str = Depends(get_current_user_id),
+    file_service: FileService = Depends(get_file_service),
 ):
     """
     Get all files that the user has shared with others (direct shares).
 
-    Returns list of direct shares created by this user (not public links).
+    Returns list of direct shares created by this user (not public links) with file metadata.
 
     **Security**: Requires valid JWT token. Users can only view shares they created.
     """
@@ -654,9 +677,19 @@ async def get_files_shared_by_user(
 
         result = []
         for share in shares:
+            # Fetch file metadata to get actual file name
+            file_name = "Unknown"
+            try:
+                ok, metadata, err = await file_service.get_file_metadata(share.file_id, requester_user_id=current_user_id)
+                if ok and metadata:
+                    file_name = metadata.get("filename", "Unknown")
+            except Exception as e:
+                logger.warning(f"Failed to fetch metadata for file {share.file_id}: {e}")
+            
             result.append({
                 "share_id": str(share.id),
                 "file_id": share.file_id,
+                "file_name": file_name,
                 "shared_with_user_id": str(share.shared_with_user_id),
                 "permission": share.permission,
                 "expires_at": share.expires_at,
@@ -667,6 +700,7 @@ async def get_files_shared_by_user(
     except Exception as e:
         logger.error(f"Get user's shared files error: {e}")
         raise HTTPException(status_code=500, detail="Failed to retrieve shared files")
+
 
 
 @router.get("/users/{user_id}/share-links")
@@ -793,6 +827,69 @@ async def create_public_share_link(
     except Exception as e:
         logger.error(f"Create share link error: {e}")
         raise HTTPException(status_code=500, detail="Failed to create share link")
+
+
+# ============================================================================
+# REVOKE FILE SHARE
+# ============================================================================
+@router.delete("/shares/{share_id}")
+async def revoke_file_share(
+    share_id: str = Path(..., description="Share ID to revoke"),
+    db: Session = Depends(get_db),
+    current_user_id: str = Depends(get_current_user_id),
+):
+    """
+    Revoke a file share by removing the share record.
+    
+    Security:
+    - Only the file owner (shared_by_user_id) can revoke the share
+    - Validates ownership before deletion
+    
+    Parameters:
+    - **share_id**: UUID of the share to revoke
+    
+    Returns:
+    - Success message if share was revoked
+    """
+    try:
+        # Convert share_id to UUID
+        try:
+            share_uuid = uuid.UUID(share_id)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid share ID format")
+        
+        # Find the share
+        share = db.query(Share).filter(Share.id == share_uuid).first()
+        
+        if not share:
+            raise HTTPException(status_code=404, detail="Share not found")
+        
+        # Security: Verify the requester is either the creator or the recipient
+        is_creator = str(share.shared_by_user_id) == current_user_id
+        is_recipient = str(share.shared_with_user_id) == current_user_id
+        
+        if not (is_creator or is_recipient):
+            logger.warning(f"Unauthorized revoke attempt: user {current_user_id} tried to revoke share {share_id} (creator: {share.shared_by_user_id}, recipient: {share.shared_with_user_id})")
+            raise HTTPException(status_code=403, detail="You don't have permission to revoke this share")
+        
+        # Delete the share
+        db.delete(share)
+        db.commit()
+        
+        logger.info(f"✓ Share {share_id} revoked by {current_user_id}")
+        
+        return {
+            "status": "revoked",
+            "share_id": share_id,
+            "message": "Share has been revoked successfully"
+        }
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Revoke share error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to revoke share")
 
 
 @router.get("/s/{token}/access")

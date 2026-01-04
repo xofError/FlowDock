@@ -344,16 +344,41 @@ class APIClient {
   }
 
   /**
-   * Share file with user
+   * Share file with user by email
    */
-  async shareFileWithUser(fileId, targetUserId, permission = "view") {
+  async shareFileWithUser(fileId, targetEmail, expiresAt = null) {
     return this.request(`${MEDIA_API_URL}/share/user`, {
       method: "POST",
       body: JSON.stringify({
         file_id: fileId,
-        target_user_id: targetUserId,
-        permission,
+        target_email: targetEmail,
+        permission: "read",
+        expires_at: expiresAt,
       }),
+    });
+  }
+
+  /**
+   * Share folder with user by email
+   */
+  async shareFolderWithUser(folderId, targetEmails, permission = "read") {
+    const targets = Array.isArray(targetEmails) ? targetEmails : [targetEmails];
+    return this.request(`${MEDIA_API_URL}/folders/${folderId}/share`, {
+      method: "POST",
+      body: JSON.stringify({
+        targets,
+        permission,
+        cascade: true,
+      }),
+    });
+  }
+
+  /**
+   * Revoke file share
+   */
+  async revokeFileShare(shareId) {
+    return this.request(`${MEDIA_API_URL}/shares/${shareId}`, {
+      method: "DELETE",
     });
   }
 

@@ -2,11 +2,14 @@ import React, { useState, useEffect } from "react";
 import { Search, X, Calendar } from "lucide-react";
 import { useNavigate as useRouterNavigate } from "react-router-dom";
 import TopNavBar from "../../layout/TopNavBar";
+import FileDetailsModal from "../../components/FileDetailsModal";
 import DashboardIcon from "../../resources/icons/dashboard.svg";
 import MyFilesIcon from "../../resources/icons/my_files.svg";
 import SharedIcon from "../../resources/icons/shared.svg";
 import TrashIcon from "../../resources/icons/trash.svg";
 import SettingsIcon from "../../resources/icons/settings.svg";
+import { api } from "../../services/api";
+import { useAuth } from "../../hooks/useAuth";
 
 const navItems = [
   { icon: DashboardIcon, label: "Dashboard", to: "/dashboard" },
@@ -16,17 +19,9 @@ const navItems = [
   { icon: SettingsIcon, label: "Settings", to: "/settings" },
 ];
 
-// Sample files sorted by last accessed (newest first)
-const SAMPLE_MY_FILES = [
-  { id: 1, name: "Document 1", owner: "You", lastAccessed: "2025-08-20 14:30", size: "2.5 MB", uploadDate: "2025-08-15", hash: "a1b2c3d4e5f6", encryption: "AES-256", downloads: 5 },
-  { id: 2, name: "Presentation 1", owner: "You", lastAccessed: "2025-08-19 10:15", size: "5.8 MB", uploadDate: "2025-07-20", hash: "f6e5d4c3b2a1", encryption: "AES-256", downloads: 12 },
-  { id: 3, name: "Spreadsheet 1", owner: "You", lastAccessed: "2025-08-18 09:45", size: "3.1 MB", uploadDate: "2025-08-05", hash: "c3b2a1f6e5d4", encryption: "AES-256", downloads: 3 },
-  { id: 4, name: "Image 1", owner: "You", lastAccessed: "2025-08-17 16:20", size: "1.2 MB", uploadDate: "2025-08-10", hash: "e5d4c3b2a1f6", encryption: "AES-256", downloads: 8 },
-  { id: 5, name: "Video 1", owner: "You", lastAccessed: "2025-08-16 11:00", size: "15.9 MB", uploadDate: "2025-07-10", hash: "b2a1f6e5d4c3", encryption: "AES-256", downloads: 2 },
-];
-
 export default function MyFiles() {
   const routerNavigate = useRouterNavigate();
+  const { user } = useAuth();
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedFile, setSelectedFile] = useState(null);
   const [shareFile, setShareFile] = useState(null);
@@ -42,8 +37,55 @@ export default function MyFiles() {
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [showAlertModal, setShowAlertModal] = useState(false);
   const [alertMessage, setAlertMessage] = useState("");
+  const [files, setFiles] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [fileModalLoading, setFileModalLoading] = useState(false);
 
-  let displayFiles = SAMPLE_MY_FILES;
+  // Fetch files on component mount
+  useEffect(() => {
+    const fetchFiles = async () => {
+      if (!user || !user.id) {
+        setLoading(false);
+        return;
+      }
+
+      try {
+        setLoading(true);
+        setError(null);
+        console.log("Fetching files for user:", user.id);
+        const response = await api.getUserFiles(user.id);
+        console.log("API Response:", response);
+        
+        // Map API response to frontend format
+        const mappedFiles = (response || []).map((file) => ({
+          id: file.file_id,
+          name: file.filename,
+          owner: "You",
+          lastAccessed: file.upload_date ? new Date(file.upload_date).toLocaleString() : "N/A",
+          size: formatFileSize(file.size),
+          uploadDate: file.upload_date ? new Date(file.upload_date).toLocaleDateString() : "N/A",
+          hash: file.metadata?.hash || "N/A",
+          encryption: file.metadata?.encryption || "AES-256",
+          downloads: file.metadata?.downloads || 0,
+          content_type: file.content_type
+        }));
+        
+        console.log("Mapped files:", mappedFiles);
+        setFiles(mappedFiles);
+      } catch (err) {
+        console.error("Failed to fetch files:", err);
+        setError(err.message || "Failed to load files");
+        setFiles([]);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchFiles();
+  }, [user?.id]);
+
+  let displayFiles = files;
 
   // Apply search in real-time
   if (searchQuery && searchQuery.length > 0) {
@@ -51,9 +93,51 @@ export default function MyFiles() {
     displayFiles = displayFiles.filter((f) => f.name.toLowerCase().includes(q));
   }
 
-  const handleDownload = (file) => {
-    setAlertMessage("Download functionality is currently unavailable. Please use the main file browser.");
-    setShowAlertModal(true);
+  const handleDownloadFile = async (fileId, fileName) => {
+    try {
+      setFileModalLoading(true);
+      const blob = await api.downloadFile(fileId);
+      
+      // Create a download link
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = fileName;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+      
+      // Close modal and refresh files
+      setSelectedFile(null);
+      // Optionally refresh the file list
+    } catch (err) {
+      console.error("Download failed:", err);
+      setAlertMessage("Failed to download file: " + (err.message || "Unknown error"));
+      setShowAlertModal(true);
+    } finally {
+      setFileModalLoading(false);
+    }
+  };
+
+  const handleDeleteFile = async (fileId) => {
+    try {
+      setFileModalLoading(true);
+      await api.deleteFile(fileId);
+      
+      // Remove the file from the list
+      setFiles((prevFiles) => prevFiles.filter((f) => f.id !== fileId));
+      setSelectedFile(null);
+      
+      setAlertMessage("File deleted successfully");
+      setShowAlertModal(true);
+    } catch (err) {
+      console.error("Delete failed:", err);
+      setAlertMessage("Failed to delete file: " + (err.message || "Unknown error"));
+      setShowAlertModal(true);
+    } finally {
+      setFileModalLoading(false);
+    }
   };
 
   const validateEmail = (email) => {
@@ -82,7 +166,7 @@ export default function MyFiles() {
     return date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day;
   };
 
-  const handleCreateShareLink = () => {
+  const handleCreateShareLink = async () => {
     let hasError = false;
     
     // Validate email
@@ -96,24 +180,70 @@ export default function MyFiles() {
       setEmailError("");
     }
     
-    // Validate date
-    if (!shareExpiryDate) {
-      setDateError("Expiry date is required");
-      hasError = true;
-    } else if (!validateDate(shareExpiryDate)) {
-      setDateError("Please enter a valid date (YY/MM/DD or YYYY/MM/DD)");
-      hasError = true;
-    } else {
-      setDateError("");
+    // Validate date (optional)
+    let expirationDate = null;
+    if (shareExpiryDate) {
+      if (!validateDate(shareExpiryDate)) {
+        setDateError("Please enter a valid date (YY/MM/DD or YYYY/MM/DD)");
+        hasError = true;
+      } else {
+        setDateError("");
+        // Parse date
+        const parts = shareExpiryDate.split('/');
+        let year = parseInt(parts[0]);
+        const month = parseInt(parts[1]);
+        const day = parseInt(parts[2]);
+        
+        if (parts[0].length === 2) {
+          year += year < 50 ? 2000 : 1900;
+        }
+        
+        expirationDate = new Date(year, month - 1, day).toISOString();
+      }
     }
     
     if (hasError) return;
 
-    setSuccessMessage(`✓ Share link created for ${shareFile.name}`);
-    setTimeout(() => {
-      setShareFile(null);
-      setSuccessMessage("");
-    }, 2500);
+    try {
+      setFileModalLoading(true);
+      
+      // Call API to share file
+      await api.shareFileWithUser(shareFile.id, shareEmail, expirationDate);
+      
+      setSuccessMessage(`✓ File shared with ${shareEmail}`);
+      setTimeout(() => {
+        setShareFile(null);
+        setSuccessMessage("");
+        setShareEmail("");
+        setShareExpiryDate("");
+      }, 2500);
+    } catch (err) {
+      console.error("Share failed:", err);
+      setEmailError("Failed to share file: " + (err.message || "Unknown error"));
+    } finally {
+      setFileModalLoading(false);
+    }
+  };
+
+  const handleShareFile = async (email, expiryDate) => {
+    try {
+      setFileModalLoading(true);
+      
+      // Call API to share file
+      await api.shareFileWithUser(shareFile.id, email, expiryDate);
+      
+      setSuccessMessage(`✓ File shared with ${email}`);
+      setTimeout(() => {
+        setShareFile(null);
+        setSuccessMessage("");
+      }, 2500);
+    } catch (err) {
+      console.error("Share failed:", err);
+      setAlertMessage("Failed to share file: " + (err.message || "Unknown error"));
+      setShowAlertModal(true);
+    } finally {
+      setFileModalLoading(false);
+    }
   };
 
   const handleShare = (file) => {
@@ -357,8 +487,36 @@ export default function MyFiles() {
             />
           </div>
 
+          {/* Loading State */}
+          {loading && (
+            <div style={{
+              textAlign: "center",
+              padding: "3rem 1rem",
+              color: "#64748b",
+              fontSize: "1rem"
+            }}>
+              <p>Loading files...</p>
+            </div>
+          )}
+
+          {/* Error State */}
+          {error && !loading && (
+            <div style={{
+              backgroundColor: "#fee2e2",
+              borderLeft: "4px solid #ef4444",
+              padding: "1rem",
+              borderRadius: "0.375rem",
+              marginBottom: "1.5rem",
+              color: "#991b1b"
+            }}>
+              <p style={{ margin: "0 0 0.5rem 0", fontWeight: "500" }}>Error loading files</p>
+              <p style={{ margin: 0, fontSize: "0.875rem" }}>{error}</p>
+            </div>
+          )}
+
           {/* Files Table */}
-          <div className="files-table content-width" style={{ backgroundColor: "#ffffff", marginTop: "1.5rem" }}>
+          {!loading && (
+            <div className="files-table content-width" style={{ backgroundColor: "#ffffff", marginTop: "1.5rem" }}>
             <div className="table-inner overflow-x-auto">
               <table style={{ width: "100%", textAlign: "left", borderCollapse: "collapse" }}>
                 <thead>
@@ -369,6 +527,13 @@ export default function MyFiles() {
                   </tr>
                 </thead>
                 <tbody>
+                  {displayFiles.length === 0 && (
+                    <tr>
+                      <td colSpan="3" style={{ textAlign: "center", padding: "2rem", color: "#9ca3af" }}>
+                        {searchQuery ? "No files match your search" : "You haven't uploaded any files yet. Go to Dashboard to upload files."}
+                      </td>
+                    </tr>
+                  )}
                   {displayFiles.map((file) => (
                     <tr key={file.id} style={{ backgroundColor: "#ffffff", height: "2.75rem", borderBottom: displayFiles.indexOf(file) === displayFiles.length - 1 ? "none" : "1px solid #e5e7eb" }}>
                       <td style={{ fontSize: "0.875rem", fontWeight: 500, color: "#0f172a" }}>
@@ -383,65 +548,24 @@ export default function MyFiles() {
                 </tbody>
               </table>
             </div>
-          </div>
+            </div>
+          )}
         </main>
 
         {/* File Details Modal */}
         {selectedFile && !shareFile && (
-          <div className="modal-overlay" onClick={() => setSelectedFile(null)}>
-            <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-              <div className="modal-header">
-                <h2 className="modal-title">File Details</h2>
-                <button className="modal-close-btn" onClick={() => setSelectedFile(null)}>
-                  <X />
-                </button>
-              </div>
-
-              <div className="modal-info">
-                <div className="modal-info-row">
-                  <span className="modal-info-label">Name:</span>
-                  <span className="modal-info-value">{selectedFile.name}</span>
-                </div>
-                <div className="modal-info-row">
-                  <span className="modal-info-label">Size:</span>
-                  <span className="modal-info-value">{selectedFile.size}</span>
-                </div>
-                <div className="modal-info-row">
-                  <span className="modal-info-label">Upload Date:</span>
-                  <span className="modal-info-value">{selectedFile.uploadDate}</span>
-                </div>
-                <div className="modal-info-row">
-                  <span className="modal-info-label">Owner:</span>
-                  <span className="modal-info-value">{selectedFile.owner}</span>
-                </div>
-                <div className="modal-info-row">
-                  <span className="modal-info-label">File Hash:</span>
-                  <span className="modal-info-value" style={{ fontSize: "0.75rem", fontFamily: "monospace" }}>{selectedFile.hash}</span>
-                </div>
-                <div className="modal-info-row">
-                  <span className="modal-info-label">Encryption Status:</span>
-                  <span className="modal-info-value">{selectedFile.encryption}</span>
-                </div>
-                <div className="modal-info-row">
-                  <span className="modal-info-label">Download Count:</span>
-                  <span className="modal-info-value">{selectedFile.downloads}</span>
-                </div>
-                <div className="modal-info-row">
-                  <span className="modal-info-label">Last Accessed:</span>
-                  <span className="modal-info-value">{selectedFile.lastAccessed}</span>
-                </div>
-              </div>
-
-              <div className="modal-buttons">
-                <button className="modal-btn" onClick={() => handleDownload(selectedFile)}>
-                  Download
-                </button>
-                <button className="modal-btn" onClick={() => handleShare(selectedFile)}>
-                  Share
-                </button>
-              </div>
-            </div>
-          </div>
+          <FileDetailsModal
+            file={selectedFile}
+            onClose={() => setSelectedFile(null)}
+            onDownload={(fileId, fileName) => {
+              handleDownloadFile(fileId, fileName);
+            }}
+            onDelete={(fileId) => {
+              handleDeleteFile(fileId);
+            }}
+            onShare={() => setShareFile(selectedFile)}
+            loading={fileModalLoading}
+          />
         )}
 
         {/* Share Modal */}
@@ -594,4 +718,13 @@ export default function MyFiles() {
       )}
     </>
   );
+}
+
+// Utility function to format file size
+function formatFileSize(bytes) {
+  if (!bytes || bytes === 0) return "0 B";
+  const k = 1024;
+  const sizes = ["B", "KB", "MB", "GB", "TB"];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return (Math.round((bytes / Math.pow(k, i)) * 10) / 10) + " " + sizes[i];
 }
