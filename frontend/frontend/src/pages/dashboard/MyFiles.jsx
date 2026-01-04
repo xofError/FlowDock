@@ -28,7 +28,6 @@ const SAMPLE_MY_FILES = [
 export default function MyFiles() {
   const routerNavigate = useRouterNavigate();
   const [searchQuery, setSearchQuery] = useState("");
-  const [appliedSearch, setAppliedSearch] = useState("");
   const [selectedFile, setSelectedFile] = useState(null);
   const [shareFile, setShareFile] = useState(null);
   const [shareEmail, setShareEmail] = useState("");
@@ -41,17 +40,20 @@ export default function MyFiles() {
   const [dateError, setDateError] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  const [showAlertModal, setShowAlertModal] = useState(false);
+  const [alertMessage, setAlertMessage] = useState("");
 
   let displayFiles = SAMPLE_MY_FILES;
 
-  // Apply search
-  if (appliedSearch && appliedSearch.length > 0) {
-    const q = appliedSearch.toLowerCase();
+  // Apply search in real-time
+  if (searchQuery && searchQuery.length > 0) {
+    const q = searchQuery.toLowerCase();
     displayFiles = displayFiles.filter((f) => f.name.toLowerCase().includes(q));
   }
 
   const handleDownload = (file) => {
-    alert(`Downloading: ${file.name}`);
+    setAlertMessage("Download functionality is currently unavailable. Please use the main file browser.");
+    setShowAlertModal(true);
   };
 
   const validateEmail = (email) => {
@@ -335,12 +337,6 @@ export default function MyFiles() {
               placeholder="Search files"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  setAppliedSearch(searchQuery.trim());
-                }
-              }}
               style={{
                 flex: 1,
                 backgroundColor: searchQuery ? "#f3f4f6" : "transparent",
@@ -548,6 +544,54 @@ export default function MyFiles() {
           </div>
         )}
       </TopNavBar>
+
+      {showAlertModal && (
+        <div
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: "rgba(0, 0, 0, 0.5)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 1000
+          }}
+          onClick={() => setShowAlertModal(false)}
+        >
+          <div
+            style={{
+              backgroundColor: "white",
+              padding: "2rem",
+              borderRadius: "8px",
+              maxWidth: "400px",
+              textAlign: "center",
+              boxShadow: "0 4px 6px rgba(0, 0, 0, 0.1)"
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <p style={{ marginTop: 0, marginBottom: "1.5rem", color: "#333" }}>
+              {alertMessage}
+            </p>
+            <button
+              onClick={() => setShowAlertModal(false)}
+              style={{
+                padding: "0.75rem 1.5rem",
+                backgroundColor: "#3b82f6",
+                color: "white",
+                border: "none",
+                borderRadius: "6px",
+                cursor: "pointer",
+                fontSize: "1rem"
+              }}
+            >
+              OK
+            </button>
+          </div>
+        </div>
+      )}
     </>
   );
 }

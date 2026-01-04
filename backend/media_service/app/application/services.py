@@ -1319,16 +1319,13 @@ class FolderService:
                 with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
                     for file_entity, zip_entry_path in files_to_zip:
                         try:
-                            # Get file content
                             _, stream = await self.file_repo.get_file_stream(file_entity.id)
                             if stream:
                                 # [FIX #1] Handle Decryption for encrypted files
                                 if file_entity.encrypted and self.crypto:
                                     try:
-                                        # Unwrap the encrypted key and get nonce
                                         file_key = self.crypto.unwrap_key(bytes.fromhex(file_entity.encrypted_key))
                                         nonce = bytes.fromhex(file_entity.nonce)
-                                        # Decrypt the stream
                                         stream = self.crypto.decrypt_stream(stream, file_key, nonce)
                                         logger.info(f"Decrypting file {file_entity.filename} for archive")
                                     except Exception as decrypt_error:
@@ -1341,8 +1338,6 @@ class FolderService:
                                 try:
                                     with zipf.open(zip_entry_path, 'w') as zf_entry:
                                         async for chunk in stream:
-                                            # Write chunk-by-chunk to disk (via temp zip file)
-                                            # Safe because zipf is writing to file path, not memory
                                             zf_entry.write(chunk)
                                 except Exception as chunk_error:
                                     logger.warning(f"Failed to write {file_entity.filename} to zip in chunks: {chunk_error}")

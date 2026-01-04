@@ -1,137 +1,371 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { X } from 'lucide-react';
 
-/**
- * FileDetailsModal - Displays detailed file information with action buttons
- * Shows file icon, name, size, type, upload date, and security status
- */
 const FileDetailsModal = ({ 
-  file, 
-  onClose, 
-  onDownload, 
-  onDelete,
-  loading = false 
+    file, 
+    onClose, 
+    onDownload, 
+    onDelete,
+    loading = false 
 }) => {
-  if (!file) return null;
+    const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+    const [showAlertModal, setShowAlertModal] = useState(false);
+    const [alertMessage, setAlertMessage] = useState("");
+    
+    if (!file) return null;
 
-  const formatFileSize = (bytes) => {
-    if (!bytes) return "0 B";
-    if (bytes === 0) return "0 B";
-    const k = 1024;
-    const sizes = ["B", "KB", "MB", "GB", "TB"];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return (Math.round((bytes / Math.pow(k, i)) * 10) / 10) + " " + sizes[i];
-  };
-
-  const formatDate = (dateStr) => {
-    if (!dateStr) return "Unknown";
-    const date = new Date(dateStr);
-    return date.toLocaleString();
-  };
-
-  const getFileType = (type) => {
-    if (!type) return "FILE";
-    const parts = type.split('/');
-    return parts[parts.length - 1]?.toUpperCase() || "FILE";
-  };
-
-  return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100] backdrop-blur-sm p-4">
-      <div className="bg-white rounded-2xl w-full max-w-2xl shadow-2xl overflow-hidden transform transition-all animate-in fade-in zoom-in duration-200">
-        
-        {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 bg-gray-50/50">
-          <h3 className="text-lg font-semibold text-gray-800">File Details</h3>
-          <button 
+    return (
+        <div 
+            style={{
+                position: "fixed",
+                inset: 0,
+                backgroundColor: "rgba(0, 0, 0, 0.5)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                zIndex: 9999
+            }}
             onClick={onClose}
-            className="p-2 hover:bg-gray-200 rounded-full transition-colors text-gray-500"
-            disabled={loading}
-          >
-            <X size={20} />
-          </button>
-        </div>
+        >
+            <div 
+                style={{
+                    background: "#fff",
+                    borderRadius: "8px",
+                    padding: "1.5rem",
+                    maxWidth: "500px",
+                    width: "90%",
+                    boxShadow: "0 10px 40px rgba(0, 0, 0, 0.15)",
+                    maxHeight: "90vh",
+                    overflowY: "auto"
+                }}
+                onClick={(e) => e.stopPropagation()}
+            >
+                {/* Header */}
+                <div style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    marginBottom: "1rem"
+                }}>
+                    <h2 style={{
+                        fontSize: "1.25rem",
+                        fontWeight: 600,
+                        color: "#0f172a"
+                    }}>File Details</h2>
+                    <button 
+                        onClick={onClose}
+                        style={{
+                            background: "none",
+                            border: "none",
+                            cursor: "pointer",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            padding: 0
+                        }}
+                    >
+                        <X style={{ color: "#dc2626", width: "1.5rem", height: "1.5rem" }} />
+                    </button>
+                </div>
 
-        {/* Content */}
-        <div className="p-8">
-          <div className="flex flex-col md:flex-row gap-8 items-start">
-            
-            {/* Left: Big Icon Preview */}
-            <div className="w-full md:w-1/3 flex flex-col items-center justify-center bg-blue-50 rounded-xl p-8 border-2 border-blue-100 border-dashed">
-              <span className="text-6xl mb-4">📄</span>
-              <p className="text-sm text-blue-600 font-medium truncate max-w-full text-center">
-                {file.filename}
-              </p>
+                {/* Info Section */}
+                <div style={{ marginBottom: "1.5rem" }}>
+                    <div style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        padding: "0.5rem 0",
+                        borderBottom: "1px solid #e5e7eb",
+                        fontSize: "0.875rem"
+                    }}>
+                        <span style={{ fontWeight: 500, color: "#64748b" }}>Name:</span>
+                        <span style={{ color: "#0f172a" }}>{file?.filename || file?.name || "N/A"}</span>
+                    </div>
+                    <div style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        padding: "0.5rem 0",
+                        borderBottom: "1px solid #e5e7eb",
+                        fontSize: "0.875rem"
+                    }}>
+                        <span style={{ fontWeight: 500, color: "#64748b" }}>Size:</span>
+                        <span style={{ color: "#0f172a" }}>{file?.size || "N/A"}</span>
+                    </div>
+                    <div style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        padding: "0.5rem 0",
+                        borderBottom: "1px solid #e5e7eb",
+                        fontSize: "0.875rem"
+                    }}>
+                        <span style={{ fontWeight: 500, color: "#64748b" }}>Upload Date:</span>
+                        <span style={{ color: "#0f172a" }}>{file?.uploadDate || file?.upload_date || "N/A"}</span>
+                    </div>
+                    <div style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        padding: "0.5rem 0",
+                        borderBottom: "1px solid #e5e7eb",
+                        fontSize: "0.875rem"
+                    }}>
+                        <span style={{ fontWeight: 500, color: "#64748b" }}>Owner:</span>
+                        <span style={{ color: "#0f172a" }}>{file?.owner || "You"}</span>
+                    </div>
+                    <div style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        padding: "0.5rem 0",
+                        borderBottom: "1px solid #e5e7eb",
+                        fontSize: "0.875rem"
+                    }}>
+                        <span style={{ fontWeight: 500, color: "#64748b" }}>File Hash:</span>
+                        <span style={{ color: "#0f172a", fontSize: "0.75rem", fontFamily: "monospace" }}>{file?.hash || "N/A"}</span>
+                    </div>
+                    <div style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        padding: "0.5rem 0",
+                        borderBottom: "1px solid #e5e7eb",
+                        fontSize: "0.875rem"
+                    }}>
+                        <span style={{ fontWeight: 500, color: "#64748b" }}>Encryption Status:</span>
+                        <span style={{ color: "#0f172a" }}>{file?.encryption || (file?.encrypted ? "AES-256" : "None")}</span>
+                    </div>
+                    <div style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        padding: "0.5rem 0",
+                        borderBottom: "1px solid #e5e7eb",
+                        fontSize: "0.875rem"
+                    }}>
+                        <span style={{ fontWeight: 500, color: "#64748b" }}>Download Count:</span>
+                        <span style={{ color: "#0f172a" }}>{file?.downloads || 0}</span>
+                    </div>
+                    <div style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        padding: "0.5rem 0",
+                        fontSize: "0.875rem"
+                    }}>
+                        <span style={{ fontWeight: 500, color: "#64748b" }}>Last Accessed:</span>
+                        <span style={{ color: "#0f172a" }}>{file?.lastAccessed || file?.last_accessed || "N/A"}</span>
+                    </div>
+                </div>
+
+                {/* Buttons */}
+                <div style={{
+                    display: "flex",
+                    gap: "0.5rem",
+                    justifyContent: "flex-end"
+                }}>
+                    <button
+                        onClick={() => {
+                            onDownload(file?.id || file?.file_id, file?.filename || file?.name);
+                            onClose();
+                        }}
+                        style={{
+                            backgroundColor: "#2563eb",
+                            color: "#fff",
+                            border: "none",
+                            padding: "0.5rem 1rem",
+                            borderRadius: "6px",
+                            cursor: "pointer",
+                            fontWeight: 500,
+                            fontSize: "0.875rem",
+                            transition: "background-color 0.2s",
+                            opacity: loading ? 0.6 : 1,
+                            pointerEvents: loading ? "none" : "auto"
+                        }}
+                        onMouseEnter={(e) => !loading && (e.target.style.backgroundColor = "#1d4ed8")}
+                        onMouseLeave={(e) => !loading && (e.target.style.backgroundColor = "#2563eb")}
+                        disabled={loading}
+                    >
+                        Download
+                    </button>
+                    <button
+                        onClick={() => {
+                            setAlertMessage("Share functionality is coming soon!");
+                            setShowAlertModal(true);
+                        }}
+                        style={{
+                            backgroundColor: "#8b5cf6",
+                            color: "#fff",
+                            border: "none",
+                            padding: "0.5rem 1rem",
+                            borderRadius: "6px",
+                            cursor: "pointer",
+                            fontWeight: 500,
+                            fontSize: "0.875rem",
+                            transition: "background-color 0.2s",
+                            opacity: loading ? 0.6 : 1,
+                            pointerEvents: loading ? "none" : "auto"
+                        }}
+                        onMouseEnter={(e) => !loading && (e.target.style.backgroundColor = "#7c3aed")}
+                        onMouseLeave={(e) => !loading && (e.target.style.backgroundColor = "#8b5cf6")}
+                        disabled={loading}
+                    >
+                        Share
+                    </button>
+                    <button
+                        onClick={() => setShowDeleteConfirm(true)}
+                        style={{
+                            backgroundColor: "#ef4444",
+                            color: "#fff",
+                            border: "none",
+                            padding: "0.5rem 1rem",
+                            borderRadius: "6px",
+                            cursor: "pointer",
+                            fontWeight: 500,
+                            fontSize: "0.875rem",
+                            transition: "background-color 0.2s",
+                            opacity: loading ? 0.6 : 1,
+                            pointerEvents: loading ? "none" : "auto"
+                        }}
+                        onMouseEnter={(e) => !loading && (e.target.style.backgroundColor = "#dc2626")}
+                        onMouseLeave={(e) => !loading && (e.target.style.backgroundColor = "#ef4444")}
+                        disabled={loading}
+                    >
+                        Delete
+                    </button>
+                </div>
             </div>
 
-            {/* Right: Metadata List */}
-            <div className="w-full md:w-2/3 space-y-6">
-              <div>
-                <label className="text-xs font-bold text-gray-400 uppercase tracking-wider">File Name</label>
-                <p className="text-gray-900 font-medium break-all">{file.filename}</p>
-              </div>
-
-              <div className="grid grid-cols-2 gap-6">
-                <div>
-                  <label className="text-xs font-bold text-gray-400 uppercase tracking-wider">Size</label>
-                  <p className="text-gray-900">{formatFileSize(file.size)}</p>
+            {/* Delete Confirmation Modal */}
+            {showDeleteConfirm && (
+                <div 
+                    style={{
+                        position: "fixed",
+                        inset: 0,
+                        backgroundColor: "rgba(0, 0, 0, 0.7)",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        zIndex: 10000
+                    }}
+                    onClick={() => setShowDeleteConfirm(false)}
+                >
+                    <div 
+                        style={{
+                            background: "#fff",
+                            borderRadius: "8px",
+                            padding: "2rem",
+                            maxWidth: "400px",
+                            width: "90%",
+                            boxShadow: "0 20px 60px rgba(0, 0, 0, 0.3)"
+                        }}
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        <h3 style={{
+                            fontSize: "1.25rem",
+                            fontWeight: 600,
+                            color: "#0f172a",
+                            marginBottom: "1rem",
+                            margin: "0 0 1rem 0"
+                        }}>
+                            Confirm Delete
+                        </h3>
+                        <p style={{
+                            fontSize: "0.875rem",
+                            color: "#64748b",
+                            marginBottom: "1.5rem",
+                            margin: "0 0 1.5rem 0"
+                        }}>
+                            Are you sure you want to delete "{file?.filename || file?.name}"? This action cannot be undone.
+                        </p>
+                        <div style={{ display: "flex", gap: "0.75rem", justifyContent: "flex-end" }}>
+                            <button
+                                onClick={() => setShowDeleteConfirm(false)}
+                                style={{
+                                    background: "#e5e7eb",
+                                    color: "#0f172a",
+                                    border: "none",
+                                    padding: "0.625rem 1.25rem",
+                                    borderRadius: "6px",
+                                    cursor: "pointer",
+                                    fontWeight: 500,
+                                    fontSize: "0.875rem",
+                                    transition: "background-color 0.2s"
+                                }}
+                                onMouseEnter={(e) => e.target.style.background = "#d1d5db"}
+                                onMouseLeave={(e) => e.target.style.background = "#e5e7eb"}
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={() => {
+                                    onDelete(file?.id || file?.file_id);
+                                    onClose();
+                                }}
+                                style={{
+                                    background: "#ef4444",
+                                    color: "#fff",
+                                    border: "none",
+                                    padding: "0.625rem 1.25rem",
+                                    borderRadius: "6px",
+                                    cursor: "pointer",
+                                    fontWeight: 500,
+                                    fontSize: "0.875rem",
+                                    transition: "background-color 0.2s"
+                                }}
+                                onMouseEnter={(e) => e.target.style.background = "#dc2626"}
+                                onMouseLeave={(e) => e.target.style.background = "#ef4444"}
+                            >
+                                Delete
+                            </button>
+                        </div>
+                    </div>
                 </div>
-                <div>
-                  <label className="text-xs font-bold text-gray-400 uppercase tracking-wider">Type</label>
-                  <p className="text-gray-900 truncate" title={file.content_type}>
-                    {getFileType(file.content_type)}
-                  </p>
+            )}
+
+            {showAlertModal && (
+                <div
+                    style={{
+                        position: "fixed",
+                        top: 0,
+                        left: 0,
+                        right: 0,
+                        bottom: 0,
+                        backgroundColor: "rgba(0, 0, 0, 0.5)",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        zIndex: 10000
+                    }}
+                    onClick={() => setShowAlertModal(false)}
+                >
+                    <div
+                        style={{
+                            backgroundColor: "white",
+                            padding: "2rem",
+                            borderRadius: "8px",
+                            maxWidth: "400px",
+                            textAlign: "center",
+                            boxShadow: "0 4px 6px rgba(0, 0, 0, 0.1)"
+                        }}
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        <p style={{ marginTop: 0, marginBottom: "1.5rem", color: "#333" }}>
+                            {alertMessage}
+                        </p>
+                        <button
+                            onClick={() => setShowAlertModal(false)}
+                            style={{
+                                padding: "0.75rem 1.5rem",
+                                backgroundColor: "#3b82f6",
+                                color: "white",
+                                border: "none",
+                                borderRadius: "6px",
+                                cursor: "pointer",
+                                fontSize: "1rem"
+                            }}
+                        >
+                            OK
+                        </button>
+                    </div>
                 </div>
-              </div>
-
-              <div>
-                <label className="text-xs font-bold text-gray-400 uppercase tracking-wider">Uploaded</label>
-                <p className="text-gray-900">
-                  {formatDate(file.upload_date || file.uploaded_at)}
-                </p>
-              </div>
-
-              {/* Security Status */}
-              <div className="flex items-center gap-3 pt-2 flex-wrap">
-                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                  <svg className="mr-1.5 h-2 w-2 text-green-400" fill="currentColor" viewBox="0 0 8 8"><circle cx="4" cy="4" r="3" /></svg>
-                  Virus Scan Passed
-                </span>
-                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                  Encrypted
-                </span>
-              </div>
-            </div>
-          </div>
+            )}
         </div>
-
-        {/* Footer Actions */}
-        <div className="bg-gray-50 px-6 py-4 flex gap-3 justify-end border-t border-gray-100">
-          <button
-            onClick={() => {
-              if (confirm("Are you sure you want to delete this file?")) {
-                onDelete(file.id || file.file_id);
-                onClose();
-              }
-            }}
-            className="px-4 py-2 text-red-600 hover:bg-red-50 rounded-lg text-sm font-semibold transition-colors disabled:opacity-50"
-            disabled={loading}
-          >
-            Delete File
-          </button>
-          <button
-            onClick={() => {
-              onDownload(file.id || file.file_id, file.filename);
-              onClose();
-            }}
-            className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-semibold shadow-lg shadow-blue-200 transition-all transform hover:-translate-y-0.5 disabled:opacity-50"
-            disabled={loading}
-          >
-            Download
-          </button>
-        </div>
-      </div>
-    </div>
-  );
+    );
 };
 
 export default FileDetailsModal;
+

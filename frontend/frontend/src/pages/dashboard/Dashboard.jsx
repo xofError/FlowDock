@@ -58,10 +58,22 @@ export default function Dashboard() {
   const [showItemMenu, setShowItemMenu] = useState(null);
   const [showFileModal, setShowFileModal] = useState(false);
   const [error] = useState(null);
+  const [searchQuery, setSearchQuery] = useState("");
   
-  // Storage quota (mock)
-  const [storageUsed] = useState(12.5);
-  const [storageTotal] = useState(100);
+  // Modal states
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [showCreateFolderModal, setShowCreateFolderModal] = useState(false);
+  const [newFolderName, setNewFolderName] = useState("");
+  const [folderNameError, setFolderNameError] = useState("");
+  const [showAlertModal, setShowAlertModal] = useState(false);
+  const [alertMessage, setAlertMessage] = useState("");
+  const [alertTitle, setAlertTitle] = useState("Notice");
+  
+  // Storage quota
+  const [storageUsed, setStorageUsed] = useState(0);
+  const [storageTotal, setStorageTotal] = useState(100);
+  const [storageLoading, setStorageLoading] = useState(false);
 
   // Combine for display
   const displayItems = [...folders, ...currentFiles];
@@ -74,11 +86,20 @@ export default function Dashboard() {
     return sortOrder === "asc" ? comparison : -comparison;
   });
 
-  // Filtering
+  // Filtering by type
   if (filterType) {
     sortedItems = sortedItems.filter((item) => {
       if (item.type === "folder") return false;
       return item.type === filterType;
+    });
+  }
+
+  // Filtering by search query
+  if (searchQuery.trim()) {
+    const query = searchQuery.toLowerCase();
+    sortedItems = sortedItems.filter((item) => {
+      const name = (item.name || item.filename || "").toLowerCase();
+      return name.includes(query);
     });
   }
 
@@ -93,8 +114,26 @@ export default function Dashboard() {
     }
     if (user?.id) {
       loadFolders(null); // Load root on mount
+      loadUserStorage(user.id); // Fetch user storage
     }
   }, [authLoading, isAuthenticated, user?.id, navigate]);
+
+  const loadUserStorage = async (userId) => {
+    try {
+      setStorageLoading(true);
+      const userData = await api.getCurrentUser(userId);
+      // Convert bytes to GB
+      const usedGB = userData.storage_used ? (userData.storage_used / (1024 * 1024 * 1024)).toFixed(2) : 0;
+      const limitGB = userData.storage_limit ? (userData.storage_limit / (1024 * 1024 * 1024)).toFixed(2) : 100;
+      setStorageUsed(parseFloat(usedGB));
+      setStorageTotal(parseFloat(limitGB));
+    } catch (err) {
+      console.error("Failed to load user storage:", err);
+      // Keep default values if API fails
+    } finally {
+      setStorageLoading(false);
+    }
+  };
 
   const loadFolders = async (folderId = null) => {
     try {
@@ -147,23 +186,46 @@ export default function Dashboard() {
   };
 
   const handleCreateFolder = async () => {
-    const name = prompt("Enter folder name:");
-    if (!name) return;
+    setShowCreateFolderModal(true);
+    setNewFolderName("");
+    setFolderNameError("");
+  };
+
+  const handleConfirmCreateFolder = async () => {
+    if (!newFolderName.trim()) {
+      setFolderNameError("Folder name cannot be empty");
+      return;
+    }
     try {
-      await api.createFolder(name, currentFolderId);
+      await api.createFolder(newFolderName.trim(), currentFolderId);
       await loadFolders(currentFolderId);
+      setShowCreateFolderModal(false);
+      setNewFolderName("");
     } catch (err) {
-      alert("Failed to create folder");
+      setFolderNameError("Failed to create folder: " + err.message);
     }
   };
 
   const handleDeleteFolder = async (folderId) => {
-    if (!confirm("Delete this folder and all its contents?")) return;
+    setDeleteTarget({ id: folderId, type: "folder" });
+    setShowDeleteModal(true);
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!deleteTarget) return;
     try {
-      await api.deleteFolder(folderId);
+      if (deleteTarget.type === "folder") {
+        await api.deleteFolder(deleteTarget.id);
+      } else {
+        await api.deleteFile(deleteTarget.id);
+      }
       await loadFolders(currentFolderId);
+      setShowDeleteModal(false);
+      setDeleteTarget(null);
+      setShowFileModal(false);
+      setSelectedFile(null);
     } catch (err) {
-      alert("Failed to delete folder");
+      console.error("Delete failed:", err);
     }
   };
 
@@ -179,15 +241,8 @@ export default function Dashboard() {
   };
 
   const handleDelete = async (fileId) => {
-    if (!confirm("Are you sure you want to delete this file?")) return;
-    try {
-      await deleteFile(fileId);
-      await loadFolders(currentFolderId);
-      setShowFileModal(false);
-      setSelectedFile(null);
-    } catch (err) {
-      console.error(err);
-    }
+    setDeleteTarget({ id: fileId, type: "file" });
+    setShowDeleteModal(true);
   };
 
   const handleFolderSelect = async (e) => {
@@ -211,9 +266,33 @@ export default function Dashboard() {
     folderInputRef.current?.click();
   };
 
-  const handleDownload = async (fileId, fileName) => {
+  const handleDownload = async (itemId, itemName, itemType = "file") => {
     try {
-      await downloadFile(fileId, fileName);
+      if (itemType === "folder") {
+        // Download folder as ZIP
+        const response = await fetch(`/media/folders/${itemId}/download`, {
+          headers: {
+            "Authorization": `Bearer ${localStorage.getItem("access_token")}`
+          }
+        });
+        
+        if (!response.ok) {
+          throw new Error(`Download failed: ${response.status}`);
+        }
+        
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `${itemName}.zip`;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+      } else {
+        // Download file
+        await downloadFile(itemId, itemName);
+      }
     } catch (err) {
       console.error("Download failed:", err);
     }
@@ -267,8 +346,8 @@ export default function Dashboard() {
         .content-width { width: 90%; max-width: 90%; margin-left: 0; }
 
         /* table container and inner spacing */
-        .files-table { border: 1px solid #e5e7eb; border-radius: 8px; overflow: hidden; }
-        .files-table > .table-inner { padding: 0 0.5rem 0.5rem 0.5rem; }
+        .files-table { border: 1px solid #e5e7eb; border-radius: 8px; overflow: visible; }
+        .files-table > .table-inner { padding: 0 0.5rem 0.5rem 0.5rem; overflow-x: auto; overflow-y: visible; }
 
         /* header and row separators */
         .files-table thead tr { border-bottom: 1px solid #e5e7eb; }
@@ -481,6 +560,8 @@ export default function Dashboard() {
           <input
             type="text"
             placeholder="Search"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
             className="flex-1 bg-slate-100 rounded-lg focus:ring-2 focus:ring-blue-500 focus:ring-offset-0 outline-none placeholder:text-slate-400"
             style={{
               border: "1px solid #e5e7eb",
@@ -579,7 +660,8 @@ export default function Dashboard() {
                         backgroundColor: selectedItem?.id === item.id ? "#f0f9ff" : "#ffffff",
                         height: "2.75rem",
                         cursor: item.type === "folder" ? "pointer" : "default",
-                        position: "relative"
+                        position: "relative",
+                        zIndex: showItemMenu === item.id ? 50 : 1
                       }}
                     >
                       <td className="text-sm font-medium text-slate-900">
@@ -590,64 +672,82 @@ export default function Dashboard() {
                       <td className="text-sm col-muted">{formatDateYYYYMMDD(item.created_at || item.uploaded_at)}</td>
                       <td className="text-sm col-muted">{item.type === "folder" ? "-" : formatFileSize(item.size)}</td>
                       <td className="text-sm" onClick={(e) => e.stopPropagation()} style={{ position: "sticky", right: 0, backgroundColor: selectedItem?.id === item.id ? "#e0f2fe" : "#ffffff", zIndex: 10 }}>
-                        <div style={{ position: "relative", padding: "0.5rem" }}>
-                          <button 
+                        <div style={{ display: "flex", gap: "0.35rem", justifyContent: "flex-end", padding: "0.4rem 0.5rem", alignItems: "center" }}>
+                          <button
                             onClick={(e) => {
                               e.stopPropagation();
-                              setShowItemMenu(item.id === showItemMenu ? null : item.id);
+                              handleDownload(item.id, item.filename || item.name, item.type);
                             }}
-                            className="transition"
-                            style={{ background: "none", border: "none", padding: "0.25rem 0.5rem", cursor: "pointer" }}
-                            title="More options"
+                            style={{
+                              background: "#3b82f6",
+                              color: "white",
+                              border: "none",
+                              padding: "0.4rem 0.65rem",
+                              borderRadius: "4px",
+                              cursor: "pointer",
+                              fontSize: "0.7rem",
+                              fontWeight: "500",
+                              transition: "all 0.2s",
+                              whiteSpace: "nowrap"
+                            }}
+                            onMouseEnter={(e) => e.target.style.background = "#2563eb"}
+                            onMouseLeave={(e) => e.target.style.background = "#3b82f6"}
+                            title="Download file"
                           >
-                            ⋮
+                            ↓
                           </button>
-                          {showItemMenu === item.id && (
-                            <div style={{
-                              position: "absolute",
-                              right: 0,
-                              top: "100%",
-                              marginTop: 4,
-                              background: "#fff",
-                              border: "1px solid #e5e7eb",
-                              borderRadius: 8,
-                              boxShadow: "0 6px 18px rgba(15,23,42,0.08)",
-                              zIndex: 9999,
-                              minWidth: "120px"
-                            }}>
-                              {item.type === "file" && (
-                                <>
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      handleDownload(item.id, item.filename);
-                                      setShowItemMenu(null);
-                                    }}
-                                    className="w-full text-left px-4 py-2 hover:bg-slate-100 text-sm text-blue-600"
-                                    style={{ border: "none", background: "none", cursor: "pointer" }}
-                                  >
-                                    Download
-                                  </button>
-                                  <div style={{ borderBottom: "1px solid #e5e7eb" }}></div>
-                                </>
-                              )}
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  if (item.type === "folder") {
-                                    handleDeleteFolder(item.id);
-                                  } else {
-                                    handleDelete(item.id);
-                                  }
-                                  setShowItemMenu(null);
-                                }}
-                                className="w-full text-left px-4 py-2 hover:bg-red-50 text-sm text-red-600"
-                                style={{ border: "none", background: "none", cursor: "pointer" }}
-                              >
-                                Delete
-                              </button>
-                            </div>
-                          )}
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setAlertTitle("Coming Soon");
+                              setAlertMessage("Share functionality is coming soon!");
+                              setShowAlertModal(true);
+                            }}
+                            style={{
+                              background: "#8b5cf6",
+                              color: "white",
+                              border: "none",
+                              padding: "0.4rem 0.65rem",
+                              borderRadius: "4px",
+                              cursor: "pointer",
+                              fontSize: "0.7rem",
+                              fontWeight: "500",
+                              transition: "all 0.2s",
+                              whiteSpace: "nowrap"
+                            }}
+                            onMouseEnter={(e) => e.target.style.background = "#7c3aed"}
+                            onMouseLeave={(e) => e.target.style.background = "#8b5cf6"}
+                            title="Share file"
+                          >
+                            ⇄
+                          </button>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (item.type === "folder") {
+                                handleDeleteFolder(item.id);
+                              } else {
+                                handleDelete(item.id);
+                              }
+                            }}
+                            style={{
+                              background: "#ef4444",
+                              color: "white",
+                              border: "none",
+                              padding: "0.4rem 0.65rem",
+                              borderRadius: "4px",
+                              cursor: "pointer",
+                              fontSize: "0.7rem",
+                              fontWeight: "500",
+                              transition: "all 0.2s",
+                              whiteSpace: "nowrap"
+                            }}
+                            onMouseEnter={(e) => e.target.style.background = "#dc2626"}
+                            onMouseLeave={(e) => e.target.style.background = "#ef4444"}
+                            title={item.type === "folder" ? "Delete folder" : "Delete file"}
+                          >
+                            ✕
+                          </button>
                         </div>
                       </td>
                     </tr>
@@ -665,43 +765,193 @@ export default function Dashboard() {
               <div 
                 key={item.id || idx}
                 className="grid-item"
-                onClick={() => {
-                  if (item.type === "folder") {
-                    handleFolderClick(item.id);
-                  } else {
-                    setSelectedItem(item);
-                    setSelectedFile(item);
-                    setShowFileModal(true);
-                  }
-                }}
+                style={{ position: "relative", paddingBottom: "2.5rem" }}
               >
-                <div className="grid-item-icon">
-                  {item.type === "folder" ? "📁" : "📄"}
+                <div
+                  onClick={() => {
+                    if (item.type === "folder") {
+                      handleFolderClick(item.id);
+                    } else {
+                      setSelectedItem(item);
+                      setSelectedFile(item);
+                      setShowFileModal(true);
+                    }
+                  }}
+                  style={{ cursor: "pointer" }}
+                >
+                  <div className="grid-item-icon">
+                    {item.type === "folder" ? "📁" : "📄"}
+                  </div>
+                  <div className="grid-item-name">{item.name || item.filename}</div>
+                  <div className="grid-item-meta">
+                    {item.type === "folder" ? "Folder" : item.type || "File"}
+                  </div>
+                  {item.type !== "folder" && (
+                    <div className="grid-item-meta">{formatFileSize(item.size)}</div>
+                  )}
                 </div>
-                <div className="grid-item-name">{item.name || item.filename}</div>
-                <div className="grid-item-meta">
-                  {item.type === "folder" ? "Folder" : item.type || "File"}
+                
+                {/* Action buttons for grid items */}
+                <div style={{
+                  position: "absolute",
+                  bottom: "0.5rem",
+                  left: "0.5rem",
+                  right: "0.5rem",
+                  display: "flex",
+                  gap: "0.25rem",
+                  justifyContent: "center",
+                  alignItems: "center",
+                  flexWrap: "wrap"
+                }}>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleDownload(item.id, item.filename || item.name, item.type);
+                    }}
+                    style={{
+                      background: "#3b82f6",
+                      color: "white",
+                      border: "none",
+                      padding: "0.4rem 0.6rem",
+                      borderRadius: "4px",
+                      cursor: "pointer",
+                      fontSize: "0.65rem",
+                      fontWeight: "500",
+                      transition: "all 0.2s",
+                      minWidth: "28px"
+                    }}
+                    onMouseEnter={(e) => e.target.style.background = "#2563eb"}
+                    onMouseLeave={(e) => e.target.style.background = "#3b82f6"}
+                    title="Download"
+                  >
+                    ↓
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setAlertTitle("Coming Soon");
+                      setAlertMessage("Share functionality is coming soon!");
+                      setShowAlertModal(true);
+                    }}
+                    style={{
+                      background: "#8b5cf6",
+                      color: "white",
+                      border: "none",
+                      padding: "0.4rem 0.6rem",
+                      borderRadius: "4px",
+                      cursor: "pointer",
+                      fontSize: "0.65rem",
+                      fontWeight: "500",
+                      transition: "all 0.2s",
+                      minWidth: "28px"
+                    }}
+                    onMouseEnter={(e) => e.target.style.background = "#7c3aed"}
+                    onMouseLeave={(e) => e.target.style.background = "#8b5cf6"}
+                    title="Share"
+                  >
+                    ⇄
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (item.type === "folder") {
+                        handleDeleteFolder(item.id);
+                      } else {
+                        handleDelete(item.id);
+                      }
+                    }}
+                    style={{
+                      background: "#ef4444",
+                      color: "white",
+                      border: "none",
+                      padding: "0.4rem 0.6rem",
+                      borderRadius: "4px",
+                      cursor: "pointer",
+                      fontSize: "0.65rem",
+                      fontWeight: "500",
+                      transition: "all 0.2s",
+                      minWidth: "28px"
+                    }}
+                    onMouseEnter={(e) => e.target.style.background = "#dc2626"}
+                    onMouseLeave={(e) => e.target.style.background = "#ef4444"}
+                    title="Delete"
+                  >
+                    ✕
+                  </button>
                 </div>
-                {item.type !== "folder" && (
-                  <div className="grid-item-meta">{formatFileSize(item.size)}</div>
-                )}
               </div>
             ))}
           </div>
         )}
 
-        {/* Upload Progress */}
-        {uploadProgress > 0 && (
-          <div className="mt-8 p-6 bg-blue-50 rounded-lg border border-blue-200">
-            <div className="flex justify-between mb-3">
-              <span className="text-sm font-medium text-blue-900">Upload Progress</span>
-              <span className="text-sm font-medium text-blue-700">{Math.round(uploadProgress)}%</span>
-            </div>
-            <div className="w-full bg-blue-200 rounded-full h-2">
-              <div
-                className="bg-blue-600 h-2 rounded-full transition-all duration-300"
-                style={{ width: `${uploadProgress}%` }}
-              ></div>
+        {/* Upload Progress Modal */}
+        {uploadProgress > 0 && uploadProgress < 100 && (
+          <div style={{
+            position: "fixed",
+            inset: 0,
+            backgroundColor: "rgba(0, 0, 0, 0.5)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 10000
+          }}>
+            <div style={{
+              background: "#fff",
+              borderRadius: "12px",
+              padding: "2rem",
+              maxWidth: "450px",
+              width: "90%",
+              boxShadow: "0 20px 60px rgba(0, 0, 0, 0.2)"
+            }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.5rem" }}>
+                <h2 style={{ fontSize: "1.25rem", fontWeight: 600, color: "#0f172a", margin: 0 }}>
+                  Uploading Files
+                </h2>
+                <button
+                  onClick={() => {}}
+                  disabled
+                  style={{
+                    background: "none",
+                    border: "none",
+                    cursor: "not-allowed",
+                    opacity: 0.5,
+                    fontSize: "1.5rem"
+                  }}
+                  title="Upload in progress..."
+                >
+                  ✕
+                </button>
+              </div>
+              
+              <div style={{ marginBottom: "1.5rem" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "0.75rem" }}>
+                  <span style={{ fontSize: "0.875rem", color: "#64748b", fontWeight: 500 }}>Progress</span>
+                  <span style={{ fontSize: "0.875rem", fontWeight: 600, color: "#2563eb" }}>
+                    {Math.round(uploadProgress)}%
+                  </span>
+                </div>
+                <div style={{
+                  width: "100%",
+                  height: "8px",
+                  backgroundColor: "#e5e7eb",
+                  borderRadius: "4px",
+                  overflow: "hidden"
+                }}>
+                  <div
+                    style={{
+                      height: "100%",
+                      backgroundColor: "#2563eb",
+                      width: `${uploadProgress}%`,
+                      transition: "width 0.3s ease",
+                      borderRadius: "4px"
+                    }}
+                  />
+                </div>
+              </div>
+              
+              <p style={{ fontSize: "0.875rem", color: "#64748b", margin: 0, textAlign: "center" }}>
+                Please wait while your files are being uploaded...
+              </p>
             </div>
           </div>
         )}
@@ -727,7 +977,249 @@ export default function Dashboard() {
             loading={folderLoading}
           />
         )}
+
+        {/* Delete Confirmation Modal */}
+        {showDeleteModal && deleteTarget && (
+          <div style={{
+            position: "fixed",
+            inset: 0,
+            backgroundColor: "rgba(0, 0, 0, 0.5)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 9999
+          }} onClick={() => setShowDeleteModal(false)}>
+            <div style={{
+              background: "#fff",
+              borderRadius: "8px",
+              padding: "2rem",
+              maxWidth: "400px",
+              width: "90%",
+              boxShadow: "0 10px 40px rgba(0, 0, 0, 0.15)"
+            }} onClick={(e) => e.stopPropagation()}>
+              <h2 style={{ fontSize: "1.25rem", fontWeight: 600, color: "#0f172a", marginBottom: "1rem" }}>
+                Confirm Delete
+              </h2>
+              <p style={{ fontSize: "0.875rem", color: "#64748b", marginBottom: "1.5rem" }}>
+                {deleteTarget.type === "folder"
+                  ? "Are you sure you want to delete this folder and all its contents? This action cannot be undone."
+                  : "Are you sure you want to delete this file? This action cannot be undone."}
+              </p>
+              <div style={{ display: "flex", gap: "0.75rem", justifyContent: "flex-end" }}>
+                <button
+                  onClick={() => setShowDeleteModal(false)}
+                  style={{
+                    background: "#e5e7eb",
+                    color: "#0f172a",
+                    border: "none",
+                    padding: "0.625rem 1.25rem",
+                    borderRadius: "6px",
+                    cursor: "pointer",
+                    fontWeight: 500,
+                    fontSize: "0.875rem",
+                    transition: "background-color 0.2s"
+                  }}
+                  onMouseEnter={(e) => e.target.style.background = "#d1d5db"}
+                  onMouseLeave={(e) => e.target.style.background = "#e5e7eb"}
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleConfirmDelete}
+                  style={{
+                    background: "#ef4444",
+                    color: "#fff",
+                    border: "none",
+                    padding: "0.625rem 1.25rem",
+                    borderRadius: "6px",
+                    cursor: "pointer",
+                    fontWeight: 500,
+                    fontSize: "0.875rem",
+                    transition: "background-color 0.2s"
+                  }}
+                  onMouseEnter={(e) => e.target.style.background = "#dc2626"}
+                  onMouseLeave={(e) => e.target.style.background = "#ef4444"}
+                >
+                  Delete
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Create Folder Modal */}
+        {showCreateFolderModal && (
+          <div style={{
+            position: "fixed",
+            inset: 0,
+            backgroundColor: "rgba(0, 0, 0, 0.5)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 9999
+          }} onClick={() => setShowCreateFolderModal(false)}>
+            <div style={{
+              background: "#fff",
+              borderRadius: "8px",
+              padding: "2rem",
+              maxWidth: "400px",
+              width: "90%",
+              boxShadow: "0 10px 40px rgba(0, 0, 0, 0.15)"
+            }} onClick={(e) => e.stopPropagation()}>
+              <h2 style={{ fontSize: "1.25rem", fontWeight: 600, color: "#0f172a", marginBottom: "1rem" }}>
+                Create New Folder
+              </h2>
+              <div style={{ marginBottom: "1.5rem" }}>
+                <label style={{ display: "block", fontSize: "0.875rem", fontWeight: 500, color: "#374151", marginBottom: "0.5rem" }}>
+                  Folder Name
+                </label>
+                <input
+                  type="text"
+                  placeholder="Enter folder name"
+                  value={newFolderName}
+                  onChange={(e) => {
+                    setNewFolderName(e.target.value);
+                    if (folderNameError) setFolderNameError("");
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      handleConfirmCreateFolder();
+                    }
+                  }}
+                  style={{
+                    width: "100%",
+                    border: folderNameError ? "1px solid #dc2626" : "1px solid #d1d5db",
+                    borderRadius: "6px",
+                    padding: "0.625rem 0.875rem",
+                    fontSize: "0.875rem",
+                    boxSizing: "border-box",
+                    outline: "none",
+                    transition: "border-color 0.2s"
+                  }}
+                  onFocus={(e) => {
+                    if (!folderNameError) e.target.style.borderColor = "#2563eb";
+                  }}
+                  onBlur={(e) => {
+                    e.target.style.borderColor = folderNameError ? "#dc2626" : "#d1d5db";
+                  }}
+                />
+                {folderNameError && (
+                  <p style={{ fontSize: "0.75rem", color: "#dc2626", marginTop: "0.25rem" }}>
+                    {folderNameError}
+                  </p>
+                )}
+              </div>
+              <div style={{ display: "flex", gap: "0.75rem", justifyContent: "flex-end" }}>
+                <button
+                  onClick={() => setShowCreateFolderModal(false)}
+                  style={{
+                    background: "#e5e7eb",
+                    color: "#0f172a",
+                    border: "none",
+                    padding: "0.625rem 1.25rem",
+                    borderRadius: "6px",
+                    cursor: "pointer",
+                    fontWeight: 500,
+                    fontSize: "0.875rem",
+                    transition: "background-color 0.2s"
+                  }}
+                  onMouseEnter={(e) => e.target.style.background = "#d1d5db"}
+                  onMouseLeave={(e) => e.target.style.background = "#e5e7eb"}
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleConfirmCreateFolder}
+                  style={{
+                    background: "#2563eb",
+                    color: "#fff",
+                    border: "none",
+                    padding: "0.625rem 1.25rem",
+                    borderRadius: "6px",
+                    cursor: "pointer",
+                    fontWeight: 500,
+                    fontSize: "0.875rem",
+                    transition: "background-color 0.2s"
+                  }}
+                  onMouseEnter={(e) => e.target.style.background = "#1d4ed8"}
+                  onMouseLeave={(e) => e.target.style.background = "#2563eb"}
+                >
+                  Create
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </main>
+
+      {/* Hidden file input for single file upload */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        onChange={handleFileSelect}
+        style={{ display: "none" }}
+      />
+
+      {/* Hidden folder input for folder upload */}
+      <input
+        ref={folderInputRef}
+        type="file"
+        webkitdirectory="true"
+        mozdirectory="true"
+        onChange={handleFolderSelect}
+        style={{ display: "none" }}
+      />
+
+      {showAlertModal && (
+        <div
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: "rgba(0, 0, 0, 0.5)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 1000
+          }}
+          onClick={() => setShowAlertModal(false)}
+        >
+          <div
+            style={{
+              backgroundColor: "white",
+              padding: "2rem",
+              borderRadius: "8px",
+              maxWidth: "400px",
+              textAlign: "center",
+              boxShadow: "0 4px 6px rgba(0, 0, 0, 0.1)"
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 style={{ marginTop: 0, marginBottom: "1rem", color: "#333" }}>
+              {alertTitle}
+            </h3>
+            <p style={{ marginTop: 0, marginBottom: "1.5rem", color: "#666" }}>
+              {alertMessage}
+            </p>
+            <button
+              onClick={() => setShowAlertModal(false)}
+              style={{
+                padding: "0.75rem 1.5rem",
+                backgroundColor: "#3b82f6",
+                color: "white",
+                border: "none",
+                borderRadius: "6px",
+                cursor: "pointer",
+                fontSize: "1rem"
+              }}
+            >
+              OK
+            </button>
+          </div>
+        </div>
+      )}
     </TopNavBar>
   );
 }

@@ -42,6 +42,8 @@ export default function Shared() {
   const [dateError, setDateError] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  const [showAlertModal, setShowAlertModal] = useState(false);
+  const [alertMessage, setAlertMessage] = useState("");
 
   useEffect(() => {
     function onToggle() { setMobileSidebarOpen(s => !s); }
@@ -204,7 +206,10 @@ export default function Shared() {
                  <td style={{ padding: "1rem" }}>
                    {file.status === "Active" ? (
                      <button
-                       onClick={() => alert(`Revoked ${file.name}`)}
+                       onClick={() => {
+                         setAlertMessage(`Revoked ${file.name}`);
+                         setShowAlertModal(true);
+                       }}
                        style={{
                          padding: "0.4rem 0.75rem",
                          borderRadius: "6px",
@@ -437,6 +442,54 @@ export default function Shared() {
                 </div>
               )}
             </div>
+          </div>
+        </div>
+      )}
+
+      {showAlertModal && (
+        <div
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: "rgba(0, 0, 0, 0.5)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 1000
+          }}
+          onClick={() => setShowAlertModal(false)}
+        >
+          <div
+            style={{
+              backgroundColor: "white",
+              padding: "2rem",
+              borderRadius: "8px",
+              maxWidth: "400px",
+              textAlign: "center",
+              boxShadow: "0 4px 6px rgba(0, 0, 0, 0.1)"
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <p style={{ marginTop: 0, marginBottom: "1.5rem", color: "#333" }}>
+              {alertMessage}
+            </p>
+            <button
+              onClick={() => setShowAlertModal(false)}
+              style={{
+                padding: "0.75rem 1.5rem",
+                backgroundColor: "#3b82f6",
+                color: "white",
+                border: "none",
+                borderRadius: "6px",
+                cursor: "pointer",
+                fontSize: "1rem"
+              }}
+            >
+              OK
+            </button>
           </div>
         </div>
       )}
