@@ -27,6 +27,7 @@ class ShareLinkCreate(BaseModel):
 
 
 class ShareLinkResponse(BaseModel):
+    short_code: str
     link_url: str
     expires_at: Optional[datetime]
     has_password: bool

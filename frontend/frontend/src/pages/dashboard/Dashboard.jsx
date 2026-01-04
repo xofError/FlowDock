@@ -10,6 +10,7 @@ import {
   ChevronRight,
   X,
   Calendar,
+  Link,
 } from "lucide-react";
 import DashboardIcon from "../../resources/icons/dashboard.svg";
 import MyFilesIcon from "../../resources/icons/my_files.svg";
@@ -26,6 +27,7 @@ const navItems = [
   { icon: DashboardIcon, label: "Dashboard", to: "/dashboard" },
   { icon: MyFilesIcon, label: "My Files", to: "/my-files" },
   { icon: SharedIcon, label: "Shared", to: "/shared" },
+  { icon: null, label: "Public Links", to: "/public-links", lucideIcon: "Link" },
   { icon: TrashIcon, label: "Trash", to: "/trash" },
   { icon: SettingsIcon, label: "Settings", to: "/settings" },
 ];
@@ -78,9 +80,12 @@ export default function Dashboard() {
   const [calendarDate, setCalendarDate] = useState(new Date());
   const [generatePublicLink, setGeneratePublicLink] = useState(false);
   const [maxDownloads, setMaxDownloads] = useState("");
+  const [publicLinkPassword, setPublicLinkPassword] = useState("");
   const [emailError, setEmailError] = useState("");
   const [dateError, setDateError] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
+  const [publicLinks, setPublicLinks] = useState([]);
+  const [linksLoading, setLinksLoading] = useState(false);
   const [shareError, setShareError] = useState("");
   const [shareLoading, setShareLoading] = useState(false);
   
@@ -283,6 +288,65 @@ export default function Dashboard() {
   };
 
   const handleCreateShareLink = async () => {
+    // If generating public link, only expiry date is needed
+    if (generatePublicLink) {
+      let hasError = false;
+      
+      // Validate date (optional for public links)
+      let expirationDate = null;
+      if (shareExpiryDate) {
+        if (!validateDate(shareExpiryDate)) {
+          setDateError("Please enter a valid date (YY/MM/DD or YYYY/MM/DD)");
+          hasError = true;
+        } else {
+          setDateError("");
+          // Parse date
+          const parts = shareExpiryDate.split('/');
+          let year = parseInt(parts[0]);
+          const month = parseInt(parts[1]);
+          const day = parseInt(parts[2]);
+          
+          if (parts[0].length === 2) {
+            year += year < 50 ? 2000 : 1900;
+          }
+          
+          expirationDate = new Date(year, month - 1, day).toISOString();
+        }
+      }
+      
+      if (hasError) return;
+
+      try {
+        setShareLoading(true);
+        
+        // Call API to create public link with optional password
+        const response = await api.createShareLink(shareFile.id, expirationDate, publicLinkPassword || undefined);
+        
+        // Build link without port - use hostname only
+        const baseUrl = `${window.location.protocol}//${window.location.hostname}`;
+        const linkToken = response.short_code || response.token;
+        const publicLink = `${baseUrl}/#/s/${linkToken}/access`;
+        
+        setSuccessMessage(`✓ Public link created:\n${publicLink}`);
+        // Don't auto-close - let user copy the link
+        // setTimeout(() => {
+        //   setShareFile(null);
+        //   setSuccessMessage("");
+        //   setShareEmail("");
+        //   setShareExpiryDate("");
+        //   setMaxDownloads("");
+        //   setGeneratePublicLink(false);
+        // }, 4000);
+      } catch (err) {
+        console.error("Public link creation failed:", err);
+        setEmailError("Failed to create public link: " + (err.message || "Unknown error"));
+      } finally {
+        setShareLoading(false);
+      }
+      return;
+    }
+    
+    // Otherwise, share with email
     let hasError = false;
     
     if (!shareEmail) {
@@ -343,14 +407,43 @@ export default function Dashboard() {
     setShowCalendar(false);
   };
 
-  const handleShareFile = (file) => {
+  const handleShareFile = async (file) => {
     setShareFile(file);
     setShareEmail("");
     setShareExpiryDate("");
     setGeneratePublicLink(false);
     setMaxDownloads("");
+    setPublicLinkPassword("");
     setEmailError("");
     setDateError("");
+    setSuccessMessage("");
+
+    // Fetch existing public links for this file
+    try {
+      setLinksLoading(true);
+      const links = await api.getFilePublicLinks(file.id);
+      // Filter out inactive (deleted) links
+      const activeLinks = (links || []).filter(link => link.active !== false);
+      setPublicLinks(activeLinks);
+    } catch (err) {
+      console.error("Failed to fetch public links:", err);
+      setPublicLinks([]);
+    } finally {
+      setLinksLoading(false);
+    }
+  };
+
+  const handleDeletePublicLink = async (linkId) => {
+    try {
+      await api.deletePublicLink(linkId);
+      // Remove the deleted link from the list
+      setPublicLinks(publicLinks.filter(link => link.id !== linkId));
+      setSuccessMessage("✓ Public link deleted");
+      setTimeout(() => setSuccessMessage(""), 2000);
+    } catch (err) {
+      console.error("Failed to delete public link:", err);
+      setShareError("Failed to delete link: " + (err.message || "Unknown error"));
+    }
   };
 
   const handleFolderSelect = async (e) => {
@@ -630,15 +723,26 @@ export default function Dashboard() {
                 marginBottom: idx < navItems.length - 1 ? "0.6rem" : "0",
               }}
             >
-              <img 
-                src={item.icon} 
-                alt="" 
-                style={{ 
-                  width: "1.1rem", 
-                  height: "1.1rem", 
-                  flexShrink: 0,
-                }} 
-              />
+              {item.lucideIcon === "Link" ? (
+                <Link 
+                  style={{ 
+                    width: "1.1rem", 
+                    height: "1.1rem", 
+                    flexShrink: 0,
+                    color: "#64748b"
+                  }} 
+                />
+              ) : (
+                <img 
+                  src={item.icon} 
+                  alt="" 
+                  style={{ 
+                    width: "1.1rem", 
+                    height: "1.1rem", 
+                    flexShrink: 0,
+                  }} 
+                />
+              )}
               <span style={{ fontSize: "0.875rem" }}>{item.label}</span>
             </button>
           ))}
@@ -1350,7 +1454,8 @@ export default function Dashboard() {
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            zIndex: 1000
+            zIndex: 1000,
+            overflow: "auto"
           }}
           onClick={() => setShareFile(null)}
         >
@@ -1361,6 +1466,9 @@ export default function Dashboard() {
               borderRadius: "8px",
               maxWidth: "500px",
               width: "90%",
+              maxHeight: "90vh",
+              overflow: "auto",
+              margin: "auto",
               boxShadow: "0 10px 40px rgba(0, 0, 0, 0.15)"
             }}
             onClick={(e) => e.stopPropagation()}
@@ -1387,33 +1495,35 @@ export default function Dashboard() {
             </div>
 
             <div style={{ marginBottom: "1.5rem" }}>
-              {/* Email Input */}
-              <div style={{ marginBottom: "1rem", position: "relative" }}>
-                <label style={{ display: "block", marginBottom: "0.25rem", color: "#374151", fontSize: "0.875rem", fontWeight: 500 }}>Email</label>
-                <input
-                  type="email"
-                  placeholder="Enter email"
-                  value={shareEmail}
-                  onChange={(e) => {
-                    setShareEmail(e.target.value);
-                    if (emailError) setEmailError("");
-                  }}
-                  style={{
-                    width: "100%",
-                    border: emailError ? "1px solid #dc2626" : "1px solid #d1d5db",
-                    borderRadius: "6px",
-                    padding: "0.5rem 0.75rem",
-                    fontSize: "0.875rem",
-                    background: "transparent",
-                    outline: "none",
-                    transition: "border-color 0.2s",
-                    height: "2.5rem",
-                    boxSizing: "border-box"
-                  }}
-                  disabled={shareLoading}
-                />
-                {emailError && <span style={{ color: "#dc2626", fontSize: "0.75rem", marginTop: "0.25rem", display: "block" }}>{emailError}</span>}
-              </div>
+              {/* Email Input - Hidden when generating public link */}
+              {!generatePublicLink && (
+                <div style={{ marginBottom: "1rem", position: "relative" }}>
+                  <label style={{ display: "block", marginBottom: "0.25rem", color: "#374151", fontSize: "0.875rem", fontWeight: 500 }}>Email</label>
+                  <input
+                    type="email"
+                    placeholder="Enter email"
+                    value={shareEmail}
+                    onChange={(e) => {
+                      setShareEmail(e.target.value);
+                      if (emailError) setEmailError("");
+                    }}
+                    style={{
+                      width: "100%",
+                      border: emailError ? "1px solid #dc2626" : "1px solid #d1d5db",
+                      borderRadius: "6px",
+                      padding: "0.5rem 0.75rem",
+                      fontSize: "0.875rem",
+                      background: "transparent",
+                      outline: "none",
+                      transition: "border-color 0.2s",
+                      height: "2.5rem",
+                      boxSizing: "border-box"
+                    }}
+                    disabled={shareLoading}
+                  />
+                  {emailError && <span style={{ color: "#dc2626", fontSize: "0.75rem", marginTop: "0.25rem", display: "block" }}>{emailError}</span>}
+                </div>
+              )}
 
               {/* Expiry Date Input */}
               <div style={{ marginBottom: "1rem", position: "relative" }}>
@@ -1536,6 +1646,32 @@ export default function Dashboard() {
                 />
               </div>
 
+              {/* Password Input (only for public links) */}
+              {generatePublicLink && (
+                <div style={{ marginBottom: "1.5rem" }}>
+                  <label style={{ display: "block", marginBottom: "0.25rem", color: "#374151", fontSize: "0.875rem", fontWeight: 500 }}>Password (optional)</label>
+                  <input
+                    type="password"
+                    placeholder="Leave empty for no password"
+                    value={publicLinkPassword}
+                    onChange={(e) => setPublicLinkPassword(e.target.value)}
+                    style={{
+                      width: "100%",
+                      border: "1px solid #d1d5db",
+                      borderRadius: "6px",
+                      padding: "0.5rem 0.75rem",
+                      fontSize: "0.875rem",
+                      background: "transparent",
+                      outline: "none",
+                      transition: "border-color 0.2s",
+                      height: "2.5rem",
+                      boxSizing: "border-box"
+                    }}
+                    disabled={shareLoading}
+                  />
+                </div>
+              )}
+
               {/* Create Share Link Button */}
               <button
                 onClick={handleCreateShareLink}
@@ -1558,7 +1694,7 @@ export default function Dashboard() {
                 onMouseEnter={(e) => !shareLoading && (e.target.style.backgroundColor = "#1d4ed8")}
                 onMouseLeave={(e) => !shareLoading && (e.target.style.backgroundColor = "#2563eb")}
               >
-                {shareLoading ? "Creating..." : "Create share link"}
+                {shareLoading ? "Creating..." : generatePublicLink ? "Create public link" : "Create share link"}
               </button>
 
               {successMessage && (
@@ -1569,10 +1705,141 @@ export default function Dashboard() {
                   color: "#166534",
                   borderRadius: "6px",
                   fontSize: "0.875rem",
-                  textAlign: "center",
-                  border: "1px solid #bbf7d0"
+                  border: "1px solid #bbf7d0",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  gap: "0.75rem"
                 }}>
-                  {successMessage}
+                  <span style={{ flex: 1, whiteSpace: "pre-wrap", wordBreak: "break-all" }}>{successMessage}</span>
+                  <button
+                    onClick={() => {
+                      const linkText = successMessage.split('\n')[1];
+                      navigator.clipboard.writeText(linkText);
+                      setSuccessMessage("✓ Link copied to clipboard!");
+                      setTimeout(() => setSuccessMessage(""), 2000);
+                    }}
+                    style={{
+                      padding: "0.4rem 0.8rem",
+                      backgroundColor: "#bbf7d0",
+                      color: "#166534",
+                      border: "none",
+                      borderRadius: "4px",
+                      cursor: "pointer",
+                      fontSize: "0.75rem",
+                      fontWeight: 600,
+                      whiteSpace: "nowrap",
+                      flexShrink: 0,
+                      transition: "background-color 0.2s"
+                    }}
+                    onMouseEnter={(e) => e.target.style.backgroundColor = "#86efac"}
+                    onMouseLeave={(e) => e.target.style.backgroundColor = "#bbf7d0"}
+                  >
+                    Copy
+                  </button>
+                </div>
+              )}
+
+              {/* Existing Public Links Section */}
+              {linksLoading && (
+                <div style={{
+                  marginTop: "1.5rem",
+                  padding: "1rem",
+                  backgroundColor: "#f3f4f6",
+                  borderRadius: "6px",
+                  textAlign: "center",
+                  color: "#64748b",
+                  fontSize: "0.875rem"
+                }}>
+                  Loading links...
+                </div>
+              )}
+
+              {!linksLoading && publicLinks.length > 0 && (
+                <div style={{
+                  marginTop: "1.5rem",
+                  paddingTop: "1rem",
+                  borderTop: "1px solid #e5e7eb"
+                }}>
+                  <h3 style={{
+                    fontSize: "0.875rem",
+                    fontWeight: 600,
+                    color: "#374151",
+                    marginBottom: "0.75rem",
+                    margin: 0
+                  }}>
+                    Existing Public Links
+                  </h3>
+                  <div style={{
+                    marginTop: "0.75rem",
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "0.5rem",
+                    maxHeight: "300px",
+                    overflow: "auto"
+                  }}>
+                    {publicLinks.map((link) => {
+                      const baseUrl = `${window.location.protocol}//${window.location.hostname}`;
+                      const linkToken = link.short_code || link.token;
+                      const fullLink = `${baseUrl}/#/s/${linkToken}/access`;
+                      return (
+                      <div
+                        key={link.id}
+                        style={{
+                          padding: "0.75rem",
+                          backgroundColor: "#f9fafb",
+                          border: "1px solid #e5e7eb",
+                          borderRadius: "6px",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "space-between",
+                          fontSize: "0.75rem"
+                        }}
+                      >
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{
+                            color: "#0f172a",
+                            whiteSpace: "nowrap",
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            fontFamily: "monospace",
+                            marginBottom: "0.25rem"
+                          }}>
+                            {fullLink}
+                          </div>
+                          <div style={{ color: "#64748b" }}>
+                            Created: {new Date(link.created_at).toLocaleDateString()}
+                            {link.expires_at && ` | Expires: ${new Date(link.expires_at).toLocaleDateString()}`}
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => handleDeletePublicLink(link.id)}
+                          style={{
+                            marginLeft: "0.5rem",
+                            padding: "0.4rem 0.6rem",
+                            backgroundColor: "#fee2e2",
+                            color: "#dc2626",
+                            border: "none",
+                            borderRadius: "4px",
+                            cursor: "pointer",
+                            fontSize: "0.7rem",
+                            fontWeight: 500,
+                            whiteSpace: "nowrap",
+                            transition: "all 0.2s"
+                          }}
+                          onMouseEnter={(e) => {
+                            e.target.style.backgroundColor = "#fecaca";
+                          }}
+                          onMouseLeave={(e) => {
+                            e.target.style.backgroundColor = "#fee2e2";
+                          }}
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    );
+                    })}
+                  </div>
                 </div>
               )}
             </div>

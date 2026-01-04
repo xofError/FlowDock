@@ -71,10 +71,10 @@ async def download_public_file(
             if not password:
                 raise HTTPException(status_code=403, detail="Password required for this link")
 
-            # Simple password verification (in production use bcrypt or similar)
-            import hashlib
-            password_hash = hashlib.sha256(password.encode()).hexdigest()
-            if password_hash != share_link.password_hash:
+            # Verify password using Argon2 (same as auth_service)
+            from passlib.context import CryptContext
+            pwd_context = CryptContext(schemes=["argon2"], deprecated="auto")
+            if not pwd_context.verify(password, share_link.password_hash):
                 raise HTTPException(status_code=403, detail="Invalid password")
 
         # 6. Get file from file service (public_link is a special requester_id)

@@ -385,12 +385,13 @@ class APIClient {
   /**
    * Create share link
    */
-  async createShareLink(fileId, expiresIn = null) {
+  async createShareLink(fileId, expiresIn = null, password = null) {
     return this.request(`${MEDIA_API_URL}/share/link`, {
       method: "POST",
       body: JSON.stringify({
         file_id: fileId,
         expires_in: expiresIn,
+        password: password,
       }),
     });
   }
@@ -419,6 +420,33 @@ class APIClient {
   async accessSharedLink(token) {
     return this.request(`${MEDIA_API_URL}/s/${token}/access`, {
       method: "POST",
+    });
+  }
+
+  /**
+   * Get public links for a user
+   */
+  async getUserPublicLinks(userId) {
+    return this.request(`${MEDIA_API_URL}/users/${userId}/public-links`, {
+      method: "GET",
+    });
+  }
+
+  /**
+   * Get public links for a specific file
+   */
+  async getFilePublicLinks(fileId) {
+    return this.request(`${MEDIA_API_URL}/files/${fileId}/public-links`, {
+      method: "GET",
+    });
+  }
+
+  /**
+   * Delete a public link
+   */
+  async deletePublicLink(linkId) {
+    return this.request(`${MEDIA_API_URL}/share-links/${linkId}`, {
+      method: "DELETE",
     });
   }
 

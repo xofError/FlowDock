@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Calendar, X } from "lucide-react";
+import { Calendar, X, Link } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import TopNavBar from "../../layout/TopNavBar";
 import { api } from "../../services/api";
@@ -14,6 +14,7 @@ const navItems = [
   { icon: DashboardIcon, label: "Dashboard", to: "/dashboard" },
   { icon: MyFilesIcon, label: "My Files", to: "/my-files" },
   { icon: SharedIcon, label: "Shared", to: "/shared" },
+  { icon: null, label: "Public Links", to: "/public-links", lucideIcon: "Link" },
   { icon: TrashIcon, label: "Trash", to: "/trash" },
   { icon: SettingsIcon, label: "Settings", to: "/settings" },
 ];
@@ -419,20 +420,27 @@ export default function Shared() {
         }}
       >
         <nav style={{ flex: 1 }}>
-          {navItems.map((item, idx) => (
-            <button
-              key={idx}
-              className={`sidebar-btn ${idx === 2 ? "active" : ""}`}
-              onClick={() => routerNavigate(item.to)}
+          {navItems.map((item, idx) => {
+            const isActive = window.location.hash === `#${item.to}`;
+            return (
+              <button
+                key={idx}
+                className={`sidebar-btn ${isActive ? "active" : ""}`}
+                onClick={() => routerNavigate(item.to)}
               >
-              <img 
-                src={item.icon} 
-                alt="" 
-                style={{ width: "1.1rem", height: "1.1rem", flexShrink: 0 }} 
-              />
-              <span style={{ fontSize: "0.875rem" }}>{item.label}</span>
-            </button>
-          ))}
+                {item.lucideIcon === "Link" ? (
+                  <Link style={{ width: "1.1rem", height: "1.1rem", flexShrink: 0, color: isActive ? "#0f172a" : "#64748b", transition: "color 0.2s ease" }} />
+                ) : (
+                  <img 
+                    src={item.icon} 
+                    alt="" 
+                    style={{ width: "1.1rem", height: "1.1rem", flexShrink: 0 }} 
+                  />
+                )}
+                <span style={{ fontSize: "0.875rem" }}>{item.label}</span>
+              </button>
+            );
+          })}
         </nav>
       </aside>
 
@@ -447,7 +455,11 @@ export default function Shared() {
             <nav style={{ display: "flex", flexDirection: "column", gap: "0.6rem" }}>
               {navItems.map((item, idx) => (
                 <button key={idx} onClick={() => { setMobileSidebarOpen(false); routerNavigate(item.to); }} style={{ display: "flex", gap: "0.5rem", alignItems: "center", padding: "0.6rem 0.2rem", background: "transparent", border: "none", cursor: "pointer" }}>
-                  <img src={item.icon} alt="" style={{ width: "1rem", height: "1rem" }} />
+                  {item.lucideIcon === "Link" ? (
+                    <Link style={{ width: "1rem", height: "1rem", color: "#64748b" }} />
+                  ) : (
+                    <img src={item.icon} alt="" style={{ width: "1rem", height: "1rem" }} />
+                  )}
                   <span>{item.label}</span>
                 </button>
               ))}

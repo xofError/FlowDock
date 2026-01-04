@@ -16,6 +16,7 @@ import AdminUserManagement from "./pages/AdminUserManagement.jsx";
 import Dashboard from "./pages/dashboard/Dashboard.jsx";
 import MyFiles from "./pages/dashboard/MyFiles.jsx";
 import Shared from "./pages/dashboard/Shared.jsx";
+import PublicLinks from "./pages/dashboard/PublicLinks.jsx";
 import Trash from "./pages/dashboard/Trash.jsx";
 import Settings from "./pages/dashboard/Settings.jsx";
 import PublicLink from "./pages/PublicLink.jsx";
@@ -110,6 +111,7 @@ function App() {
         <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
         <Route path="/my-files" element={<ProtectedRoute><MyFiles /></ProtectedRoute>} />
         <Route path="/shared" element={<ProtectedRoute><Shared /></ProtectedRoute>} />
+        <Route path="/public-links" element={<ProtectedRoute><PublicLinks /></ProtectedRoute>} />
         <Route path="/trash" element={<ProtectedRoute><Trash /></ProtectedRoute>} />
         <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
         <Route path="/admin/users" element={<ProtectedRoute><AdminUserManagement /></ProtectedRoute>} />
@@ -118,7 +120,7 @@ function App() {
         <Route path="/2fa" element={<TwoFactorAuth />} />
 
         {/* Public link sharing (no auth required) */}
-        <Route path="/share/:linkId" element={<PublicLink />} />
+        <Route path="/s/:token/access" element={<PublicLink />} />
 
         {/* 404 Not Found - must be last */}
         <Route path="*" element={<NotFound />} />

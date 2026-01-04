@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { X } from "lucide-react";
+import { X, Link } from "lucide-react";
 import TopNavBar from "../../layout/TopNavBar";
 import DashboardIcon from "../../resources/icons/dashboard.svg";
 import MyFilesIcon from "../../resources/icons/my_files.svg";
@@ -12,6 +12,7 @@ const navItems = [
   { icon: DashboardIcon, label: "Dashboard", to: "/dashboard" },
   { icon: MyFilesIcon, label: "My Files", to: "/my-files" },
   { icon: SharedIcon, label: "Shared", to: "/shared" },
+  { icon: null, label: "Public Links", to: "/public-links", lucideIcon: "Link" },
   { icon: TrashIcon, label: "Trash", to: "/trash" },
   { icon: SettingsIcon, label: "Settings", to: "/settings" },
 ];
@@ -203,14 +204,18 @@ export default function Trash() {
           {navItems.map((item, idx) => (
             <button
               key={idx}
-              className={`sidebar-btn ${idx === 3 ? "active" : ""}`}
+              className={`sidebar-btn ${idx === 4 ? "active" : ""}`}
               onClick={() => routerNavigate(item.to)}
             >
-              <img 
-                src={item.icon} 
-                alt="" 
-                style={{ width: "1.1rem", height: "1.1rem", flexShrink: 0 }} 
-              />
+              {item.lucideIcon === "Link" ? (
+                <Link style={{ width: "1.1rem", height: "1.1rem", flexShrink: 0, color: "#64748b" }} />
+              ) : (
+                <img 
+                  src={item.icon} 
+                  alt="" 
+                  style={{ width: "1.1rem", height: "1.1rem", flexShrink: 0 }} 
+                />
+              )}
               <span style={{ fontSize: "0.875rem" }}>{item.label}</span>
             </button>
           ))}
@@ -228,7 +233,11 @@ export default function Trash() {
             <nav style={{ display: "flex", flexDirection: "column", gap: "0.6rem" }}>
               {navItems.map((item, idx) => (
                 <button key={idx} onClick={() => { setMobileSidebarOpen(false); routerNavigate(item.to); }} style={{ display: "flex", gap: "0.5rem", alignItems: "center", padding: "0.6rem 0.2rem", background: "transparent", border: "none", cursor: "pointer" }}>
-                  <img src={item.icon} alt="" style={{ width: "1rem", height: "1rem" }} />
+                  {item.lucideIcon === "Link" ? (
+                    <Link style={{ width: "1rem", height: "1rem", color: "#64748b" }} />
+                  ) : (
+                    <img src={item.icon} alt="" style={{ width: "1rem", height: "1rem" }} />
+                  )}
                   <span>{item.label}</span>
                 </button>
               ))}

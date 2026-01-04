@@ -42,7 +42,7 @@ from app.utils.security import (
 from app.models.share import Share, ShareLink
 from sqlalchemy.orm import Session
 import uuid
-from app.database import get_db
+from app.database import get_db, get_mongo_db
 
 
 logger = logging.getLogger(__name__)
@@ -818,6 +818,7 @@ async def create_public_share_link(
 
         # Return fields matching `ShareLinkResponse` schema
         return ShareLinkResponse(
+            short_code=link.token,
             link_url=f"http://localhost:8001/media/s/{link.token}/access",
             expires_at=link.expires_at,
             has_password=bool(link.password_hash),
@@ -892,6 +893,388 @@ async def revoke_file_share(
         raise HTTPException(status_code=500, detail="Failed to revoke share")
 
 
+# ============================================================================
+# PUBLIC LINK MANAGEMENT
+# ============================================================================
+@router.get("/files/{file_id}/public-links")
+async def get_file_public_links(
+    file_id: str = Path(..., description="File ID"),
+    db: Session = Depends(get_db),
+    current_user_id: str = Depends(get_current_user_id)
+):
+    """
+    Get all public links for a file.
+    
+    Security:
+    - Only the file owner can retrieve public links for their file
+    
+    Parameters:
+    - **file_id**: ID of the file
+    
+    Returns:
+    - List of public links with metadata
+    """
+    try:
+        service = await get_file_service()
+        # Verify requester owns the file
+        ok, metadata, err = await service.get_file_metadata(file_id, requester_user_id=current_user_id)
+        if not ok:
+            raise HTTPException(status_code=403, detail="Only file owner can view public links")
+        
+        # Query public links for this file
+        links = db.query(ShareLink).filter(
+            ShareLink.file_id == file_id,
+            ShareLink.created_by_user_id == current_user_id
+        ).all()
+        
+        # Format response
+        return [{
+            "id": str(link.id),
+            "short_code": link.token,
+            "file_id": link.file_id,
+            "created_at": link.created_at.isoformat() if link.created_at else None,
+            "expires_at": link.expires_at.isoformat() if link.expires_at else None,
+            "has_password": bool(link.password_hash),
+            "max_downloads": link.max_downloads,
+            "downloads_used": link.downloads_used,
+            "active": link.active
+        } for link in links]
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Get file public links error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to retrieve public links")
+
+
+@router.get("/users/{user_id}/public-links")
+async def get_user_public_links(
+    user_id: str = Path(..., description="User ID"),
+    db: Session = Depends(get_db),
+    current_user_id: str = Depends(get_current_user_id)
+):
+    """
+    Get all public links created by a user.
+    
+    Security:
+    - Users can only view their own public links
+    
+    Parameters:
+    - **user_id**: ID of the user
+    
+    Returns:
+    - List of all public links created by the user
+    """
+    try:
+        # Security: Users can only view their own links
+        if user_id != current_user_id:
+            raise HTTPException(status_code=403, detail="You can only view your own public links")
+        
+        # Query all public links created by user
+        links = db.query(ShareLink).filter(
+            ShareLink.created_by_user_id == user_id
+        ).all()
+        
+        # Format response
+        return [{
+            "id": str(link.id),
+            "short_code": link.token,
+            "file_id": link.file_id,
+            "created_at": link.created_at.isoformat() if link.created_at else None,
+            "expires_at": link.expires_at.isoformat() if link.expires_at else None,
+            "has_password": bool(link.password_hash),
+            "max_downloads": link.max_downloads,
+            "downloads_used": link.downloads_used,
+            "active": link.active
+        } for link in links]
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Get user public links error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to retrieve public links")
+
+
+@router.delete("/share-links/{link_id}")
+async def delete_public_link(
+    link_id: str = Path(..., description="Public link ID to delete"),
+    db: Session = Depends(get_db),
+    current_user_id: str = Depends(get_current_user_id)
+):
+    """
+    Delete a public link by marking it as inactive.
+    
+    Security:
+    - Only the user who created the link can delete it
+    
+    Parameters:
+    - **link_id**: UUID of the public link to delete
+    
+    Returns:
+    - Success message
+    """
+    try:
+        # Convert link_id to UUID
+        try:
+            link_uuid = uuid.UUID(link_id)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid link ID format")
+        
+        # Find the link
+        link = db.query(ShareLink).filter(ShareLink.id == link_uuid).first()
+        
+        if not link:
+            raise HTTPException(status_code=404, detail="Public link not found")
+        
+        # Security: Verify the requester created the link
+        if str(link.created_by_user_id) != current_user_id:
+            raise HTTPException(status_code=403, detail="You don't have permission to delete this link")
+        
+        # Mark as inactive instead of deleting (preserves history)
+        link.active = False
+        db.commit()
+        
+        logger.info(f"✓ Public link {link_id} deactivated by {current_user_id}")
+        
+        return {
+            "status": "deleted",
+            "link_id": link_id,
+            "message": "Public link has been deleted successfully"
+        }
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Delete public link error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to delete public link")
+
+
+@router.patch("/share-links/{link_id}/extend-expiry")
+async def extend_public_link_expiry(
+    link_id: str = Path(..., description="Public link ID"),
+    new_expiry: datetime = Query(..., description="New expiry date (ISO format)"),
+    db: Session = Depends(get_db),
+    current_user_id: str = Depends(get_current_user_id)
+):
+    """
+    Extend the expiry date of a public link.
+    
+    Security:
+    - Only the user who created the link can extend it
+    
+    Parameters:
+    - **link_id**: UUID of the public link
+    - **new_expiry**: New expiry date in ISO format
+    
+    Returns:
+    - Updated link metadata
+    """
+    try:
+        from datetime import timezone
+        
+        # Convert link_id to UUID
+        try:
+            link_uuid = uuid.UUID(link_id)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid link ID format")
+        
+        # Find the link
+        link = db.query(ShareLink).filter(ShareLink.id == link_uuid).first()
+        
+        if not link:
+            raise HTTPException(status_code=404, detail="Public link not found")
+        
+        # Security: Verify the requester created the link
+        if str(link.created_by_user_id) != current_user_id:
+            raise HTTPException(status_code=403, detail="You don't have permission to modify this link")
+        
+        # Validate new expiry is in the future
+        if new_expiry.tzinfo is None:
+            new_expiry = new_expiry.replace(tzinfo=timezone.utc)
+        
+        if new_expiry <= datetime.now(timezone.utc):
+            raise HTTPException(status_code=400, detail="Expiry date must be in the future")
+        
+        # Update expiry
+        link.expires_at = new_expiry
+        db.commit()
+        
+        logger.info(f"✓ Public link {link_id} expiry extended by {current_user_id}")
+        
+        return {
+            "id": str(link.id),
+            "short_code": link.token,
+            "file_id": link.file_id,
+            "created_at": link.created_at.isoformat() if link.created_at else None,
+            "expires_at": link.expires_at.isoformat() if link.expires_at else None,
+            "has_password": bool(link.password_hash),
+            "max_downloads": link.max_downloads,
+            "downloads_used": link.downloads_used,
+            "active": link.active,
+            "message": "Expiry date updated successfully"
+        }
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Extend public link expiry error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to extend public link expiry")
+
+
+@router.patch("/share-links/{link_id}/update-download-limit")
+async def update_public_link_download_limit(
+    link_id: str = Path(..., description="Public link ID"),
+    max_downloads: int = Query(..., description="New maximum download limit (0 for unlimited)"),
+    db: Session = Depends(get_db),
+    current_user_id: str = Depends(get_current_user_id)
+):
+    """
+    Update the download limit of a public link.
+    
+    Security:
+    - Only the user who created the link can update it
+    
+    Parameters:
+    - **link_id**: UUID of the public link
+    - **max_downloads**: New maximum downloads (0 for unlimited)
+    
+    Returns:
+    - Updated link metadata
+    """
+    try:
+        # Convert link_id to UUID
+        try:
+            link_uuid = uuid.UUID(link_id)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid link ID format")
+        
+        # Find the link
+        link = db.query(ShareLink).filter(ShareLink.id == link_uuid).first()
+        
+        if not link:
+            raise HTTPException(status_code=404, detail="Public link not found")
+        
+        # Security: Verify the requester created the link
+        if str(link.created_by_user_id) != current_user_id:
+            raise HTTPException(status_code=403, detail="You don't have permission to modify this link")
+        
+        # Validate max_downloads
+        if max_downloads < 0:
+            raise HTTPException(status_code=400, detail="Maximum downloads must be 0 or greater")
+        
+        # If reducing limit below current usage, reject
+        if max_downloads > 0 and max_downloads < link.downloads_used:
+            raise HTTPException(status_code=400, detail="Cannot set limit below current download count")
+        
+        # Update download limit
+        link.max_downloads = max_downloads
+        db.commit()
+        
+        logger.info(f"✓ Public link {link_id} download limit updated by {current_user_id}")
+        
+        return {
+            "id": str(link.id),
+            "short_code": link.token,
+            "file_id": link.file_id,
+            "created_at": link.created_at.isoformat() if link.created_at else None,
+            "expires_at": link.expires_at.isoformat() if link.expires_at else None,
+            "has_password": bool(link.password_hash),
+            "max_downloads": link.max_downloads,
+            "downloads_used": link.downloads_used,
+            "active": link.active,
+            "message": "Download limit updated successfully"
+        }
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Update public link download limit error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to update public link download limit")
+
+
+@router.get("/s/{token}/metadata")
+async def get_public_link_file_metadata(
+    token: str = Path(..., description="Share link token"),
+    password: str = Query(None, description="Password if link is protected"),
+    db: Session = Depends(get_db),
+    file_service: FileService = Depends(get_file_service),
+):
+    """
+    Get file metadata for a public link (without downloading).
+    
+    Used by PublicLink.jsx page to display file information.
+    No authentication required - anyone with valid token can access metadata.
+    
+    Parameters:
+    - **token**: Share link token from the URL
+    - **password**: Optional password if link is protected
+    
+    Returns:
+    - File metadata (name, size, type, etc.)
+    """
+    try:
+        # 1. Find the share link
+        share_link = db.query(ShareLink).filter(ShareLink.token == token).first()
+        
+        if not share_link:
+            raise HTTPException(status_code=404, detail="Share link not found")
+        
+        # 2. Verify link is active
+        if not share_link.active:
+            raise HTTPException(status_code=410, detail="Share link is no longer active")
+        
+        # 3. Verify not expired
+        if share_link.expires_at and datetime.now(timezone.utc) > share_link.expires_at:
+            raise HTTPException(status_code=410, detail="Share link has expired")
+        
+        # 4. Verify download limit not exceeded
+        if share_link.max_downloads > 0 and share_link.downloads_used >= share_link.max_downloads:
+            raise HTTPException(status_code=410, detail="Download limit exceeded")
+        
+        # 5. Verify password if protected
+        if share_link.password_hash:
+            if not password:
+                raise HTTPException(status_code=403, detail="Password required")
+
+            # Verify password using Argon2 (same as auth_service)
+            from passlib.context import CryptContext
+            pwd_context = CryptContext(schemes=["argon2"], deprecated="auto")
+            if not pwd_context.verify(password, share_link.password_hash):
+                raise HTTPException(status_code=403, detail="Invalid password")
+        
+        # 5. Get file metadata from file service (as public_link user)
+        success, metadata, error = await file_service.get_file_metadata(
+            share_link.file_id,
+            requester_user_id="public_link"
+        )
+        
+        if not success or not metadata:
+            raise HTTPException(status_code=404, detail="File not found")
+        
+        # 6. Return metadata
+        return {
+            "file_id": share_link.file_id,
+            "name": metadata.get("filename", "Unknown"),
+            "size": metadata.get("size", 0),
+            "type": metadata.get("content_type", "unknown"),
+            "created_at": metadata.get("created_at"),
+            "token": token,
+            "is_password_protected": bool(share_link.password_hash),
+            "max_downloads": share_link.max_downloads,
+            "downloads_used": share_link.downloads_used,
+            "expires_at": share_link.expires_at.isoformat() if share_link.expires_at else None
+        }
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Get public link metadata error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to retrieve file metadata")
+
+
 @router.get("/s/{token}/access")
 async def access_shared_file_get(
     token: str = Path(..., description="Share link token"),
@@ -901,15 +1284,15 @@ async def access_shared_file_get(
     """
     GET endpoint for accessing a public share link (for browser-based access).
 
-    If link is valid, redirects to the download URL.
-    If password is required but not provided, returns error asking for password.
+    Redirects to the frontend PublicLink.jsx page where users can view file info
+    before downloading.
 
     Parameters:
     - **token**: Share link token from the URL (path parameter)
     - **password**: Optional password if link is password-protected (query parameter)
 
     Returns:
-    - Redirect to download URL if successful, or JSON error response
+    - Redirect to frontend PublicLink page if successful, or JSON error response
     """
     try:
         logger.info(f"[1] Access share link - token: {token}, password provided: {password is not None}")
@@ -919,21 +1302,12 @@ async def access_shared_file_get(
         link = SharingService.validate_link_access(db, token, password)
         logger.info(f"[3] Validation passed, link is valid")
 
-        # 2. Increment download stats
-        logger.info(f"[4] About to increment download count")
-        SharingService.increment_download_count(db, token)
-        logger.info(f"[5] Download count incremented")
-
-        # 3. Generate the short-lived download ticket
-        logger.info(f"[6] About to create download token")
-        download_token = create_download_token(link.file_id)
-        logger.info(f"[7] Download token created: {download_token}")
-
-        # 4. Redirect to download URL
-        download_url = f"http://localhost:8001/media/download/{link.file_id}?token={download_token}"
-
-        logger.info(f"[8] Share link access granted - redirecting to download endpoint")
-        return RedirectResponse(url=download_url)
+        # 2. Redirect to frontend PublicLink page
+        # The frontend will handle fetching metadata and downloading
+        frontend_url = f"http://localhost/#/s/{token}/access"
+        
+        logger.info(f"[8] Share link access granted - redirecting to frontend PublicLink page")
+        return RedirectResponse(url=frontend_url)
     except HTTPException as e:
         logger.error(f"[ERROR] Share link access denied - status: {e.status_code}, detail: {e.detail}")
         raise
@@ -1016,9 +1390,7 @@ def access_shared_file_post(
         download_url = f"http://localhost:8001/media/download/{link.file_id}?token={download_token}"
 
         return AccessLinkResponse(
-            download_token=download_token,
-            file_id=link.file_id,
-            filename=link.file_id  # TODO: Get actual filename from metadata
+            download_url=download_url
         )
     except HTTPException:
         raise

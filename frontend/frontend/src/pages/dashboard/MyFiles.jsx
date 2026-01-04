@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Search, X, Calendar } from "lucide-react";
+import { Search, X, Calendar, Link } from "lucide-react";
 import { useNavigate as useRouterNavigate } from "react-router-dom";
 import TopNavBar from "../../layout/TopNavBar";
 import FileDetailsModal from "../../components/FileDetailsModal";
@@ -15,6 +15,7 @@ const navItems = [
   { icon: DashboardIcon, label: "Dashboard", to: "/dashboard" },
   { icon: MyFilesIcon, label: "My Files", to: "/my-files" },
   { icon: SharedIcon, label: "Shared", to: "/shared" },
+  { icon: null, label: "Public Links", to: "/public-links", lucideIcon: "Link" },
   { icon: TrashIcon, label: "Trash", to: "/trash" },
   { icon: SettingsIcon, label: "Settings", to: "/settings" },
 ];
@@ -31,6 +32,7 @@ export default function MyFiles() {
   const [calendarDate, setCalendarDate] = useState(new Date());
   const [generatePublicLink, setGeneratePublicLink] = useState(false);
   const [maxDownloads, setMaxDownloads] = useState("");
+  const [publicLinkPassword, setPublicLinkPassword] = useState("");
   const [emailError, setEmailError] = useState("");
   const [dateError, setDateError] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
@@ -41,6 +43,8 @@ export default function MyFiles() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [fileModalLoading, setFileModalLoading] = useState(false);
+  const [publicLinks, setPublicLinks] = useState([]);
+  const [linksLoading, setLinksLoading] = useState(false);
 
   // Fetch files on component mount
   useEffect(() => {
@@ -167,6 +171,63 @@ export default function MyFiles() {
   };
 
   const handleCreateShareLink = async () => {
+    // If generating public link, only expiry date is needed
+    if (generatePublicLink) {
+      let hasError = false;
+      
+      // Validate date (optional for public links)
+      let expirationDate = null;
+      if (shareExpiryDate) {
+        if (!validateDate(shareExpiryDate)) {
+          setDateError("Please enter a valid date (YY/MM/DD or YYYY/MM/DD)");
+          hasError = true;
+        } else {
+          setDateError("");
+          // Parse date
+          const parts = shareExpiryDate.split('/');
+          let year = parseInt(parts[0]);
+          const month = parseInt(parts[1]);
+          const day = parseInt(parts[2]);
+          
+          if (parts[0].length === 2) {
+            year += year < 50 ? 2000 : 1900;
+          }
+          
+          expirationDate = new Date(year, month - 1, day).toISOString();
+        }
+      }
+      
+      if (hasError) return;
+
+      try {
+        setFileModalLoading(true);
+        
+        // Call API to create public link with optional password
+        const response = await api.createShareLink(shareFile.id, expirationDate, publicLinkPassword || undefined);
+        
+        // The API returns link_url which already contains the full URL
+        const publicLink = response.link_url || `${window.location.origin}/#/s/${response.token}/access`;
+        
+        setSuccessMessage(`✓ Public link created:\n${publicLink}`);
+        // Don't auto-close - let user copy the link
+        // setTimeout(() => {
+        //   setShareFile(null);
+        //   setSuccessMessage("");
+        //   setShareEmail("");
+        //   setShareExpiryDate("");
+        //   setMaxDownloads("");
+        //   setGeneratePublicLink(false);
+        // }, 4000);
+      } catch (err) {
+        console.error("Public link creation failed:", err);
+        setEmailError("Failed to create public link: " + (err.message || "Unknown error"));
+      } finally {
+        setFileModalLoading(false);
+      }
+      return;
+    }
+    
+    // Otherwise, share with email
     let hasError = false;
     
     // Validate email
@@ -246,14 +307,41 @@ export default function MyFiles() {
     }
   };
 
-  const handleShare = (file) => {
+  const handleShare = async (file) => {
     setShareFile(file);
     setShareEmail("");
     setShareExpiryDate("");
     setGeneratePublicLink(false);
     setMaxDownloads("");
+    setPublicLinkPassword("");
     setEmailError("");
     setDateError("");
+    setSuccessMessage("");
+    
+    // Fetch existing public links for this file
+    try {
+      setLinksLoading(true);
+      const links = await api.getFilePublicLinks(file.id);
+      setPublicLinks(links || []);
+    } catch (err) {
+      console.error("Failed to fetch public links:", err);
+      setPublicLinks([]);
+    } finally {
+      setLinksLoading(false);
+    }
+  };
+
+  const handleDeletePublicLink = async (linkId) => {
+    try {
+      await api.deletePublicLink(linkId);
+      // Remove the deleted link from the list
+      setPublicLinks(publicLinks.filter(link => link.id !== linkId));
+      setSuccessMessage("✓ Public link deleted");
+      setTimeout(() => setSuccessMessage(""), 2000);
+    } catch (err) {
+      console.error("Failed to delete public link:", err);
+      setEmailError("Failed to delete link: " + (err.message || "Unknown error"));
+    }
   };
 
   const handleCalendarDateSelect = (day, month, year) => {
@@ -412,11 +500,15 @@ export default function MyFiles() {
                 className={`sidebar-btn ${idx === 1 ? "active" : ""}`}
                 onClick={() => routerNavigate(item.to)}
               >
-                <img 
-                  src={item.icon} 
-                  alt="" 
-                  style={{ width: "1.1rem", height: "1.1rem", flexShrink: 0 }} 
-                />
+                {item.lucideIcon === "Link" ? (
+                  <Link style={{ width: "1.1rem", height: "1.1rem", flexShrink: 0, color: "#64748b" }} />
+                ) : (
+                  <img 
+                    src={item.icon} 
+                    alt="" 
+                    style={{ width: "1.1rem", height: "1.1rem", flexShrink: 0 }} 
+                  />
+                )}
                 <span style={{ fontSize: "0.875rem" }}>{item.label}</span>
               </button>
             ))}
@@ -434,7 +526,11 @@ export default function MyFiles() {
               <nav style={{ display: "flex", flexDirection: "column", gap: "0.6rem" }}>
                 {navItems.map((item, idx) => (
                   <button key={idx} onClick={() => { setMobileSidebarOpen(false); routerNavigate(item.to); }} style={{ display: "flex", gap: "0.5rem", alignItems: "center", padding: "0.6rem 0.2rem", background: "transparent", border: "none", cursor: "pointer" }}>
-                    <img src={item.icon} alt="" style={{ width: "1rem", height: "1rem" }} />
+                    {item.lucideIcon === "Link" ? (
+                      <Link style={{ width: "1rem", height: "1rem", color: "#64748b" }} />
+                    ) : (
+                      <img src={item.icon} alt="" style={{ width: "1rem", height: "1rem" }} />
+                    )}
                     <span>{item.label}</span>
                   </button>
                 ))}
@@ -580,21 +676,23 @@ export default function MyFiles() {
               </div>
 
               <div style={{ marginBottom: "1.5rem" }}>
-                {/* Email Input */}
-                <div className="share-input-group">
-                  <label className="share-input-label">Email</label>
-                  <input
-                    type="email"
-                    placeholder="Enter email"
-                    value={shareEmail}
-                    onChange={(e) => {
-                      setShareEmail(e.target.value);
-                      if (emailError) setEmailError("");
-                    }}
-                    className="share-input"
-                  />
-                  {emailError && <span className="error-text">{emailError}</span>}
-                </div>
+                {/* Email Input - Hidden when generating public link */}
+                {!generatePublicLink && (
+                  <div className="share-input-group">
+                    <label className="share-input-label">Email</label>
+                    <input
+                      type="email"
+                      placeholder="Enter email"
+                      value={shareEmail}
+                      onChange={(e) => {
+                        setShareEmail(e.target.value);
+                        if (emailError) setEmailError("");
+                      }}
+                      className="share-input"
+                    />
+                    {emailError && <span className="error-text">{emailError}</span>}
+                  </div>
+                )}
 
                 {/* Expiry Date Input */}
                 <div className="share-input-group">
@@ -645,9 +743,23 @@ export default function MyFiles() {
                   />
                 </div>
 
+                {/* Password Input (only for public links) */}
+                {generatePublicLink && (
+                  <div className="share-input-group">
+                    <label className="share-input-label">Password (optional)</label>
+                    <input
+                      type="password"
+                      placeholder="Leave empty for no password"
+                      value={publicLinkPassword}
+                      onChange={(e) => setPublicLinkPassword(e.target.value)}
+                      className="share-input"
+                    />
+                  </div>
+                )}
+
                 {/* Create Share Link Button */}
-                <button className="share-modal-btn primary" onClick={handleCreateShareLink}>
-                  Create share link
+                <button className="share-modal-btn primary" onClick={handleCreateShareLink} disabled={fileModalLoading}>
+                  {fileModalLoading ? "Creating..." : generatePublicLink ? "Create public link" : "Create share link"}
                 </button>
                 {successMessage && (
                   <div style={{
@@ -657,10 +769,134 @@ export default function MyFiles() {
                     color: "#166534",
                     borderRadius: "6px",
                     fontSize: "0.875rem",
-                    textAlign: "center",
-                    border: "1px solid #bbf7d0"
+                    border: "1px solid #bbf7d0",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: "0.75rem"
                   }}>
-                    {successMessage}
+                    <span style={{ flex: 1, whiteSpace: "pre-wrap", wordBreak: "break-all" }}>{successMessage}</span>
+                    <button
+                      onClick={() => {
+                        const linkText = successMessage.split('\n')[1];
+                        navigator.clipboard.writeText(linkText);
+                        setSuccessMessage("✓ Link copied to clipboard!");
+                        setTimeout(() => setSuccessMessage(""), 2000);
+                      }}
+                      style={{
+                        padding: "0.4rem 0.8rem",
+                        backgroundColor: "#bbf7d0",
+                        color: "#166534",
+                        border: "none",
+                        borderRadius: "4px",
+                        cursor: "pointer",
+                        fontSize: "0.75rem",
+                        fontWeight: 600,
+                        whiteSpace: "nowrap",
+                        flexShrink: 0,
+                        transition: "background-color 0.2s"
+                      }}
+                      onMouseEnter={(e) => e.target.style.backgroundColor = "#86efac"}
+                      onMouseLeave={(e) => e.target.style.backgroundColor = "#bbf7d0"}
+                    >
+                      Copy
+                    </button>
+                  </div>
+                )}
+
+                {/* Existing Public Links Section */}
+                {linksLoading && (
+                  <div style={{
+                    marginTop: "1.5rem",
+                    padding: "1rem",
+                    backgroundColor: "#f3f4f6",
+                    borderRadius: "6px",
+                    textAlign: "center",
+                    color: "#64748b",
+                    fontSize: "0.875rem"
+                  }}>
+                    Loading links...
+                  </div>
+                )}
+
+                {!linksLoading && publicLinks.length > 0 && (
+                  <div style={{
+                    marginTop: "1.5rem",
+                    paddingTop: "1rem",
+                    borderTop: "1px solid #e5e7eb"
+                  }}>
+                    <h3 style={{
+                      fontSize: "0.875rem",
+                      fontWeight: 600,
+                      color: "#374151",
+                      marginBottom: "0.75rem",
+                      margin: 0
+                    }}>
+                      Existing Public Links
+                    </h3>
+                    <div style={{
+                      marginTop: "0.75rem",
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: "0.5rem"
+                    }}>
+                      {publicLinks.map((link) => (
+                        <div
+                          key={link.id}
+                          style={{
+                            padding: "0.75rem",
+                            backgroundColor: "#f9fafb",
+                            border: "1px solid #e5e7eb",
+                            borderRadius: "6px",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "space-between",
+                            fontSize: "0.75rem"
+                          }}
+                        >
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{
+                              color: "#0f172a",
+                              whiteSpace: "nowrap",
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                              fontFamily: "monospace",
+                              marginBottom: "0.25rem"
+                            }}>
+                              {link.short_code ? `${window.location.origin}/#/s/${link.short_code}/access` : "Link"}
+                            </div>
+                            <div style={{ color: "#64748b" }}>
+                              Created: {new Date(link.created_at).toLocaleDateString()}
+                              {link.expires_at && ` | Expires: ${new Date(link.expires_at).toLocaleDateString()}`}
+                            </div>
+                          </div>
+                          <button
+                            onClick={() => handleDeletePublicLink(link.id)}
+                            style={{
+                              marginLeft: "0.5rem",
+                              padding: "0.4rem 0.6rem",
+                              backgroundColor: "#fee2e2",
+                              color: "#dc2626",
+                              border: "none",
+                              borderRadius: "4px",
+                              cursor: "pointer",
+                              fontSize: "0.7rem",
+                              fontWeight: 500,
+                              whiteSpace: "nowrap",
+                              transition: "all 0.2s"
+                            }}
+                            onMouseEnter={(e) => {
+                              e.target.style.backgroundColor = "#fecaca";
+                            }}
+                            onMouseLeave={(e) => {
+                              e.target.style.backgroundColor = "#fee2e2";
+                            }}
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 )}
               </div>
