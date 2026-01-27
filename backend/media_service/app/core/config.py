@@ -86,6 +86,10 @@ class Settings(BaseSettings):
     # GridFS
     gridfs_chunk_size: int = 262144  # 256KB (MongoDB default)
     
+    # Virus Scanning (ClamAV)
+    clamav_host: str = "clamav"
+    clamav_port: int = 3310
+    
     # Logging
     log_level: str = "INFO"
     

@@ -217,8 +217,8 @@ async def upload_file(
         # Capture client IP address for logging
         ip_address = request.client.host if request else None
 
-        # Use injected service to upload encrypted file
-        success, file_id, original_size, error = await service.upload_file_encrypted(
+        # Use injected service to upload encrypted file (now includes virus scan)
+        success, file_id, original_size, error, scan_metadata = await service.upload_file_encrypted(
             user_id=user_id,
             file=file,
             ip_address=ip_address,
@@ -226,7 +226,7 @@ async def upload_file(
         )
 
         if not success:
-            status_code = 400 if "Invalid" in error else 413 if "too large" in error else 500
+            status_code = 400 if "Invalid" in error or "infected" in error.lower() else 413 if "too large" in error else 500
             raise HTTPException(status_code=status_code, detail=error)
 
         return FileUploadResponse(
@@ -1572,8 +1572,8 @@ async def upload_folder(
                 # Update file.filename to be just the filename, not the full path
                 file.filename = file_name
                 
-                # Upload file to the target folder
-                success, file_id, size, error = await service.upload_file_encrypted(
+                # Upload file to the target folder (includes virus scanning)
+                success, file_id, size, error, scan_metadata = await service.upload_file_encrypted(
                     user_id=user_id,
                     file=file,
                     ip_address=request.client.host if request else None,

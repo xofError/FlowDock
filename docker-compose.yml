@@ -159,6 +159,9 @@ services:
       LOG_LEVEL: "INFO"
       # Auth Service URL for user lookups and quota updates
       AUTH_SERVICE_URL: "http://auth_service:8000"
+      # Virus Scanning Configuration
+      CLAMAV_HOST: "clamav"
+      CLAMAV_PORT: "3310"
     ports:
       - "8001:8000"
     networks:
@@ -169,6 +172,28 @@ services:
         condition: service_healthy
       postgres:
         condition: service_healthy
+      clamav:
+        condition: service_started
+
+  # --- VIRUS SCANNING ---
+  clamav:
+    image: clamav/clamav:latest
+    container_name: flowdock_clamav
+    restart: always
+    ports:
+      - "3310:3310"
+    volumes:
+      - clamav_db:/var/lib/clamav
+    networks:
+      - flowdock_internal
+    healthcheck:
+      test: ["CMD", "clamdscan", "--ping"]
+      interval: 60s
+      timeout: 10s
+      retries: 10
+      start_period: 180s
+    environment:
+      - FRESHCLAM_CHECKS=0
 
   # --- MONITORING ---
   prometheus:
@@ -207,6 +232,7 @@ volumes:
   prometheus_data:
   grafana_data:
   pipcache:
+  clamav_db:
 
 networks:
   flowdock_public:

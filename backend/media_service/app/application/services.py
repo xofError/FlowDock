@@ -23,6 +23,7 @@ from app.domain.interfaces import (
     IFolderRepository,
 )
 from app.utils.validators import validate_file_type, validate_file_size
+from app.application.virus_scan_service import VirusScanService
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +42,8 @@ class FileService:
         quota_repo: IQuotaRepository,
         folder_repo: IFolderRepository = None,
         activity_logger: IActivityLogger = None,
+        clamav_host: str = "clamav",
+        clamav_port: int = 3310,
     ):
         """
         Initialize service with dependencies (Dependency Injection).
@@ -52,6 +55,8 @@ class FileService:
             quota_repo: Quota repository for updating storage usage
             folder_repo: Optional folder repository for folder-related file operations
             activity_logger: Optional activity logger for audit trails
+            clamav_host: ClamAV server hostname
+            clamav_port: ClamAV server port
         """
         self.repo = repo
         self.crypto = crypto
@@ -59,6 +64,7 @@ class FileService:
         self.quota_repo = quota_repo
         self.folder_repo = folder_repo
         self.activity_logger = activity_logger
+        self.virus_scanner = VirusScanService(clamav_host, clamav_port)
 
     # ========================================================================
     # Helper Methods
@@ -189,9 +195,16 @@ class FileService:
         file: UploadFile,
         ip_address: Optional[str] = None,
         folder_id: Optional[str] = None,
-    ) -> Tuple[bool, Optional[str], int, Optional[str]]:
+    ) -> Tuple[bool, Optional[str], int, Optional[str], Optional[dict]]:
         """
-        Upload file with envelope encryption using streaming.
+        Upload file with envelope encryption using streaming + virus scanning.
+        
+        Stream-based pipeline:
+        1. Read chunk from upload
+        2. Calculate SHA-256 hash
+        3. Send to ClamAV for scanning
+        4. Encrypt chunk
+        5. Save to GridFS
         
         Args:
             user_id: Owner of the file
@@ -200,11 +213,11 @@ class FileService:
             folder_id: Optional folder ID for file placement
             
         Returns:
-            Tuple of (success, file_id, original_size, error_message)
+            Tuple of (success, file_id, original_size, error_message, scan_metadata)
         """
         # 1. Validate
         if not validate_file_type(file.content_type):
-            return False, None, 0, "Invalid file type"
+            return False, None, 0, "Invalid file type", None
 
         try:
             # [FIX #3] Check for duplicate filenames in the folder and rename if needed
@@ -216,22 +229,12 @@ class FileService:
             file_key, nonce = self.crypto.generate_key_pair()
             encrypted_key = self.crypto.wrap_key(file_key)
 
-            # 3. Create domain entity with encryption metadata
-            file_entity = File(
-                filename=filename,
-                content_type=file.content_type,
-                owner_id=user_id,
-                folder_id=folder_id,  # NEW: Include folder placement
-                encrypted=True,
-                nonce=nonce.hex(),
-                encrypted_key=encrypted_key.hex(),
-            )
-
-            # 4. Create encrypted stream
+            # 3. Stream for scanning and hashing
             original_size = 0
             chunk_size = 64 * 1024
 
-            async def encrypt_and_track_stream():
+            async def scan_and_hash_stream():
+                """Read chunks, hash them, and pass through"""
                 nonlocal original_size
                 while True:
                     chunk = await file.read(chunk_size)
@@ -240,21 +243,69 @@ class FileService:
                     original_size += len(chunk)
                     yield chunk
 
-            # 5. Encrypt the stream
+            # 4. Scan file and calculate hash during streaming
+            file_hash, scan_status, is_infected, threat_name = await self.virus_scanner.scan_and_hash_stream(
+                scan_and_hash_stream(),
+                filename,
+                chunk_size=chunk_size
+            )
+
+            # 5. Check if infected
+            if is_infected:
+                logger.warning(f"⚠ File upload rejected: {filename} infected with {threat_name}")
+                return False, None, 0, f"File infected: {threat_name}", {
+                    "scan_status": "infected",
+                    "threat": threat_name,
+                    "hash": file_hash
+                }
+
+            # 6. Re-read file for encryption (need to reset or re-upload)
+            # For streaming uploads, we need to handle this differently
+            # Option: Save hash and scan result to metadata, then re-process for encryption
+            
+            # Re-read from beginning if possible
+            await file.seek(0) if hasattr(file, 'seek') else None
+            
+            # 7. Create encrypted stream
+            async def encrypt_stream():
+                while True:
+                    chunk = await file.read(chunk_size)
+                    if not chunk:
+                        break
+                    yield chunk
+
+            # 8. Create domain entity with encryption metadata AND scan results
+            file_entity = File(
+                filename=filename,
+                content_type=file.content_type,
+                owner_id=user_id,
+                folder_id=folder_id,
+                encrypted=True,
+                nonce=nonce.hex(),
+                encrypted_key=encrypted_key.hex(),
+                is_infected=is_infected,
+                metadata={
+                    "sha256": file_hash,
+                    "scan_status": scan_status,
+                    "scan_time": __import__('datetime').datetime.utcnow().isoformat(),
+                }
+            )
+
+            # 9. Encrypt the stream
             encrypted_stream = self.crypto.encrypt_stream(
-                encrypt_and_track_stream(),
+                encrypt_stream(),
                 file_key,
                 nonce,
             )
 
-            # 6. Save encrypted stream
+            # 10. Save encrypted stream
             file_id = await self.repo.save_file_stream(file_entity, encrypted_stream)
             file_entity.id = file_id
 
-            # 7. Update storage quota
+            # 11. Update storage quota
             await self.quota_repo.update_usage(user_id, original_size)
 
-            # 8. Log activity
+            # 12. Log activity
             if self.activity_logger:
                 await self.activity_logger.log_activity(
                     user_id,
@@ -265,16 +316,21 @@ class FileService:
                         "size": original_size,
                         "content_type": file.content_type,
                         "encrypted": True,
+                        "scan_status": scan_status,
+                        "hash": file_hash[:16] + "..." if file_hash else None,
                     },
                     ip_address,
                 )
 
-            logger.info(f"✓ Uploaded encrypted file {file_id} (original: {original_size} bytes)")
-            return True, file_id, original_size, None
+            logger.info(f"✓ Uploaded encrypted file {file_id} (original: {original_size} bytes, scan: {scan_status})")
+            return True, file_id, original_size, None, {
+                "scan_status": scan_status,
+                "hash": file_hash,
+            }
 
         except Exception as e:
             logger.error(f"Encryption upload failed: {e}")
-            return False, None, 0, str(e)
+            return False, None, 0, str(e), None
 
     async def _uploadfile_to_async_gen(self, upload_file: UploadFile) -> AsyncGenerator:
         """Convert UploadFile to async generator"""

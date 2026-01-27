@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X } from 'lucide-react';
+import { X, ShieldCheck, AlertCircle } from 'lucide-react';
 
 const FileDetailsModal = ({ 
     file, 
@@ -14,6 +14,11 @@ const FileDetailsModal = ({
     const [alertMessage, setAlertMessage] = useState("");
     
     if (!file) return null;
+
+    // Extract hash and scan status from metadata
+    const fileHash = file?.metadata?.sha256 || file?.metadata?.hash || file?.hash || null;
+    const scanStatus = file?.metadata?.scan_status || "unknown";
+    const isInfected = file?.is_infected || false;
 
     return (
         <div 
@@ -111,6 +116,8 @@ const FileDetailsModal = ({
                         <span style={{ fontWeight: 500, color: "#64748b" }}>Owner:</span>
                         <span style={{ color: "#0f172a" }}>{file?.owner || "You"}</span>
                     </div>
+
+                    {/* Security Scan Status */}
                     <div style={{
                         display: "flex",
                         justifyContent: "space-between",
@@ -118,7 +125,67 @@ const FileDetailsModal = ({
                         borderBottom: "1px solid #e5e7eb",
                         fontSize: "0.875rem"
                     }}>
-                        <span style={{ fontWeight: 500, color: "#64748b" }}>File Hash:</span>
+                        <span style={{ fontWeight: 500, color: "#64748b" }}>Security Scan:</span>
+                        <div style={{ display: "flex", alignItems: "center", gap: "0.25rem" }}>
+                            {isInfected ? (
+                                <>
+                                    <AlertCircle style={{ width: "1rem", height: "1rem", color: "#dc2626" }} />
+                                    <span style={{ color: "#dc2626", fontWeight: 600 }}>Infected</span>
+                                </>
+                            ) : scanStatus === "clean" ? (
+                                <>
+                                    <ShieldCheck style={{ width: "1rem", height: "1rem", color: "#16a34a" }} />
+                                    <span style={{ color: "#16a34a", fontWeight: 600 }}>Clean</span>
+                                </>
+                            ) : scanStatus === "skipped" ? (
+                                <span style={{ color: "#8b5cf6", fontSize: "0.75rem" }}>Not Scanned</span>
+                            ) : (
+                                <span style={{ color: "#64748b", fontSize: "0.75rem" }}>—</span>
+                            )}
+                        </div>
+                    </div>
+
+                    {/* SHA-256 Hash */}
+                    <div style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        padding: "0.5rem 0",
+                        borderBottom: "1px solid #e5e7eb",
+                        fontSize: "0.875rem",
+                        flexDirection: fileHash ? "column" : "row"
+                    }}>
+                        <span style={{ fontWeight: 500, color: "#64748b" }}>SHA-256 Hash:</span>
+                        {fileHash ? (
+                            <div style={{
+                                marginTop: fileHash ? "0.5rem" : 0,
+                                padding: "0.5rem",
+                                backgroundColor: "#f8fafc",
+                                borderRadius: "4px",
+                                border: "1px solid #e2e8f0",
+                                fontFamily: "monospace",
+                                fontSize: "0.7rem",
+                                wordBreak: "break-all",
+                                maxHeight: "4rem",
+                                overflowY: "auto",
+                                userSelect: "all",
+                                cursor: "text",
+                                color: "#334155"
+                            }}>
+                                {fileHash}
+                            </div>
+                        ) : (
+                            <span style={{ color: "#9ca3af" }}>Calculating...</span>
+                        )}
+                    </div>
+
+                    <div style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        padding: "0.5rem 0",
+                        borderBottom: "1px solid #e5e7eb",
+                        fontSize: "0.875rem"
+                    }}>
+                        <span style={{ fontWeight: 500, color: "#64748b" }}>File Hash (Legacy):</span>
                         <span style={{ color: "#0f172a", fontSize: "0.75rem", fontFamily: "monospace" }}>{file?.hash || "N/A"}</span>
                     </div>
                     <div style={{

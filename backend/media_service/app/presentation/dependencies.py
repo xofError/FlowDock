@@ -51,6 +51,8 @@ async def get_file_service() -> FileService:
             quota_repo=quota_repo,
             folder_repo=folder_repo,
             activity_logger=activity_logger,
+            clamav_host=settings.clamav_host,
+            clamav_port=settings.clamav_port,
         )
 
         return service
