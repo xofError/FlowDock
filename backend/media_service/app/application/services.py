@@ -10,6 +10,8 @@ import tempfile
 import aiofiles
 from typing import AsyncGenerator, Optional, Tuple, List
 from fastapi import UploadFile
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
 
 from app.domain.entities import File
 from app.domain.interfaces import (
@@ -1152,6 +1154,9 @@ class FolderService:
         """
         Build breadcrumb path from root to current folder.
         
+        Optimized: Uses MongoDB $graphLookup to fetch entire ancestry chain in single query
+        instead of iterative lookups (N+1 prevention).
+        
         Args:
             folder_id: Current folder ID (None = root)
             owner_id: Owner for verification
@@ -1160,22 +1165,76 @@ class FolderService:
             List of {folder_id, name} dicts representing path from root to folder
             Example: [{"folder_id": None, "name": "Home"}, {"folder_id": "123", "name": "Work"}]
         """
-        breadcrumbs = []
-        current_id = folder_id
-
-        # Traverse up the tree
-        while current_id:
-            folder = await self.folder_repo.get_folder(current_id, owner_id)
-            if not folder:
-                break
-            # Insert at beginning to build path from root to leaf
-            breadcrumbs.insert(0, {"folder_id": folder.id, "name": folder.name})
-            current_id = folder.parent_id
-
-        # Add root/home at the beginning
-        breadcrumbs.insert(0, {"folder_id": None, "name": "Home"})
+        breadcrumbs = [{"folder_id": None, "name": "Home"}]
         
-        return breadcrumbs
+        if not folder_id:
+            return breadcrumbs
+        
+        try:
+            # Use MongoDB $graphLookup to fetch entire ancestry chain in one query
+            # This is much more efficient than the old while loop that made N queries
+            from bson import ObjectId
+            
+            folder_oid = self.folder_repo._to_object_id(folder_id)
+            if folder_oid is None:
+                return breadcrumbs
+            
+            pipeline = [
+                {"$match": {"_id": folder_oid, "owner_id": owner_id}},
+                {
+                    "$graphLookup": {
+                        "from": "folders",
+                        "startWith": "$parent_id",
+                        "connectFromField": "parent_id",
+                        "connectToField": "_id",
+                        "as": "ancestors",
+                        "maxDepth": 100,
+                    }
+                },
+                {
+                    "$project": {
+                        "name": 1,
+                        "_id": 1,
+                        "ancestors": {
+                            "_id": 1,
+                            "name": 1,
+                        }
+                    }
+                }
+            ]
+            
+            result = await self.folder_repo.collection.aggregate(pipeline).to_list(1)
+            
+            if result:
+                folder_data = result[0]
+                # Add ancestors from root to parent (reverse order)
+                if folder_data.get("ancestors"):
+                    ancestors = folder_data["ancestors"]
+                    # ancestors are already in order from immediate parent up to root
+                    # reverse them to get from root down
+                    for ancestor in reversed(ancestors):
+                        breadcrumbs.append({
+                            "folder_id": str(ancestor.get("_id", "")),
+                            "name": ancestor.get("name", "")
+                        })
+                # Add current folder at the end
+                breadcrumbs.append({
+                    "folder_id": str(folder_data.get("_id", "")),
+                    "name": folder_data.get("name", "")
+                })
+            
+            return breadcrumbs
+            
+        except Exception as e:
+            logger.error(f"Failed to get breadcrumbs for {folder_id}: {e}")
+            # Fallback to simple path without parents
+            try:
+                folder = await self.folder_repo.get_folder(folder_id, owner_id)
+                if folder:
+                    breadcrumbs.append({"folder_id": folder.id, "name": folder.name})
+            except:
+                pass
+            return breadcrumbs
 
     async def is_folder_descendant(
         self,
@@ -1320,42 +1379,74 @@ class FolderService:
                 return False, None, None, "Folder is empty"
 
             # 3. Create Zip (using temp file for memory safety)
+            # [FIX: Async Blocking Issue] Move blocking zip operations to thread pool to avoid freezing event loop
             temp_dir = tempfile.mkdtemp()
             zip_filename = f"{folder_name}.zip"
             zip_path = os.path.join(temp_dir, zip_filename)
 
             try:
-                with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
-                    for file_entity, zip_entry_path in files_to_zip:
-                        try:
-                            _, stream = await self.file_repo.get_file_stream(file_entity.id)
-                            if stream:
-                                # [FIX #1] Handle Decryption for encrypted files
-                                if file_entity.encrypted and self.crypto:
-                                    try:
-                                        file_key = self.crypto.unwrap_key(bytes.fromhex(file_entity.encrypted_key))
-                                        nonce = bytes.fromhex(file_entity.nonce)
-                                        stream = self.crypto.decrypt_stream(stream, file_key, nonce)
-                                        logger.info(f"Decrypting file {file_entity.filename} for archive")
-                                    except Exception as decrypt_error:
-                                        logger.error(f"Failed to decrypt {file_entity.filename} for zip: {decrypt_error}")
-                                        logger.warning(f"Skipping encrypted file {file_entity.filename} - decryption failed")
-                                        continue
-                                
-                                # [FIX #2] Write to ZIP in chunks instead of loading entire file in RAM
-                                # This prevents Out-Of-Memory crashes with large files (1GB+)
+                # First collect all file streams asynchronously
+                files_with_streams = []
+                for file_entity, zip_entry_path in files_to_zip:
+                    try:
+                        _, stream = await self.file_repo.get_file_stream(file_entity.id)
+                        if stream:
+                            # Handle Decryption for encrypted files
+                            if file_entity.encrypted and self.crypto:
+                                try:
+                                    file_key = self.crypto.unwrap_key(bytes.fromhex(file_entity.encrypted_key))
+                                    nonce = bytes.fromhex(file_entity.nonce)
+                                    stream = self.crypto.decrypt_stream(stream, file_key, nonce)
+                                    logger.info(f"Decrypting file {file_entity.filename} for archive")
+                                except Exception as decrypt_error:
+                                    logger.error(f"Failed to decrypt {file_entity.filename} for zip: {decrypt_error}")
+                                    logger.warning(f"Skipping encrypted file {file_entity.filename} - decryption failed")
+                                    continue
+                            
+                            # Collect chunks from stream into memory (buffered)
+                            chunks = []
+                            async for chunk in stream:
+                                chunks.append(chunk)
+                            files_with_streams.append((file_entity, zip_entry_path, chunks))
+                    except Exception as e:
+                        logger.warning(f"Failed to prepare file {file_entity.filename} for zip: {e}")
+                        continue
+                
+                # Now run the blocking zip operation in a thread pool
+                # This prevents the entire event loop from freezing during zip creation
+                loop = asyncio.get_event_loop()
+                executor = ThreadPoolExecutor(max_workers=1)
+                
+                def create_zip_in_thread():
+                    """Blocking operation - run in thread to avoid freezing event loop"""
+                    try:
+                        with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+                            for file_entity, zip_entry_path, chunks in files_with_streams:
                                 try:
                                     with zipf.open(zip_entry_path, 'w') as zf_entry:
-                                        async for chunk in stream:
+                                        for chunk in chunks:
                                             zf_entry.write(chunk)
                                 except Exception as chunk_error:
-                                    logger.warning(f"Failed to write {file_entity.filename} to zip in chunks: {chunk_error}")
+                                    logger.warning(f"Failed to write {file_entity.filename} to zip: {chunk_error}")
                                     continue
-                        except Exception as e:
-                            logger.warning(f"Failed to add file {file_entity.filename} to zip: {e}")
-                            continue
+                        return True
+                    except Exception as e:
+                        logger.error(f"Failed to create zip file in thread: {e}")
+                        return False
+                
+                # Execute blocking operation in thread pool
+                zip_success = await loop.run_in_executor(executor, create_zip_in_thread)
+                executor.shutdown(wait=False)
+                
+                if not zip_success:
+                    if os.path.exists(zip_path):
+                        os.remove(zip_path)
+                    if os.path.exists(temp_dir):
+                        os.rmdir(temp_dir)
+                    return False, None, None, "Failed to create zip file"
+                    
             except Exception as e:
-                logger.error(f"Failed to create zip file: {e}")
+                logger.error(f"Failed to prepare zip creation: {e}")
                 if os.path.exists(zip_path):
                     os.remove(zip_path)
                 if os.path.exists(temp_dir):
@@ -1430,43 +1521,74 @@ class FolderService:
                 return False, None, None, "Folder is empty"
 
             # 3. Create Zip using temp file
+            # [FIX: Async Blocking Issue] Move blocking zip operations to thread pool to avoid freezing event loop
             temp_dir = tempfile.mkdtemp()
             zip_filename = f"{folder_name}.zip"
             zip_path = os.path.join(temp_dir, zip_filename)
 
             try:
-                with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
-                    for file_entity, zip_entry_path in files_to_zip:
-                        try:
-                            _, stream = await self.file_repo.get_file_stream(file_entity.id)
-                            if stream:
-                                # [FIX #1] Handle Decryption for encrypted files
-                                if file_entity.encrypted and self.crypto:
-                                    try:
-                                        file_key = self.crypto.unwrap_key(bytes.fromhex(file_entity.encrypted_key))
-                                        nonce = bytes.fromhex(file_entity.nonce)
-                                        stream = self.crypto.decrypt_stream(stream, file_key, nonce)
-                                        logger.info(f"Decrypting file {file_entity.filename} for public archive")
-                                    except Exception as decrypt_error:
-                                        logger.error(f"Failed to decrypt {file_entity.filename} for zip: {decrypt_error}")
-                                        logger.warning(f"Skipping encrypted file {file_entity.filename} - decryption failed")
-                                        continue
-                                
-                                # [FIX #2] Write to ZIP in chunks instead of loading entire file in RAM
-                                # This prevents Out-Of-Memory crashes with large files (1GB+)
+                # First collect all file streams asynchronously
+                files_with_streams = []
+                for file_entity, zip_entry_path in files_to_zip:
+                    try:
+                        _, stream = await self.file_repo.get_file_stream(file_entity.id)
+                        if stream:
+                            # Handle Decryption for encrypted files
+                            if file_entity.encrypted and self.crypto:
+                                try:
+                                    file_key = self.crypto.unwrap_key(bytes.fromhex(file_entity.encrypted_key))
+                                    nonce = bytes.fromhex(file_entity.nonce)
+                                    stream = self.crypto.decrypt_stream(stream, file_key, nonce)
+                                    logger.info(f"Decrypting file {file_entity.filename} for public archive")
+                                except Exception as decrypt_error:
+                                    logger.error(f"Failed to decrypt {file_entity.filename} for zip: {decrypt_error}")
+                                    logger.warning(f"Skipping encrypted file {file_entity.filename} - decryption failed")
+                                    continue
+                            
+                            # Collect chunks from stream into memory (buffered)
+                            chunks = []
+                            async for chunk in stream:
+                                chunks.append(chunk)
+                            files_with_streams.append((file_entity, zip_entry_path, chunks))
+                    except Exception as e:
+                        logger.warning(f"Failed to prepare file {file_entity.filename} for zip: {e}")
+                        continue
+                
+                # Now run the blocking zip operation in a thread pool
+                # This prevents the entire event loop from freezing during zip creation
+                loop = asyncio.get_event_loop()
+                executor = ThreadPoolExecutor(max_workers=1)
+                
+                def create_zip_in_thread():
+                    """Blocking operation - run in thread to avoid freezing event loop"""
+                    try:
+                        with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+                            for file_entity, zip_entry_path, chunks in files_with_streams:
                                 try:
                                     with zipf.open(zip_entry_path, 'w') as zf_entry:
-                                        async for chunk in stream:
-                                            # Write chunk-by-chunk to disk (via temp zip file)
+                                        for chunk in chunks:
                                             zf_entry.write(chunk)
                                 except Exception as chunk_error:
-                                    logger.warning(f"Failed to write {file_entity.filename} to zip in chunks: {chunk_error}")
+                                    logger.warning(f"Failed to write {file_entity.filename} to zip: {chunk_error}")
                                     continue
-                        except Exception as e:
-                            logger.warning(f"Failed to add file {file_entity.filename} to zip: {e}")
-                            continue
+                        return True
+                    except Exception as e:
+                        logger.error(f"Failed to create zip file in thread: {e}")
+                        return False
+                
+                # Execute blocking operation in thread pool
+                zip_success = await loop.run_in_executor(executor, create_zip_in_thread)
+                executor.shutdown(wait=False)
+                
+                if not zip_success:
+                    if os.path.exists(zip_path):
+                        os.remove(zip_path)
+                    if os.path.exists(temp_dir):
+                        os.rmdir(temp_dir)
+                    return False, None, None, "Failed to create zip file"
+                    
             except Exception as e:
-                logger.error(f"Failed to create zip file: {e}")
+                logger.error(f"Failed to prepare zip creation: {e}")
                 if os.path.exists(zip_path):
                     os.remove(zip_path)
                 if os.path.exists(temp_dir):

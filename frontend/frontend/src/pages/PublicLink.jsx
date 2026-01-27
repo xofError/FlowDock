@@ -11,6 +11,7 @@ export default function PublicLink() {
   const [file, setFile] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [passwordError, setPasswordError] = useState("");  // Separate error for password modal
   const [downloading, setDownloading] = useState(false);
   const [password, setPassword] = useState("");
   const [needsPassword, setNeedsPassword] = useState(false);
@@ -36,6 +37,7 @@ export default function PublicLink() {
         if (response.status === 403 || response.status === 401 || errorData.detail?.includes("Password")) {
           console.log("Password required detected");
           setNeedsPassword(true);
+          setPasswordError("Invalid password. Please try again.");
           setError(null);
           setLoading(false);
           return;
@@ -53,6 +55,7 @@ export default function PublicLink() {
       
       setFile(data);
       setError(null);
+      setPasswordError("");
       setNeedsPassword(false);
     } catch (err) {
       console.error("Failed to fetch metadata:", err);
@@ -72,6 +75,7 @@ export default function PublicLink() {
   const handleDownload = async () => {
     try {
       setDownloading(true);
+      setError(null);  // Clear any previous errors
       
       const mediaApiUrl = import.meta.env.VITE_MEDIA_API_URL || "http://localhost:8001/media";
       
@@ -88,15 +92,20 @@ export default function PublicLink() {
             }),
           });
 
+          // Handle password-related responses first and exclusively
+          if (accessResponse.status === 403) {
+            setNeedsPassword(true);
+            setDownloading(false);
+            return;
+          }
+          
           if (!accessResponse.ok) {
-            if (accessResponse.status === 403) {
-              setNeedsPassword(true);
-              setError("Invalid password. Please try again.");
-            } else if (accessResponse.status === 410) {
+            if (accessResponse.status === 410) {
               setError("This link has expired or download limit exceeded.");
             } else {
               setError("Failed to access folder link.");
             }
+            setDownloading(false);
             return;
           }
 
@@ -113,14 +122,12 @@ export default function PublicLink() {
           );
 
           if (!folderZipResponse.ok) {
-            if (folderZipResponse.status === 403) {
-              setNeedsPassword(true);
-              setError("Access denied to folder.");
-            } else if (folderZipResponse.status === 410) {
+            if (folderZipResponse.status === 410) {
               setError("This link has expired or download limit exceeded.");
             } else {
               setError("Failed to download folder.");
             }
+            setDownloading(false);
             return;
           }
 
@@ -134,6 +141,7 @@ export default function PublicLink() {
           link.click();
           document.body.removeChild(link);
           window.URL.revokeObjectURL(url);
+          setError(null);
         } catch (err) {
           console.error("Folder download error:", err);
           setError("Failed to download folder.");
@@ -151,15 +159,20 @@ export default function PublicLink() {
           }),
         });
 
+        // Handle password-related responses first and exclusively
+        if (accessResponse.status === 403) {
+          setNeedsPassword(true);
+          setDownloading(false);
+          return;
+        }
+
         if (!accessResponse.ok) {
-          if (accessResponse.status === 403) {
-            setNeedsPassword(true);
-            setError("Invalid password. Please try again.");
-          } else if (accessResponse.status === 410) {
+          if (accessResponse.status === 410) {
             setError("This link has expired or download limit exceeded.");
           } else {
             setError("Failed to access share link.");
           }
+          setDownloading(false);
           return;
         }
 
@@ -175,6 +188,7 @@ export default function PublicLink() {
           } else {
             setError("Failed to download file.");
           }
+          setDownloading(false);
           return;
         }
 
@@ -209,11 +223,11 @@ export default function PublicLink() {
   const handlePasswordSubmit = async (e) => {
     e.preventDefault();
     if (!password.trim()) {
-      setError("Please enter a password");
+      setPasswordError("Please enter a password");
       return;
     }
     console.log("Password submitted, retrying metadata fetch with password");
-    setError(null);
+    setPasswordError("");  // Clear error before retry
     fetchFileMetadata();
   };
 
@@ -290,7 +304,7 @@ export default function PublicLink() {
                 This file is password protected. Please enter the password to access it.
               </p>
               
-              {error && (
+              {passwordError && (
                 <div style={{
                   padding: "0.75rem",
                   backgroundColor: "#fee2e2",
@@ -300,7 +314,7 @@ export default function PublicLink() {
                   fontSize: "0.875rem",
                   border: "1px solid #fecaca"
                 }}>
-                  {error}
+                  {passwordError}
                 </div>
               )}
 
@@ -320,7 +334,7 @@ export default function PublicLink() {
                     value={password}
                     onChange={(e) => {
                       setPassword(e.target.value);
-                      setError(null);
+                      setPasswordError("");  // Clear error when user types
                     }}
                     placeholder="Enter password"
                     autoFocus

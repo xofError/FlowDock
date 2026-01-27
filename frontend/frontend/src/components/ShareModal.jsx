@@ -5,7 +5,8 @@ const ShareModal = ({
     item, 
     onClose, 
     onShare,
-    loading = false 
+    loading = false,
+    currentUserEmail = null  // Add current user email for validation
 }) => {
     const [shareEmail, setShareEmail] = useState("");
     const [shareExpiryDate, setShareExpiryDate] = useState("");
@@ -21,6 +22,10 @@ const ShareModal = ({
         return emailRegex.test(email);
     };
 
+    // Date parsing helper - improved validation
+    // NOTE: For production, consider using date-fns library for better locale support:
+    //   import { parse, isValid, format } from 'date-fns';
+    //   const date = parse(dateStr, 'yy/MM/dd', new Date());
     const validateDate = (dateStr) => {
         if (!dateStr) return false;
         const dateRegex = /^(\d{2}|\d{4})\/\d{2}\/\d{2}$/;
@@ -31,12 +36,27 @@ const ShareModal = ({
         const month = parseInt(parts[1]);
         const day = parseInt(parts[2]);
         
+        // Validate ranges before date construction
+        if (month < 1 || month > 12 || day < 1 || day > 31) {
+            return false;
+        }
+        
         if (parts[0].length === 2) {
+            // Year 00-49 → 2000-2049, 50-99 → 1950-1999
             year += year < 50 ? 2000 : 1900;
         }
         
+        // Validate the actual date (catches invalid dates like Feb 30)
         const date = new Date(year, month - 1, day);
-        return date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day;
+        const isValidDate = date.getFullYear() === year && 
+                           date.getMonth() === month - 1 && 
+                           date.getDate() === day;
+        
+        // Ensure date is in the future
+        if (!isValidDate) return false;
+        const now = new Date();
+        now.setHours(0, 0, 0, 0);
+        return date > now;
     };
 
     const parseDate = (dateStr) => {
@@ -67,6 +87,10 @@ const ShareModal = ({
             hasError = true;
         } else if (!validateEmail(shareEmail)) {
             setEmailError("Please enter a valid email address");
+            hasError = true;
+        } else if (currentUserEmail && shareEmail.toLowerCase() === currentUserEmail.toLowerCase()) {
+            // Prevent sharing with own email
+            setEmailError("You cannot share with your own email address");
             hasError = true;
         } else {
             setEmailError("");

@@ -836,62 +836,124 @@ async def create_public_share_link(
 # REVOKE FILE SHARE
 # ============================================================================
 @router.delete("/shares/{share_id}")
-async def revoke_file_share(
-    share_id: str = Path(..., description="Share ID to revoke"),
+async def revoke_share(
+    share_id: str = Path(..., description="Share ID to revoke (UUID for files, ObjectId for folders)"),
     db: Session = Depends(get_db),
     current_user_id: str = Depends(get_current_user_id),
 ):
     """
-    Revoke a file share by removing the share record.
+    Revoke a share (file or folder) by removing the share record.
+    
+    [FIX: Unified Share Revocation]
+    Handles BOTH file and folder shares:
+    - File shares: UUID format (SQL-based)
+    - Folder shares: MongoDB ObjectId format
     
     Security:
-    - Only the file owner (shared_by_user_id) can revoke the share
-    - Validates ownership before deletion
+    - ONLY the owner (shared_by_user_id) can revoke the share
+    - Recipients CANNOT revoke shares
     
     Parameters:
-    - **share_id**: UUID of the share to revoke
+    - **share_id**: UUID for files, hex ObjectId for folders
     
     Returns:
     - Success message if share was revoked
     """
     try:
-        # Convert share_id to UUID
-        try:
-            share_uuid = uuid.UUID(share_id)
-        except ValueError:
-            raise HTTPException(status_code=400, detail="Invalid share ID format")
+        import re
         
-        # Find the share
-        share = db.query(Share).filter(Share.id == share_uuid).first()
+        share_id = share_id.strip()
         
-        if not share:
-            raise HTTPException(status_code=404, detail="Share not found")
+        # [FIX] Detect share type by ID format
+        # File shares: UUID (8-4-4-4-12 hex with dashes)
+        # Folder shares: 24-character hex without dashes (MongoDB ObjectId)
+        is_uuid = re.match(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', 
+                          share_id, re.IGNORECASE)
+        is_objectid = re.match(r'^[0-9a-f]{24}$', share_id, re.IGNORECASE)
         
-        # Security: Verify the requester is either the creator or the recipient
-        is_creator = str(share.shared_by_user_id) == current_user_id
-        is_recipient = str(share.shared_with_user_id) == current_user_id
+        if is_uuid:
+            # FILE share revocation (SQL)
+            logger.info(f"[revoke-share] Detected FILE share (UUID): {share_id[:10]}...")
+            try:
+                share_uuid = uuid.UUID(share_id)
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Invalid file share ID format")
+            
+            # Find the share
+            share = db.query(Share).filter(Share.id == share_uuid).first()
+            
+            if not share:
+                raise HTTPException(status_code=404, detail="File share not found")
+            
+            # Security: ONLY the owner can revoke
+            if str(share.shared_by_user_id) != current_user_id:
+                logger.warning(f"[revoke-share] User {current_user_id} not authorized to revoke file share {share_id} (owner: {share.shared_by_user_id})")
+                raise HTTPException(status_code=403, detail="Only the share owner can revoke this share")
+            
+            # Delete the share
+            db.delete(share)
+            db.commit()
+            
+            logger.info(f"[revoke-share] Revoked FILE share {share_id[:10]}... by {current_user_id}")
+            
+            return {
+                "status": "revoked",
+                "share_id": share_id,
+                "share_type": "file",
+                "message": "File share has been revoked successfully"
+            }
         
-        if not (is_creator or is_recipient):
-            logger.warning(f"Unauthorized revoke attempt: user {current_user_id} tried to revoke share {share_id} (creator: {share.shared_by_user_id}, recipient: {share.shared_with_user_id})")
-            raise HTTPException(status_code=403, detail="You don't have permission to revoke this share")
+        elif is_objectid:
+            # FOLDER share revocation (MongoDB)
+            logger.info(f"[revoke-share] Detected FOLDER share (ObjectId): {share_id[:10]}...")
+            
+            from bson import ObjectId as BsonObjectId
+            
+            # Get mongo DB and folder_shares collection (where folder shares are stored)
+            mongo_db = get_mongo_db()
+            shares_collection = mongo_db["folder_shares"]
+            
+            try:
+                # Find the share by its MongoDB _id
+                share_doc = await shares_collection.find_one({"_id": BsonObjectId(share_id)})
+                
+                if not share_doc:
+                    logger.warning(f"[revoke-share] Folder share not found: {share_id}")
+                    raise HTTPException(status_code=404, detail="Folder share not found")
+                
+                # Security: ONLY the owner (shared_by field) can revoke
+                if str(share_doc.get("shared_by", "")) != current_user_id:
+                    logger.warning(f"[revoke-share] User {current_user_id} not authorized to revoke folder share {share_id} (owner: {share_doc.get('shared_by')})")
+                    raise HTTPException(status_code=403, detail="Only the share owner can revoke this share")
+                
+                # Delete the share by its _id
+                result = await shares_collection.delete_one({"_id": BsonObjectId(share_id)})
+                
+                if result.deleted_count == 0:
+                    raise HTTPException(status_code=500, detail="Failed to revoke folder share")
+                
+                logger.info(f"[revoke-share] Revoked FOLDER share {share_id[:10]}... by {current_user_id}")
+                
+                return {
+                    "status": "revoked",
+                    "share_id": share_id,
+                    "share_type": "folder",
+                    "message": "Folder share has been revoked successfully"
+                }
+            except HTTPException:
+                raise
+            except Exception as e:
+                logger.error(f"[revoke-share] Error revoking folder share: {e}")
+                raise HTTPException(status_code=500, detail="Failed to revoke folder share")
         
-        # Delete the share
-        db.delete(share)
-        db.commit()
-        
-        logger.info(f"✓ Share {share_id} revoked by {current_user_id}")
-        
-        return {
-            "status": "revoked",
-            "share_id": share_id,
-            "message": "Share has been revoked successfully"
-        }
+        else:
+            raise HTTPException(status_code=400, detail="Invalid share ID format (must be UUID or ObjectId)")
     
     except HTTPException:
         raise
     except Exception as e:
         db.rollback()
-        logger.error(f"Revoke share error: {e}", exc_info=True)
+        logger.error(f"[revoke-share] Error revoking share: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to revoke share")
 
 

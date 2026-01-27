@@ -59,16 +59,33 @@ export default function Shared() {
         setLoading(true);
         setError(null);
 
+        // [FIX: N+1 Query Prevention]
+        // Cache user details locally to prevent duplicate API calls
+        // If a user ID is repeated across 50 shared items, we only fetch once
+        const userCache = {};
+        
+        const getUserEmail = async (userId) => {
+          // Return cached value if available
+          if (userCache[userId] !== undefined) {
+            return userCache[userId];
+          }
+          
+          try {
+            const userInfo = await api.getCurrentUser(userId);
+            userCache[userId] = userInfo.email || "Unknown";
+            return userCache[userId];
+          } catch (err) {
+            console.error("Failed to fetch user info:", err);
+            userCache[userId] = "Unknown";
+            return "Unknown";
+          }
+        };
+
         // Fetch files shared by me
         const byMeFilesResponse = await api.getSharedByMe(user.id);
         const processedByMeFiles = await Promise.all((byMeFilesResponse || []).map(async (share) => {
-          let userEmail = "Unknown";
-          try {
-            const userInfo = await api.getCurrentUser(share.shared_with_user_id);
-            userEmail = userInfo.email || "Unknown";
-          } catch (err) {
-            console.error("Failed to fetch user info:", err);
-          }
+          // [OPTIMIZATION] If backend returns email directly, use it; otherwise fetch
+          const userEmail = share.shared_with_email || await getUserEmail(share.shared_with_user_id);
           
           return {
             id: share.share_id,
@@ -79,7 +96,8 @@ export default function Shared() {
             sharedWith: userEmail,
             status: share.expires_at && new Date(share.expires_at) < new Date() ? "Expired" : "Active",
             expiration: share.expires_at ? new Date(share.expires_at).toLocaleDateString() : "Never",
-            direction: "by_me"
+            direction: "by_me",
+            is_owner: true  // [FIX] Mark as owner since this is shared BY me
           };
         }));
 
@@ -89,14 +107,9 @@ export default function Shared() {
           let sharedWithEmail = share.shared_with || "Unknown";
           
           // If shared_with is a UUID (not an email), resolve it to get the email
+          // But check cache first to avoid duplicate requests
           if (sharedWithEmail && !sharedWithEmail.includes("@")) {
-            try {
-              const userInfo = await api.getCurrentUser(sharedWithEmail);
-              sharedWithEmail = userInfo.email || sharedWithEmail;
-            } catch (err) {
-              console.error("Failed to fetch user info:", err);
-              // Keep original if fetch fails
-            }
+            sharedWithEmail = await getUserEmail(sharedWithEmail);
           }
           
           return {
@@ -109,20 +122,16 @@ export default function Shared() {
             status: share.expires_at && new Date(share.expires_at) < new Date() ? "Expired" : "Active",
             expiration: share.expires_at ? new Date(share.expires_at).toLocaleDateString() : "Never",
             direction: "by_me",
-            permission: share.permission || "view"
+            permission: share.permission || "view",
+            is_owner: true  // [FIX] Mark as owner since this is shared BY me
           };
         }));
 
         // Fetch files shared with me
         const withMeFilesResponse = await api.getSharedWithMe(user.id);
         const processedWithMeFiles = await Promise.all((withMeFilesResponse || []).map(async (share) => {
-          let userEmail = "Unknown";
-          try {
-            const userInfo = await api.getCurrentUser(share.shared_by_user_id);
-            userEmail = userInfo.email || "Unknown";
-          } catch (err) {
-            console.error("Failed to fetch user info:", err);
-          }
+          // [OPTIMIZATION] If backend returns email, use it; reduces API calls
+          const userEmail = share.shared_by_email || await getUserEmail(share.shared_by_user_id);
           
           return {
             id: share.share_id,
@@ -133,7 +142,8 @@ export default function Shared() {
             sharedWith: userEmail,
             status: share.expires_at && new Date(share.expires_at) < new Date() ? "Expired" : "Active",
             expiration: share.expires_at ? new Date(share.expires_at).toLocaleDateString() : "Never",
-            direction: "with_me"
+            direction: "with_me",
+            is_owner: false  // [FIX] Mark as NOT owner since this is shared WITH me
           };
         }));
 
@@ -149,7 +159,8 @@ export default function Shared() {
             status: "Active",
             expiration: folder.expires_at ? new Date(folder.expires_at).toLocaleDateString() : "Never",
             direction: "with_me",
-            permission: folder.permission || "view"
+            permission: folder.permission || "view",
+            is_owner: false  // [FIX] Mark as NOT owner since this is shared WITH me
           };
         });
 
@@ -441,20 +452,23 @@ export default function Shared() {
                          >
                            Download
                          </button>
-                         <button
-                           onClick={() => handleRevoke(file)}
-                           style={{
-                             padding: "0.4rem 0.75rem",
-                             borderRadius: "6px",
-                             border: "1px solid #d1d5db",
-                             backgroundColor: "#f3f4f6",
-                             color: "#000000",
-                             fontSize: "0.875rem",
-                             cursor: "pointer",
-                           }}
-                         >
-                           Revoke
-                         </button>
+                         {/* [FIX] Only show Revoke button to owner, not recipient */}
+                         {file.is_owner && (
+                           <button
+                             onClick={() => handleRevoke(file)}
+                             style={{
+                               padding: "0.4rem 0.75rem",
+                               borderRadius: "6px",
+                               border: "1px solid #d1d5db",
+                               backgroundColor: "#f3f4f6",
+                               color: "#000000",
+                               fontSize: "0.875rem",
+                               cursor: "pointer",
+                             }}
+                           >
+                             Revoke
+                           </button>
+                         )}
                        </>
                      )}
                    </div>

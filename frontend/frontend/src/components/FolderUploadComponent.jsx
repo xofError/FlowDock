@@ -6,6 +6,7 @@
 import { useState, useRef } from "react";
 import { useAuthContext } from "../../context/AuthContext";
 import useFileOperations from "../../hooks/useFileOperations";
+import { api, MEDIA_API_URL } from "../../services/api";
 
 export default function FolderUploadComponent({ onUploadComplete }) {
   const { user } = useAuthContext();
@@ -77,22 +78,12 @@ export default function FolderUploadComponent({ onUploadComplete }) {
         formData.append("files", file, relativePath);
       });
 
-      const response = await fetch(
-        `${process.env.REACT_APP_API_URL || "http://localhost:8001"}/media/upload-folder/${user.id}`,
-        {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${localStorage.getItem("access_token")}`,
-          },
-          body: formData,
-        }
+      // Use centralized api.requestFormData to handle token refresh automatically on 401
+      const result = await api.requestFormData(
+        `${MEDIA_API_URL}/upload-folder/${user.id}`,
+        formData,
+        { method: "POST" }
       );
-
-      if (!response.ok) {
-        throw new Error(`Upload failed: ${response.statusText}`);
-      }
-
-      const result = await response.json();
       setUploadStatus(
         `✅ Upload complete: ${result.files_uploaded} files uploaded${
           result.failed_files > 0 ? `, ${result.failed_files} failed` : ""

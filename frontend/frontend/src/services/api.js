@@ -109,6 +109,73 @@ class APIClient {
   }
 
   /**
+   * Generic fetch wrapper for FormData uploads with token refresh support
+   * Does NOT set Content-Type header - let browser set it with proper boundary
+   */
+  async requestFormData(url, formData, options = {}) {
+    const headers = {
+      ...options.headers,
+    };
+
+    // Add authorization token if available
+    if (this.authToken) {
+      headers["Authorization"] = `Bearer ${this.authToken}`;
+    }
+
+    // Include credentials for all requests (important for refresh token cookie)
+    const fetchOptions = {
+      ...options,
+      method: options.method || "POST",
+      headers,
+      credentials: "include",
+      body: formData,
+    };
+
+    try {
+      const response = await fetch(url, fetchOptions);
+
+      // Handle 401 - try to refresh token
+      if (response.status === 401) {
+        const refreshed = await this.refreshAccessToken();
+        if (refreshed) {
+          // Retry the original request with new token
+          return this.requestFormData(url, formData, options);
+        } else {
+          // Refresh failed, clear tokens
+          this.clearTokens();
+          window.location.href = "/#/login";
+        }
+      }
+
+      // Handle other errors
+      if (!response.ok) {
+        let error = {};
+        try {
+          error = await response.json();
+        } catch (e) {
+          // Response wasn't JSON
+          error = { detail: response.statusText };
+        }
+        throw new Error(error.detail || `HTTP ${response.status}`);
+      }
+
+      return await response.json();
+    } catch (error) {
+      // Provide better error context
+      let errorMsg = error.message;
+      if (!errorMsg) {
+        if (typeof error === 'object' && error !== null) {
+          errorMsg = JSON.stringify(error);
+        } else {
+          errorMsg = error.toString();
+        }
+      }
+      console.error(`API Error: ${url}`, { errorMsg, url, options });
+      throw new Error(errorMsg);
+    }
+  }
+
+  /**
    * Refresh access token using refresh token (in HttpOnly cookie)
    */
   async refreshAccessToken() {
@@ -445,9 +512,13 @@ class APIClient {
    * Delete a public link
    */
   async deletePublicLink(linkId) {
-    // For folder links (hex format), use /public-links endpoint
-    // For file links (UUID format), this will fall back gracefully
-    return this.request(`${MEDIA_API_URL}/public-links/${linkId}`, {
+    // [FIX: Unified Public Link Deletion]
+    // Uses unified /share-links endpoint that handles BOTH:
+    // - File links: UUID format (e.g., "26a2cc3d-fafb-42b9-a6b1-13fe626f6ac5")
+    // - Folder links: hex format (e.g., "1df71afe978c4305adfc282b7be860cc")
+    // Backend detects type by ID format and queries correct database (SQL/MongoDB)
+    
+    return this.request(`${MEDIA_API_URL}/share-links/${linkId}`, {
       method: "DELETE",
     });
   }

@@ -6,6 +6,7 @@ Handles creating and managing public access links for folders.
 from fastapi import APIRouter, HTTPException, Path, Query, Depends, Body, Request
 from fastapi.responses import JSONResponse
 from typing import Optional
+from sqlalchemy.orm import Session
 import logging
 from bson import ObjectId
 
@@ -20,7 +21,7 @@ from app.utils.security import (
     get_current_user_id,
     create_download_token,
 )
-from app.database import get_mongo_db
+from app.database import get_mongo_db, get_db
 from app.infrastructure.database.mongo_repository import MongoFolderRepository, MongoGridFSRepository
 from app.presentation.dependencies import get_folder_service
 from app.core.config import settings
@@ -351,21 +352,70 @@ async def delete_folder_link_by_id(
     link_id: str = Path(..., description="Link ID"),
     current_user_id: str = Depends(get_current_user_id),
     service: PublicFolderLinksService = Depends(get_public_links_service),
+    db: Session = Depends(get_db),
 ):
     """
-    Delete a public folder link using share-links pattern (alias for compatibility).
+    Delete a public link using share-links pattern (unified endpoint for both file and folder links).
+    
+    [FIX: Multi-type Link Handling]
+    Handles BOTH file and folder public links:
+    - Folder links: MongoDB-based (hex format IDs)
+    - File links: SQL-based (UUID format IDs)
     
     Args:
-        link_id: ID of link to delete
+        link_id: ID of link to delete (UUID for files, hex for folders)
         current_user_id: ID of user (owner)
         
     Returns:
         Deletion status
     """
     try:
-        link_id = link_id.strip()
-        logger.info(f"[delete-share-link] User {current_user_id} deleting share-link {link_id[:10]}...")
+        import re
+        import uuid
+        from app.models import share as share_model
         
+        link_id = link_id.strip()
+        
+        # [FIX] Detect link type by ID format
+        # File links: UUID format with dashes (8-4-4-4-12) 
+        # Folder links: hex without dashes
+        is_uuid = re.match(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', 
+                          link_id, re.IGNORECASE)
+        
+        if is_uuid:
+            # Try FILE link deletion (SQL)
+            logger.info(f"[delete-share-link] Detected FILE link (UUID): {link_id[:10]}...")
+            try:
+                link_uuid = uuid.UUID(link_id)
+                file_link = db.query(share_model.ShareLink).filter(
+                    share_model.ShareLink.id == link_uuid
+                ).first()
+                
+                if file_link:
+                    # Verify ownership
+                    if str(file_link.created_by_user_id) != current_user_id:
+                        logger.warning(f"[delete-share-link] User {current_user_id} not authorized to delete file link {link_id}")
+                        raise HTTPException(status_code=403, detail="You don't have permission to delete this link")
+                    
+                    # Mark as inactive instead of deleting (preserves history)
+                    file_link.active = False
+                    db.commit()
+                    logger.info(f"[delete-share-link] Deleted FILE link {link_id}")
+                    
+                    return {
+                        "status": "deleted",
+                        "link_id": link_id,
+                        "link_type": "file"
+                    }
+            except HTTPException:
+                raise
+            except Exception as e:
+                logger.error(f"[delete-share-link] Error deleting file link: {e}")
+                db.rollback()
+                raise HTTPException(status_code=500, detail="Failed to delete file link")
+        
+        # Try FOLDER link deletion (MongoDB)
+        logger.info(f"[delete-share-link] Detected FOLDER link (hex): {link_id[:10]}...")
         success = await service.delete_link_by_id(link_id, current_user_id)
         
         if not success:
@@ -374,6 +424,7 @@ async def delete_folder_link_by_id(
         return {
             "status": "deleted",
             "link_id": link_id,
+            "link_type": "folder"
         }
         
     except ValueError as e:
@@ -383,6 +434,8 @@ async def delete_folder_link_by_id(
         raise
     except Exception as e:
         logger.error(f"[delete-share-link] Error deleting link: {str(e)}")
+        import traceback
+        logger.error(f"[delete-share-link] Traceback: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"Failed to delete public link: {str(e)}")
 
 

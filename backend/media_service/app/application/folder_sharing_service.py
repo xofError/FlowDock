@@ -195,6 +195,7 @@ class FolderSharingService:
     ) -> None:
         """
         Apply sharing to all subfolders recursively.
+        Optimized with bulk write operations to avoid N+1 database calls.
         
         Args:
             folder_id: Parent folder ID
@@ -207,29 +208,43 @@ class FolderSharingService:
             # Get all descendant folders
             all_children = await self.folder_repo.get_all_children_folders(folder_id)
             
-            # Share with each child
+            if not all_children:
+                logger.info(f"[share-folder] No subfolders to cascade sharing for {folder_id}")
+                return
+            
+            # [FIX: Bulk Write] Instead of sequential updates, use MongoDB bulk write
+            from pymongo import UpdateOne
+            
+            bulk_updates = []
             for child in all_children:
-                share = FolderShare(
-                    folder_id=child.id,
-                    shared_by="system",  # Cascaded share
-                    target_type=target_type,
-                    target_id=target_id,
-                    permission=permission,
-                    cascade=True,  # Inherited shares continue to cascade
-                    expires_at=expires_at,
-                )
+                share_data = {
+                    "folder_id": child.id,
+                    "shared_by": "system",  # Cascaded share
+                    "target_type": target_type,
+                    "target_id": target_id,
+                    "permission": permission,
+                    "cascade": True,  # Inherited shares continue to cascade
+                    "created_at": datetime.utcnow(),
+                    "expires_at": expires_at,
+                }
                 
-                # FIX #1: Use upsert to prevent duplicates
-                await self.shares_collection.update_one(
-                    {
-                        "folder_id": child.id,
-                        "target_id": target_id
-                    },
-                    {"$set": share.to_dict()},
-                    upsert=True
+                # Use UpdateOne with upsert to prevent duplicates
+                bulk_updates.append(
+                    UpdateOne(
+                        {
+                            "folder_id": child.id,
+                            "target_id": target_id
+                        },
+                        {"$set": share_data},
+                        upsert=True
+                    )
                 )
             
-            logger.info(f"[share-folder] Cascaded sharing to {len(all_children)} subfolders")
+            # Execute all updates in a single round-trip
+            if bulk_updates:
+                result = await self.shares_collection.bulk_write(bulk_updates)
+                logger.info(f"[share-folder] Cascaded sharing to {len(all_children)} subfolders - "
+                           f"upserted: {result.upserted_id}, modified: {result.modified_count}")
             
         except Exception as e:
             logger.error(f"[share-folder] Failed to cascade sharing: {e}")
@@ -401,7 +416,7 @@ class FolderSharingService:
             # inherited permissions. This allows new subfolders to inherit parent
             # sharing without explicit DB records.
             current_folder_id = folder_id
-            depth_limit = 10  # Prevent infinite loops from corrupt data
+            depth_limit = 100  # Increased from 10 to support deeper folder structures
             
             while current_folder_id and depth_limit > 0:
                 # Get folder to find parent

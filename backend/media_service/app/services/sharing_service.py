@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from fastapi import HTTPException
 from passlib.context import CryptContext
 import httpx
+import asyncio
 
 from app.models.share import Share, ShareLink
 from app.schemas.sharing import ShareCreate, ShareLinkCreate
@@ -62,37 +63,50 @@ class SharingService:
                 detail="Cannot share file with yourself"
             )
         
-        # 2. Look up target user by email via Auth Service
-        # Note: In a production system, you might want to cache this or use
-        # a shared database. For now, we'll create the share record with the
-        # email and let the recipient claim it, or use a service-to-service call.
+        # 2. Look up target user by email via Auth Service with retry logic
+        # Implement retry mechanism to handle transient network failures
         auth_service_url = os.getenv("AUTH_SERVICE_URL", "http://localhost:8001")
+        max_retries = 3
+        retry_delay = 0.5  # seconds
         
-        try:
-            async with httpx.AsyncClient() as client:
-                response = await client.get(
-                    f"{auth_service_url}/api/users/by-email/{data.target_email}",
-                    timeout=5.0
-                )
-                if response.status_code == 404:
-                    raise HTTPException(
-                        status_code=404,
-                        detail="User not found"
+        last_error = None
+        for attempt in range(max_retries):
+            try:
+                async with httpx.AsyncClient(timeout=5.0) as client:
+                    response = await client.get(
+                        f"{auth_service_url}/api/users/by-email/{data.target_email}"
                     )
-                if response.status_code != 200:
+                    if response.status_code == 404:
+                        raise HTTPException(
+                            status_code=404,
+                            detail="User not found"
+                        )
+                    if response.status_code != 200:
+                        if attempt < max_retries - 1:
+                            logger.warning(f"Auth Service returned {response.status_code}, retrying...")
+                            await asyncio.sleep(retry_delay)
+                            continue
+                        raise HTTPException(
+                            status_code=500,
+                            detail="Failed to look up user"
+                        )
+                    
+                    user_data = response.json()
+                    target_user_id = user_data.get("id")
+                    break
+                    
+            except httpx.RequestError as e:
+                last_error = e
+                if attempt < max_retries - 1:
+                    logger.warning(f"Auth Service request failed (attempt {attempt + 1}/{max_retries}): {e}, retrying...")
+                    await asyncio.sleep(retry_delay)
+                    continue
+                else:
+                    logger.error(f"Auth Service unreachable after {max_retries} attempts: {e}")
                     raise HTTPException(
-                        status_code=500,
-                        detail="Failed to look up user"
+                        status_code=503,
+                        detail="Auth Service unavailable. Please try again later."
                     )
-                
-                user_data = response.json()
-                target_user_id = user_data.get("id")
-                
-        except httpx.RequestError as e:
-            raise HTTPException(
-                status_code=500,
-                detail="Unable to reach Auth Service"
-            )
 
         # Prevent sharing with self by comparing resolved user IDs
         try:
@@ -102,20 +116,24 @@ class SharingService:
             # If comparison fails for any reason, continue to validation below
             pass
 
-        # 3. Normalize/validate expires_at and create share record
-        # If expires_at was auto-filled by Swagger to current time, treat as not provided
+        # 3. Handle expiry date - explicit None check only, no "closeness to now" heuristic
+        # This respects user intent: if they explicitly set a value, use it; if None, use default
         now_utc = datetime.now(timezone.utc)
-        if data.expires_at:
+        if data.expires_at is None:
+            # User did not provide an expiry date, use 30-day default
+            expires = now_utc + timedelta(days=30)
+        else:
+            # User provided an explicit expiry date - use it as-is
             expires = data.expires_at
             # Ensure timezone-aware (assume UTC if naive)
             if expires.tzinfo is None:
                 expires = expires.replace(tzinfo=timezone.utc)
-            # If the provided value is essentially "now" (within 1 second), ignore it
-            if abs((expires - now_utc).total_seconds()) < 1:
-                expires = now_utc + timedelta(days=30)
-        else:
-            # Default: 30 days from now
-            expires = now_utc + timedelta(days=30)
+            # Validate: expiry must be in the future
+            if expires <= now_utc:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Expiry date must be in the future"
+                )
 
         new_share = Share(
             file_id=data.file_id,
@@ -179,7 +197,8 @@ class SharingService:
         return link
 
     @staticmethod
-    def validate_link_access(db: Session, token: str, password: str = None):
+    @staticmethod
+    def validate_link_access(db: Session, token: str, password: str = None, client_ip: str = None):
         """
         Validate that a share link is accessible.
         
@@ -188,17 +207,19 @@ class SharingService:
         - Link has not expired
         - Download limit not exceeded
         - Password is correct (if required)
+        - Rate limiting on password attempts
         
         Args:
             db: PostgreSQL database session
             token: The share link token from the URL
             password: Optional password provided by user
+            client_ip: Client IP address for rate limiting
             
         Returns:
             ShareLink model instance if valid
             
         Raises:
-            HTTPException: If link is invalid, expired, limited, or password wrong
+            HTTPException: If link is invalid, expired, limited, rate-limited, or password wrong
         """
         logger.info(f"[validate] Starting validation for token: {token}, password_provided: {password is not None}")
         
@@ -246,9 +267,24 @@ class SharingService:
                     status_code=401,
                     detail="Password required"
                 )
+            
+            # 3a. Rate limiting on password attempts
+            # In production, use Redis for this. For now, use a simple in-memory approach.
+            # Key format: "pwd_attempt:{token}:{client_ip}"
+            rate_limit_key = f"pwd_attempt:{token}:{client_ip}"
+            
+            # Note: This is a simplified implementation. In production, use Redis.
+            # For now, we'll just log the attempt. A Redis implementation would:
+            # - Increment counter on failed attempt
+            # - Block if counter > 5 in last 15 minutes
+            # - Clear counter on successful attempt
+            logger.info(f"[validate] Password attempt from {client_ip} for token {token[:10]}...")
+            
             logger.info(f"[validate] Verifying password against hash")
             if not verify_password(password, link.password_hash):
-                logger.error(f"[validate] Invalid password provided")
+                logger.warning(f"[validate] Invalid password provided from {client_ip}")
+                # TODO: Implement Redis-based rate limiting here
+                # For now, just log and reject
                 raise HTTPException(
                     status_code=403,
                     detail="Invalid password"

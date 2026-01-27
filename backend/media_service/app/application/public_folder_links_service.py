@@ -212,12 +212,27 @@ class PublicFolderLinksService:
             PublicFolderLink if found, None otherwise
         """
         try:
+            # Ensure link_id is properly formatted
+            link_id = str(link_id).strip()
+            logger.debug(f"[get-link-by-id] Searching for link_id: {link_id} (type: {type(link_id).__name__})")
+            
             link_data = await self.links_collection.find_one({"link_id": link_id})
             if link_data:
+                logger.debug(f"[get-link-by-id] Found link data: {link_data.get('link_id')}")
                 return PublicFolderLink.from_dict(link_data)
+            
+            # Debug: Check what's in the database
+            logger.debug(f"[get-link-by-id] No exact match for {link_id}")
+            all_links = await self.links_collection.find().to_list(None)
+            logger.debug(f"[get-link-by-id] Database has {len(all_links)} links")
+            for link in all_links[:5]:  # Log first 5 for debugging
+                logger.debug(f"[get-link-by-id] Link in DB: {link.get('link_id')}")
+            
             return None
         except Exception as e:
             logger.error(f"[get-link-by-id] Error retrieving link: {e}")
+            import traceback
+            logger.error(f"[get-link-by-id] Traceback: {traceback.format_exc()}")
             return None
     
     async def verify_access(
@@ -549,22 +564,29 @@ class PublicFolderLinksService:
         logger.info(f"[delete-link-by-id] Deleting link {link_id}...")
         
         try:
+            # [FIX: Debug 404 issue]
             link = await self.get_link_by_id(link_id)
             if not link:
+                logger.warning(f"[delete-link-by-id] Link {link_id} not found in database")
+                logger.debug(f"[delete-link-by-id] Attempted query: link_id={link_id}")
                 return False
+            
+            logger.info(f"[delete-link-by-id] Found link: {link.link_id}, created_by: {link.created_by}, user_id: {user_id}")
             
             # Verify ownership
             if link.created_by != user_id:
-                logger.warning(f"[delete-link-by-id] User {user_id} does not own link {link.link_id}")
+                logger.warning(f"[delete-link-by-id] User {user_id} does not own link {link.link_id} (owned by {link.created_by})")
                 return False
             
             # Delete link
             result = await self.links_collection.delete_one({"link_id": link_id})
             
-            logger.info(f"[delete-link-by-id] Deleted link {link.link_id}")
+            logger.info(f"[delete-link-by-id] Deleted link {link.link_id} (deleted_count: {result.deleted_count})")
             return result.deleted_count > 0
             
         except Exception as e:
             logger.error(f"[delete-link-by-id] Error deleting link: {e}")
+            import traceback
+            logger.error(f"[delete-link-by-id] Traceback: {traceback.format_exc()}")
             return False
 

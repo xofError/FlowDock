@@ -744,6 +744,7 @@ class MongoFolderRepository(IFolderRepository):
     async def delete_folder_recursive(self, folder_id: str, owner_id: str) -> bool:
         """
         Delete folder and all its contents (files and subfolders).
+        Optimized with batch operations to avoid N+1 database calls.
         
         Args:
             folder_id: The folder identifier
@@ -763,17 +764,19 @@ class MongoFolderRepository(IFolderRepository):
             descendants = await self.get_all_children_folders(folder_id)
             all_folders_to_delete.extend(descendants)
 
-            # 2. Delete all files in these folders
+            # 2. Delete all files in these folders (BATCH operation with $in)
+            # Instead of deleting files one by one, delete all matching in single query
             fs = self.db.get_collection("fs.files")
-            for fid in all_folders_to_delete:
-                result = await fs.delete_many({"metadata.folderId": fid})
-                logger.info(f"✓ Deleted {result.deleted_count} files from folder {fid}")
+            if all_folders_to_delete:
+                result = await fs.delete_many({"metadata.folderId": {"$in": all_folders_to_delete}})
+                logger.info(f"✓ Deleted {result.deleted_count} files from {len(all_folders_to_delete)} folders")
 
-            # 3. Delete all folders
-            for fid in all_folders_to_delete:
-                oid = self._to_object_id(fid)
-                if oid is not None:
-                    await self.collection.delete_one({"_id": oid})
+            # 3. Delete all folders (BATCH operation with $in)
+            # Convert to ObjectIds once
+            folder_oids = [self._to_object_id(fid) for fid in all_folders_to_delete if self._to_object_id(fid)]
+            if folder_oids:
+                result = await self.collection.delete_many({"_id": {"$in": folder_oids}})
+                logger.info(f"✓ Deleted {result.deleted_count} folders")
 
             logger.info(f"✓ Recursively deleted folder {folder_id} and all contents")
             return True
