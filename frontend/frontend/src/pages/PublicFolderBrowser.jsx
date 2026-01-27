@@ -52,7 +52,7 @@ export default function PublicFolderBrowser() {
       const data = await response.json();
       setCurrentFolder(data);
       setNeedsPassword(false);
-      setPassword("");
+      // Keep password in state for downloads - don't clear it!
       setError(null);
       
       // Build breadcrumbs

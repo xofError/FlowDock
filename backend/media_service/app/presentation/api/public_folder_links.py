@@ -649,24 +649,37 @@ async def get_public_subfolder_contents(
             db = service.db
             folders_coll = db["folders"]
             
+            # Convert to ObjectId if valid format
+            from bson import ObjectId
+            try:
+                subfolder_oid = ObjectId(subfolder_id) if len(subfolder_id) == 24 else subfolder_id
+            except:
+                subfolder_oid = subfolder_id
+            
             # Check if subfolder exists and is part of the folder tree
-            subfolder = await folders_coll.find_one({"_id": subfolder_id})
+            subfolder = await folders_coll.find_one({"_id": subfolder_oid})
             if not subfolder:
                 raise HTTPException(status_code=404, detail="Subfolder not found")
             
             # Verify subfolder is part of the public folder tree
             # by checking if it has folder_id as an ancestor or is a direct child
-            current_id = subfolder_id
+            current_id = subfolder_oid
             found = False
             visited = set()
             
-            while current_id and current_id not in visited:
-                visited.add(current_id)
-                current_folder = await folders_coll.find_one({"_id": current_id})
+            while current_id and str(current_id) not in visited:
+                visited.add(str(current_id))
+                
+                try:
+                    current_oid = ObjectId(str(current_id)) if len(str(current_id)) == 24 else current_id
+                except:
+                    current_oid = current_id
+                
+                current_folder = await folders_coll.find_one({"_id": current_oid})
                 if not current_folder:
                     break
                 
-                if current_id == folder_id:
+                if str(current_id) == str(folder_id):
                     found = True
                     break
                 
@@ -746,16 +759,15 @@ async def download_file_from_public_folder(
         # Verify file is in the folder tree
         try:
             db = service.db
-            files_coll = db["files"]
+            fs = db.get_collection("fs.files")  # GridFS files collection
             
-            file_doc = await files_coll.find_one({"_id": ObjectId(file_id) if len(file_id) == 24 else file_id})
+            file_doc = await fs.find_one({"_id": ObjectId(file_id) if len(file_id) == 24 else file_id})
             if not file_doc:
                 raise HTTPException(status_code=404, detail="File not found")
             
-            # Check if file is in the shared folder (check via folder_id field)
-            file_folder_id = file_doc.get("folder_id")
-            if not file_folder_id:
-                raise HTTPException(status_code=404, detail="File not in any folder")
+            # Check if file is in the shared folder (check via folder_id field in metadata)
+            file_metadata = file_doc.get("metadata", {})
+            file_folder_id = file_metadata.get("folder_id")
             
             # Verify this folder belongs to the public link's folder tree
             current_id = file_folder_id
@@ -786,11 +798,21 @@ async def download_file_from_public_folder(
         # Download file using folder_service
         from fastapi.responses import StreamingResponse
         try:
-            # Get file metadata and stream
+            # Get file metadata and encrypted stream
             file_meta, stream = await folder_service.file_repo.get_file_stream(file_id)
             
             if not file_meta:
                 raise HTTPException(status_code=404, detail="File content not found")
+            
+            # Decrypt the stream if file is encrypted
+            if file_meta.encrypted:
+                try:
+                    file_key = folder_service.crypto.unwrap_key(bytes.fromhex(file_meta.encrypted_key))
+                    nonce = bytes.fromhex(file_meta.nonce)
+                    stream = folder_service.crypto.decrypt_stream(stream, file_key, nonce)
+                except Exception as e:
+                    logger.error(f"Decryption failed for file {file_id}: {e}")
+                    raise HTTPException(status_code=500, detail="Failed to decrypt file")
             
             filename = file_meta.filename or "download"
             
