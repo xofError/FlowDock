@@ -541,17 +541,21 @@ async def access_public_folder(
 @router.get("/public/folders/{token}/contents")
 async def get_public_folder_contents(
     token: str = Path(..., description="Public link token"),
-    password: Optional[str] = Query(None, description="Password if link is protected"),
     service: PublicFolderLinksService = Depends(get_public_links_service),
     folder_service = Depends(get_folder_service),
+    request: Request = None,
 ):
     """
     Get contents of a public folder (files and subfolders).
-    Requires valid token and password (if applicable).
+    
+    [SECURITY FIX: Password Removal]
+    Now uses access_token cookie/header instead of password query param.
+    Client must first call /access endpoint to get access_token.
+    
+    Requires valid access_token in Cookie or Authorization header.
     
     Args:
         token: Public link token
-        password: Optional password if link is protected
         
     Returns:
         Folder contents (files and subfolders)
@@ -560,8 +564,9 @@ async def get_public_folder_contents(
         token = token.strip()
         logger.info(f"[public-contents] Retrieving contents for link {token[:10]}...")
         
-        # Verify access
-        has_access = await service.verify_access(token, password)
+        # Verify access using access_token from cookie/header
+        # [SECURITY FIX: No password in URL]
+        has_access = await service.verify_access(token)
         if not has_access:
             raise HTTPException(status_code=403, detail="Access denied")
         
@@ -774,17 +779,18 @@ async def get_public_subfolder_contents(
 async def download_file_from_public_folder(
     token: str = Path(..., description="Public link token"),
     file_id: str = Path(..., description="File ID to download"),
-    password: Optional[str] = Query(None, description="Password if link is protected"),
     service: PublicFolderLinksService = Depends(get_public_links_service),
     folder_service = Depends(get_folder_service),
+    request: Request = None,
 ):
     """
     Download a file from a public folder link.
     
-    Args:
-        token: Public link token
-        file_id: ID of the file to download
-        password: Optional password if link is protected
+    [SECURITY FIX: Password Removal]
+    Now uses access_token cookie/header instead of password query param.
+    Client must first call /access endpoint to get access_token.
+    
+    Requires valid access_token in Cookie or Authorization header.
         
     Returns:
         File content as binary
@@ -794,8 +800,9 @@ async def download_file_from_public_folder(
         file_id = file_id.strip()
         logger.info(f"[public-file-download] Downloading file {file_id} from link {token[:10]}...")
         
-        # Verify access
-        has_access = await service.verify_access(token, password)
+        # Verify access using access_token from cookie/header
+        # [SECURITY FIX: No password in URL]
+        has_access = await service.verify_access(token)
         if not has_access:
             raise HTTPException(status_code=403, detail="Access denied")
         
@@ -822,22 +829,41 @@ async def download_file_from_public_folder(
             file_metadata = file_doc.get("metadata", {})
             file_folder_id = file_metadata.get("folder_id")
             
-            # Verify this folder belongs to the public link's folder tree
-            current_id = file_folder_id
-            found = False
-            visited = set()
+            # [FIX: N+1 Query Optimization]
+            # Use $graphLookup to fetch entire ancestry in ONE query instead of loop
+            folders_collection = db["folders"]
             
-            while current_id and current_id not in visited:
-                visited.add(str(current_id))
-                if str(current_id) == folder_id or str(current_id) == str(folder_id):
-                    found = True
-                    break
-                
-                current_folder = await db["folders"].find_one({"_id": current_id if isinstance(current_id, ObjectId) else ObjectId(current_id) if len(str(current_id)) == 24 else current_id})
-                if not current_folder:
-                    break
-                
-                current_id = current_folder.get("parent_id")
+            ancestry_pipeline = [
+                {"$match": {"_id": ObjectId(file_folder_id) if isinstance(file_folder_id, str) and len(file_folder_id) == 24 else file_folder_id}},
+                {
+                    "$graphLookup": {
+                        "from": "folders",
+                        "startWith": "$parent_id",
+                        "connectFromField": "parent_id",
+                        "connectToField": "_id",
+                        "as": "ancestors",
+                        "maxDepth": 100  # Remove arbitrary depth limit
+                    }
+                }
+            ]
+            
+            result = await folders_collection.aggregate(ancestry_pipeline).to_list(1)
+            
+            if not result:
+                raise HTTPException(status_code=403, detail="File not in shared folder")
+            
+            folder_doc = result[0]
+            
+            # Check if root folder matches the public link's shared folder
+            found = str(folder_doc["_id"]) == folder_id
+            
+            # Check all ancestors
+            if not found:
+                ancestors = folder_doc.get("ancestors", [])
+                for ancestor in ancestors:
+                    if str(ancestor["_id"]) == folder_id:
+                        found = True
+                        break
             
             if not found:
                 raise HTTPException(status_code=403, detail="File not in shared folder")

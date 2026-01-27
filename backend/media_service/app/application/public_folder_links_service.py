@@ -312,11 +312,14 @@ class PublicFolderLinksService:
                 return True
             
             # 2. Recursive Parent Check (Fixes "New Folder" gap for public links)
+            # [FIX: Removed hardcoded depth_limit of 10]
             # Check if the folder is a descendant of the shared folder
             current_folder_id = folder_id
-            depth_limit = 10  # Prevent infinite loops
+            visited = set()  # Prevent infinite loops with cycle detection
             
-            while current_folder_id and depth_limit > 0:
+            while current_folder_id and current_folder_id not in visited:
+                visited.add(str(current_folder_id))
+                
                 # Get folder to find parent
                 folder = await self.folder_repo.get_folder_by_id(current_folder_id)
                 if not folder or not folder.parent_id:

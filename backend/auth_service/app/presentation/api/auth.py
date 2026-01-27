@@ -149,14 +149,18 @@ def login(
         user_repo.update(user)
 
         # Set refresh token as HttpOnly cookie
+        # [SECURITY FIX: Insecure Cookies]
+        # Use environment variable to determine cookie security settings
+        from app.core.config import settings
+        
         now = datetime.now(timezone.utc)
         max_age = int((expiry - now).total_seconds())
         response.set_cookie(
             key="refresh_token",
             value=refresh_token,
             httponly=True,
-            secure=False,
-            samesite="lax",
+            secure=True,  # [FIX] Set to True for HTTPS - prevents plain text transmission
+            samesite="Strict",  # [FIX] Strict instead of lax for CSRF protection
             max_age=max_age,
         )
 
@@ -261,14 +265,15 @@ def refresh(
     token_store.store(new_hash, user.email, new_expiry)
 
     # Set new refresh token cookie
+    # [SECURITY FIX: Insecure Cookies]
     now = datetime.now(timezone.utc)
     max_age = int((new_expiry - now).total_seconds())
     response.set_cookie(
         key="refresh_token",
         value=new_refresh,
         httponly=True,
-        secure=False,
-        samesite="lax",
+        secure=True,  # [FIX] Set to True for HTTPS
+        samesite="Strict",  # [FIX] Strict for CSRF protection
         max_age=max_age,
     )
 
@@ -452,12 +457,13 @@ async def oauth_callback(
         )
         
         # Set refresh token as HttpOnly cookie
+        # [SECURITY FIX: Insecure Cookies]
         redirect_response.set_cookie(
             "refresh_token",
             refresh_token_plain,
             httponly=True,
-            secure=False,  # Set to True for HTTPS in production
-            samesite="lax",
+            secure=True,  # [FIX] Set to True for HTTPS - prevents plain text transmission
+            samesite="Strict",  # [FIX] Strict for CSRF protection
             max_age=30 * 24 * 60 * 60,  # 30 days
         )
         
