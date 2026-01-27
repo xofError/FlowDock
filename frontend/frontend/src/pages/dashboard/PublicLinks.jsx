@@ -43,10 +43,32 @@ export default function PublicLinks() {
     if (!user?.id) return;
     try {
       setLoading(true);
-      const publicLinks = await api.getUserPublicLinks(user.id);
-      // Filter out inactive (deleted) links
-      const activeLinks = (publicLinks || []).filter(link => link.active !== false);
-      setLinks(activeLinks);
+      const [fileLinksResponse, folderLinksResponse] = await Promise.all([
+        api.getUserPublicLinks(user.id).catch(() => []),
+        api.getFolderPublicLinks().catch(() => ({ links: [] }))
+      ]);
+
+      // Process file links
+      const fileLinks = (fileLinksResponse || []).map(link => ({
+        ...link,
+        type: "file",
+        displayName: link.file_name || `File ${link.file_id.substring(0, 8)}`
+      })).filter(link => link.active !== false);
+
+      // Process folder links - map backend response to match file links format
+      const folderLinks = (folderLinksResponse?.links || []).map(link => ({
+        ...link,
+        type: "folder",
+        short_code: link.token,
+        id: link.link_id,
+        displayName: link.folder_name || `Folder ${link.folder_id?.substring(0, 8) || "unknown"}`,
+        downloads_used: link.download_count ?? 0,  // Use nullish coalescing for better null handling
+        has_password: link.password_protected,
+        active: link.enabled !== false,  // Map enabled to active for consistency
+      }));
+
+      const allLinks = [...fileLinks, ...folderLinks];
+      setLinks(allLinks);
       setError(null);
     } catch (err) {
       console.error("Failed to fetch public links:", err);
@@ -56,8 +78,13 @@ export default function PublicLinks() {
     }
   };
 
-  const handleCopyLink = (token) => {
-    const linkUrl = `${window.location.origin}/#/s/${token}/access`;
+  const handleCopyLink = (token, linkType = "file") => {
+    let linkUrl;
+    if (linkType === "folder") {
+      linkUrl = `${window.location.origin}/#/public/folders/${token}`;
+    } else {
+      linkUrl = `${window.location.origin}/#/s/${token}/access`;
+    }
     navigator.clipboard.writeText(linkUrl);
     setSuccessMessage("Link copied to clipboard!");
     setTimeout(() => setSuccessMessage(""), 3000);
@@ -94,16 +121,21 @@ export default function PublicLinks() {
       const newExpiry = new Date(currentDate.getTime() + days * 24 * 60 * 60 * 1000);
       
       const mediaApiUrl = import.meta.env.VITE_MEDIA_API_URL || "http://localhost:8001/media";
+      
+      // Get the link being extended to determine if it's a file or folder
+      const link = links.find(l => l.id === extendModal);
+      const endpoint = link?.type === "folder" ? "public-links" : "share-links";
+      
       const updated = await api.request(
-        `${mediaApiUrl}/share-links/${extendModal}/extend-expiry?new_expiry=${encodeURIComponent(newExpiry.toISOString())}`,
+        `${mediaApiUrl}/${endpoint}/${extendModal}/extend-expiry?new_expiry=${encodeURIComponent(newExpiry.toISOString())}`,
         { method: "PATCH" }
       );
 
       // Update the link in the list
-      setLinks(links.map(link => 
-        link.id === extendModal 
-          ? { ...link, expires_at: updated.expires_at }
-          : link
+      setLinks(links.map(l => 
+        l.id === extendModal 
+          ? { ...l, expires_at: updated.expires_at }
+          : l
       ));
       setSuccessMessage("✓ Expiry date extended");
       setExtendModal(null);
@@ -130,16 +162,21 @@ export default function PublicLinks() {
 
     try {
       const mediaApiUrl = import.meta.env.VITE_MEDIA_API_URL || "http://localhost:8001/media";
+      
+      // Get the link being updated to determine if it's a file or folder
+      const link = links.find(l => l.id === limitModal);
+      const endpoint = link?.type === "folder" ? "public-links" : "share-links";
+      
       const updated = await api.request(
-        `${mediaApiUrl}/share-links/${limitModal}/update-download-limit?max_downloads=${limit}`,
+        `${mediaApiUrl}/${endpoint}/${limitModal}/update-download-limit?max_downloads=${limit}`,
         { method: "PATCH" }
       );
 
       // Update the link in the list
-      setLinks(links.map(link => 
-        link.id === limitModal 
-          ? { ...link, max_downloads: updated.max_downloads }
-          : link
+      setLinks(links.map(l => 
+        l.id === limitModal 
+          ? { ...l, max_downloads: updated.max_downloads }
+          : l
       ));
       setSuccessMessage("✓ Download limit updated");
       setLimitModal(null);
@@ -436,15 +473,18 @@ export default function PublicLinks() {
             <div className="content-width">
               {links.map((link) => {
                 const isExpired = link.expires_at && new Date(link.expires_at) < new Date();
-                const isLimitReached = link.max_downloads > 0 && link.downloads_used >= link.max_downloads;
-                const isActive = !isExpired && !isLimitReached && link.active;
+                const isLimitReached = (link.max_downloads ?? 0) > 0 && (link.downloads_used ?? 0) >= link.max_downloads;
+                const isActive = !isExpired && !isLimitReached && (link.active !== false);
 
                 return (
                   <div key={link.id} className="link-card">
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "0.75rem" }}>
                       <div style={{ flex: 1 }}>
                         <p style={{ fontSize: "0.875rem", color: "#0f172a", fontWeight: 500, margin: "0 0 0.25rem 0" }}>
-                          File: {link.file_id.substring(0, 12)}...
+                          <span>{link.type === "folder" ? "📁" : "📄"}</span>
+                          <span style={{ marginLeft: "0.5rem" }}>
+                            {link.type === "file" ? "File" : "Folder"}: {link.displayName}
+                          </span>
                         </p>
                       </div>
                       <span className={`link-status ${isActive ? "active" : "expired"}`}>
@@ -453,7 +493,10 @@ export default function PublicLinks() {
                     </div>
 
                     <div className="link-url">
-                      {`${window.location.origin}/#/s/${link.short_code}/access`}
+                      {link.type === "folder" 
+                        ? `${window.location.origin}/#/public/folders/${link.short_code}`
+                        : `${window.location.origin}/#/s/${link.short_code}/access`
+                      }
                     </div>
 
                     <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem", fontSize: "0.75rem", color: "#64748b" }}>
@@ -486,7 +529,7 @@ export default function PublicLinks() {
                     <div className="link-actions">
                       <button
                         className="link-btn primary"
-                        onClick={() => handleCopyLink(link.short_code)}
+                        onClick={() => handleCopyLink(link.short_code, link.type)}
                       >
                         <Copy size={14} />
                         Copy

@@ -216,7 +216,19 @@ async def list_shared_folders(
     try:
         logger.info(f"[list-shared] User {current_user_id} listing shared folders")
         
-        shares = await service.list_shared_folders(current_user_id)
+        # Try to get user email from auth service (optional, for email-based shares)
+        user_email = None
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.get(f"http://auth_service:8000/api/users/{current_user_id}")
+                if response.status_code == 200:
+                    user_data = response.json()
+                    user_email = user_data.get("email")
+        except Exception as e:
+            logger.warning(f"[list-shared] Could not fetch user email: {e}")
+            # Continue without email - will still find ID-based shares
+        
+        shares = await service.list_shared_folders(current_user_id, user_email)
         
         return {
             "shared_folders": shares,
@@ -226,6 +238,43 @@ async def list_shared_folders(
     except Exception as e:
         logger.error(f"[list-shared] Error listing shared folders: {e}")
         raise HTTPException(status_code=500, detail="Failed to list shared folders")
+
+
+@router.get("/folders/shared-by-me/{user_id}", response_model=dict)
+async def get_folders_shared_by_me(
+    user_id: str = Path(..., description="User ID"),
+    current_user_id: str = Depends(get_current_user_id),
+    service: FolderSharingService = Depends(get_folder_sharing_service),
+):
+    """
+    List all folders shared by the current user (folders they own and have shared with others).
+    
+    Args:
+        user_id: ID of user (should match current_user_id for auth)
+        current_user_id: ID of current user
+        
+    Returns:
+        List of folders shared by the user
+    """
+    try:
+        # Verify user is requesting their own shares
+        if user_id != current_user_id:
+            raise HTTPException(status_code=403, detail="Can only view your own shared folders")
+        
+        logger.info(f"[list-shared-by-me] User {current_user_id} listing folders they shared")
+        
+        shares = await service.list_shared_folders_by_owner(current_user_id)
+        
+        return {
+            "shared_folders": shares,
+            "total": len(shares),
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[list-shared-by-me] Error listing folders shared by user: {e}")
+        raise HTTPException(status_code=500, detail="Failed to list folders shared by you")
 
 
 @router.get("/shared-folders/{folder_id}/contents", response_model=dict)
@@ -359,8 +408,19 @@ async def download_shared_folder_zip(
     try:
         folder_id = folder_id.strip()
         
-        # Verify user has access to the folder
-        has_access = await service.check_folder_access(folder_id, current_user_id)
+        # Try to get user email from auth service (optional, for email-based shares)
+        user_email = None
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.get(f"http://auth_service:8000/api/users/{current_user_id}")
+                if response.status_code == 200:
+                    user_data = response.json()
+                    user_email = user_data.get("email")
+        except Exception as e:
+            logger.warning(f"[download-zip] Could not fetch user email: {e}")
+        
+        # Verify user has access to the folder (check by both ID and email)
+        has_access = await service.check_folder_access(folder_id, current_user_id, user_email)
         if not has_access:
             raise HTTPException(status_code=403, detail="Access denied to folder")
         

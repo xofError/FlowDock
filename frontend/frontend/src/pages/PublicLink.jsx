@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, useLocation } from "react-router-dom";
 import Header from "../layout/Header";
 import DocumentIcon from "../resources/icons/document.svg";
 import { api } from "../services/api";
@@ -7,12 +7,14 @@ import { api } from "../services/api";
 export default function PublicLink() {
   const { token } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const [file, setFile] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [downloading, setDownloading] = useState(false);
   const [password, setPassword] = useState("");
   const [needsPassword, setNeedsPassword] = useState(false);
+  const [isFolder, setIsFolder] = useState(location.pathname.startsWith("/public/folders/"));
 
   useEffect(() => {
     fetchFileMetadata();
@@ -23,7 +25,7 @@ export default function PublicLink() {
       setLoading(true);
       const mediaApiUrl = import.meta.env.VITE_MEDIA_API_URL || "http://localhost:8001/media";
       const url = `${mediaApiUrl}/s/${token}/metadata${password ? `?password=${encodeURIComponent(password)}` : ""}`;
-      console.log("Fetching file metadata from:", url);
+      console.log("Fetching metadata from:", url);
       const response = await fetch(url);
       console.log("Response status:", response.status);
       
@@ -42,12 +44,18 @@ export default function PublicLink() {
       }
       
       const data = await response.json();
-      console.log("File metadata retrieved:", data);
+      console.log("Metadata retrieved:", data);
+      
+      // Update isFolder based on the response
+      if (data.type === "folder" || data.folder_id) {
+        setIsFolder(true);
+      }
+      
       setFile(data);
       setError(null);
       setNeedsPassword(false);
     } catch (err) {
-      console.error("Failed to fetch file metadata:", err);
+      console.error("Failed to fetch metadata:", err);
       if (err.message && err.message.includes("404")) {
         setError("Share link not found or has expired.");
       } else if (err.message && err.message.includes("410")) {
@@ -67,60 +75,126 @@ export default function PublicLink() {
       
       const mediaApiUrl = import.meta.env.VITE_MEDIA_API_URL || "http://localhost:8001/media";
       
-      // Step 1: Request access via the /s/{token}/access endpoint
-      const accessResponse = await fetch(`${mediaApiUrl}/s/${token}/access`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          password: password || null,
-        }),
-      });
+      if (isFolder) {
+        // For folders: Request access (verify password, increment count), then download ZIP
+        try {
+          const accessResponse = await fetch(`${mediaApiUrl}/public/folders/${token}/access`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              password: password || null,
+            }),
+          });
 
-      if (!accessResponse.ok) {
-        if (accessResponse.status === 403) {
-          setNeedsPassword(true);
-          setError("Invalid password. Please try again.");
-        } else if (accessResponse.status === 410) {
-          setError("This link has expired or download limit exceeded.");
-        } else {
-          setError("Failed to access share link.");
+          if (!accessResponse.ok) {
+            if (accessResponse.status === 403) {
+              setNeedsPassword(true);
+              setError("Invalid password. Please try again.");
+            } else if (accessResponse.status === 410) {
+              setError("This link has expired or download limit exceeded.");
+            } else {
+              setError("Failed to access folder link.");
+            }
+            return;
+          }
+
+          const accessData = await accessResponse.json();
+          
+          // Now download the folder as ZIP using the folder_id
+          const folderZipResponse = await fetch(
+            `${mediaApiUrl}/folders/${accessData.folder_id}/download-zip`,
+            {
+              headers: {
+                "Authorization": `Bearer ${accessData.access_token}`,
+              },
+            }
+          );
+
+          if (!folderZipResponse.ok) {
+            if (folderZipResponse.status === 403) {
+              setNeedsPassword(true);
+              setError("Access denied to folder.");
+            } else if (folderZipResponse.status === 410) {
+              setError("This link has expired or download limit exceeded.");
+            } else {
+              setError("Failed to download folder.");
+            }
+            return;
+          }
+
+          // Download the ZIP
+          const blob = await folderZipResponse.blob();
+          const url = window.URL.createObjectURL(blob);
+          const link = document.createElement("a");
+          link.href = url;
+          link.download = file?.name || "folder.zip";
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          window.URL.revokeObjectURL(url);
+        } catch (err) {
+          console.error("Folder download error:", err);
+          setError("Failed to download folder.");
         }
-        return;
-      }
+      } else {
+        // For files: Original file download logic
+        // Step 1: Request access via the /s/{token}/access endpoint
+        const accessResponse = await fetch(`${mediaApiUrl}/s/${token}/access`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            password: password || null,
+          }),
+        });
 
-      const accessData = await accessResponse.json();
-      const downloadUrl = accessData.download_url;
-
-      // Step 2: Download the file using the download URL
-      const downloadResponse = await fetch(downloadUrl);
-
-      if (!downloadResponse.ok) {
-        if (downloadResponse.status === 410) {
-          setError("This link has expired or download limit exceeded.");
-        } else {
-          setError("Failed to download file.");
+        if (!accessResponse.ok) {
+          if (accessResponse.status === 403) {
+            setNeedsPassword(true);
+            setError("Invalid password. Please try again.");
+          } else if (accessResponse.status === 410) {
+            setError("This link has expired or download limit exceeded.");
+          } else {
+            setError("Failed to access share link.");
+          }
+          return;
         }
-        return;
+
+        const accessData = await accessResponse.json();
+        const downloadUrl = accessData.download_url;
+
+        // Step 2: Download the file using the download URL
+        const downloadResponse = await fetch(downloadUrl);
+
+        if (!downloadResponse.ok) {
+          if (downloadResponse.status === 410) {
+            setError("This link has expired or download limit exceeded.");
+          } else {
+            setError("Failed to download file.");
+          }
+          return;
+        }
+
+        // Get the filename from Content-Disposition header or use the file name
+        const contentDisposition = downloadResponse.headers.get("content-disposition");
+        const filename = file?.name || "download";
+        
+        // Convert response to blob
+        const blob = await downloadResponse.blob();
+
+        // Create object URL and trigger download
+        const url = window.URL.createObjectURL(blob);
+        const dlLink = document.createElement("a");
+        dlLink.href = url;
+        dlLink.download = filename;
+        document.body.appendChild(dlLink);
+        dlLink.click();
+        document.body.removeChild(dlLink);
+        window.URL.revokeObjectURL(url);
       }
-
-      // Get the filename from Content-Disposition header or use the file name
-      const contentDisposition = downloadResponse.headers.get("content-disposition");
-      const filename = file?.name || "download";
-      
-      // Convert response to blob
-      const blob = await downloadResponse.blob();
-
-      // Create object URL and trigger download
-      const url = window.URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = filename;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      window.URL.revokeObjectURL(url);
 
       // Refresh metadata to update download count
       fetchFileMetadata();
@@ -321,10 +395,10 @@ export default function PublicLink() {
         <div style={{ textAlign: "center", maxWidth: "500px" }}>
           {/* Title */}
           <h1 style={{ fontSize: "2.25rem", fontWeight: "bold", color: "#0f172a", marginBottom: "2rem" }}>
-            Shared File
+            {isFolder ? "Shared Folder" : "Shared File"}
           </h1>
 
-          {/* Document Icon */}
+          {/* Document/Folder Icon */}
           <div
             style={{
               width: "100px",
@@ -337,23 +411,29 @@ export default function PublicLink() {
               margin: "0 auto 1.5rem",
             }}
           >
-            <img
-              src={DocumentIcon}
-              alt="Document"
-              style={{ width: "60px", height: "60px" }}
-            />
+            {isFolder ? (
+              <span style={{ fontSize: "50px" }}>📁</span>
+            ) : (
+              <img
+                src={DocumentIcon}
+                alt="Document"
+                style={{ width: "60px", height: "60px" }}
+              />
+            )}
           </div>
 
-          {/* File Name */}
+          {/* Name */}
           <h2 style={{ fontSize: "1.5rem", fontWeight: "600", color: "#0f172a", marginBottom: "0.75rem" }}>
-            {file?.name || "Unknown File"}
+            {file?.name || (isFolder ? "Unknown Folder" : "Unknown File")}
           </h2>
 
           {/* File Info */}
           <div style={{ marginBottom: "2rem" }}>
-            <p style={{ fontSize: "0.875rem", color: "#64748b", marginBottom: "0.5rem" }}>
-              File size: {formatFileSize(file?.size)}
-            </p>
+            {!isFolder && (
+              <p style={{ fontSize: "0.875rem", color: "#64748b", marginBottom: "0.5rem" }}>
+                File size: {formatFileSize(file?.size)}
+              </p>
+            )}
             {file?.expires_at && (
               <p style={{ fontSize: "0.875rem", color: "#64748b", marginBottom: "0.5rem" }}>
                 Expires: {new Date(file.expires_at).toLocaleDateString()}

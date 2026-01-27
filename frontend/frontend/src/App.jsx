@@ -20,6 +20,7 @@ import PublicLinks from "./pages/dashboard/PublicLinks.jsx";
 import Trash from "./pages/dashboard/Trash.jsx";
 import Settings from "./pages/dashboard/Settings.jsx";
 import PublicLink from "./pages/PublicLink.jsx";
+import PublicFolderBrowser from "./pages/PublicFolderBrowser.jsx";
 import NotFound from "./pages/NotFound.jsx";
 import Help from "./pages/Help.jsx"; // << added import
 import { useAuthContext } from "./context/AuthContext.jsx";
@@ -121,6 +122,8 @@ function App() {
 
         {/* Public link sharing (no auth required) */}
         <Route path="/s/:token/access" element={<PublicLink />} />
+        <Route path="/public/folders/:token" element={<PublicFolderBrowser />} />
+        <Route path="/public/folders/:token/browse/:folderId" element={<PublicFolderBrowser />} />
 
         {/* 404 Not Found - must be last */}
         <Route path="*" element={<NotFound />} />

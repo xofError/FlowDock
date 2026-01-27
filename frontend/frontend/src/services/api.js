@@ -445,7 +445,9 @@ class APIClient {
    * Delete a public link
    */
   async deletePublicLink(linkId) {
-    return this.request(`${MEDIA_API_URL}/share-links/${linkId}`, {
+    // For folder links (hex format), use /public-links endpoint
+    // For file links (UUID format), this will fall back gracefully
+    return this.request(`${MEDIA_API_URL}/public-links/${linkId}`, {
       method: "DELETE",
     });
   }
@@ -546,8 +548,130 @@ class APIClient {
       method: "GET",
     });
   }
-}
 
+  // =====================================================
+  // FOLDER SHARING OPERATIONS
+  // =====================================================
+
+  /**
+   * Share a folder with users/groups
+   * @param {string} folderId 
+   * @param {string[]} targets - List of emails or user IDs
+   * @param {string} permission - 'view', 'edit', or 'admin'
+   */
+  async shareFolder(folderId, targets, permission = "view", cascade = true) {
+    return this.request(`${MEDIA_API_URL}/folders/${folderId}/share`, {
+      method: "POST",
+      body: JSON.stringify({
+        folder_id: folderId,
+        targets,
+        permission,
+        cascade
+      }),
+    });
+  }
+
+  /**
+   * Get list of users a folder is shared with
+   */
+  async getFolderShares(folderId) {
+    return this.request(`${MEDIA_API_URL}/folders/${folderId}/shares`, {
+      method: "GET",
+    });
+  }
+
+  /**
+   * Remove a user from folder sharing
+   */
+  async unshareFolder(folderId, targetId) {
+    return this.request(`${MEDIA_API_URL}/folders/${folderId}/unshare`, {
+      method: "DELETE",
+      body: JSON.stringify({
+        folder_id: folderId,
+        target: targetId,
+        cascade: true
+      })
+    });
+  }
+
+  /**
+   * Create a public link for a folder
+   */
+  async createPublicFolderLink(folderId, options = {}) {
+    const { password, expiresAt, maxDownloads } = options;
+    return this.request(`${MEDIA_API_URL}/folders/${folderId}/public-links`, {
+      method: "POST",
+      body: JSON.stringify({
+        folder_id: folderId,
+        password: password || null,
+        expires_at: expiresAt || null,
+        max_downloads: maxDownloads || null
+      }),
+    });
+  }
+
+  /**
+   * List public links for a folder
+   */
+  async getPublicFolderLinks(folderId) {
+    return this.request(`${MEDIA_API_URL}/folders/${folderId}/public-links`, {
+      method: "GET",
+    });
+  }
+
+  /**
+   * Delete a public folder link
+   */
+  async deletePublicFolderLink(folderId, linkId) {
+    return this.request(`${MEDIA_API_URL}/folders/${folderId}/public-links/${linkId}`, {
+      method: "DELETE",
+    });
+  }
+
+  /**
+   * Get folders shared WITH the current user
+   */
+  async getSharedFolders() {
+    return this.request(`${MEDIA_API_URL}/shared-folders`, {
+      method: "GET",
+    });
+  }
+
+  /**
+   * Get all folder public links created by current user
+   */
+  async getFolderPublicLinks() {
+    return this.request(`${MEDIA_API_URL}/public-links`, {
+      method: "GET",
+    });
+  }
+
+  /**
+   * Get folders shared by current user
+   */
+  async getFolderSharesByMe(userId) {
+    return this.request(`${MEDIA_API_URL}/folders/shared-by-me/${userId}`, {
+      method: "GET",
+    });
+  }
+
+  /**
+   * Download a shared folder as ZIP
+   */
+  async downloadFolder(folderId) {
+    const response = await fetch(`${MEDIA_API_URL}/folders/${folderId}/download-zip`, {
+      headers: {
+        Authorization: `Bearer ${this.authToken}`,
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(`Download failed: ${response.status}`);
+    }
+
+    return response.blob();
+  }
+}
 // Export singleton instance
 export const api = new APIClient();
 

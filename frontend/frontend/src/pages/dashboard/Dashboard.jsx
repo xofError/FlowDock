@@ -21,6 +21,7 @@ import { useAuthContext } from "../../context/AuthContext";
 import useFileOperations from "../../hooks/useFileOperations";
 import TopNavBar from "../../layout/TopNavBar";
 import FileDetailsModal from "../../components/FileDetailsModal";
+import FolderShareModal from "../../components/FolderShareModal";
 import api from "../../services/api";
 
 const navItems = [
@@ -93,6 +94,10 @@ export default function Dashboard() {
   const [storageUsed, setStorageUsed] = useState(0);
   const [storageTotal, setStorageTotal] = useState(100);
   const [storageLoading, setStorageLoading] = useState(false);
+
+  // Folder sharing state
+  const [showShareModal, setShowShareModal] = useState(false);
+  const [selectedFolderForShare, setSelectedFolderForShare] = useState(null);
 
   // Combine for display
   const displayItems = [...folders, ...currentFiles];
@@ -433,6 +438,12 @@ export default function Dashboard() {
     }
   };
 
+  const handleShareFolder = (folder) => {
+    setSelectedFolderForShare(folder);
+    setShowShareModal(true);
+    setShowItemMenu(null); // Close menu
+  };
+
   const handleDeletePublicLink = async (linkId) => {
     try {
       await api.deletePublicLink(linkId);
@@ -450,10 +461,48 @@ export default function Dashboard() {
     const folderFiles = e.target.files;
     if (!folderFiles?.length || !user?.id) return;
     try {
+      const formData = new FormData();
+      
+      // Add all files with their relative paths to preserve folder structure
       for (let file of folderFiles) {
-        await uploadFile(user.id, file, null, currentFolderId);
+        const relativePath = file.webkitRelativePath || file.name;
+        formData.append("files", file, relativePath);
       }
+
+      // Upload to folder upload endpoint to preserve folder structure
+      const response = await fetch(
+        `${import.meta.env.VITE_MEDIA_API_URL || "http://localhost:8001"}/media/upload-folder/${user.id}${
+          currentFolderId ? `?parent_folder_id=${currentFolderId}` : ""
+        }`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${localStorage.getItem("access_token")}`,
+          },
+          body: formData,
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error(`Folder upload failed: ${response.statusText}`);
+      }
+
+      const result = await response.json();
+      setAlertMessage(
+        `✓ Upload complete: ${result.files_uploaded} files uploaded${
+          result.failed_files > 0 ? `, ${result.failed_files} failed` : ""
+        }`
+      );
+      setAlertTitle("Upload Successful");
+      setShowAlertModal(true);
+      
+      // Reload folder contents
       await loadFolders(currentFolderId);
+    } catch (err) {
+      console.error("Folder upload error:", err);
+      setAlertMessage(`Upload failed: ${err.message}`);
+      setAlertTitle("Upload Error");
+      setShowAlertModal(true);
     } finally {
       if (folderInputRef.current) folderInputRef.current.value = "";
     }
@@ -944,52 +993,84 @@ export default function Dashboard() {
                       <td className="text-sm col-muted">{item.type === "folder" ? "-" : formatFileSize(item.size)}</td>
                       <td className="text-sm" onClick={(e) => e.stopPropagation()} style={{ position: "sticky", right: 0, backgroundColor: selectedItem?.id === item.id ? "#e0f2fe" : "#ffffff", zIndex: 10 }}>
                         <div style={{ display: "flex", gap: "0.35rem", justifyContent: "flex-end", padding: "0.4rem 0.5rem", alignItems: "center" }}>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleDownload(item.id, item.filename || item.name, item.type);
-                            }}
-                            style={{
-                              background: "#3b82f6",
-                              color: "white",
-                              border: "none",
-                              padding: "0.4rem 0.65rem",
-                              borderRadius: "4px",
-                              cursor: "pointer",
-                              fontSize: "0.7rem",
-                              fontWeight: "500",
-                              transition: "all 0.2s",
-                              whiteSpace: "nowrap"
-                            }}
-                            onMouseEnter={(e) => e.target.style.background = "#2563eb"}
-                            onMouseLeave={(e) => e.target.style.background = "#3b82f6"}
-                            title="Download file"
-                          >
-                            ↓
-                          </button>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleShareFile(item);
-                            }}
-                            style={{
-                              background: "#8b5cf6",
-                              color: "white",
-                              border: "none",
-                              padding: "0.4rem 0.65rem",
-                              borderRadius: "4px",
-                              cursor: "pointer",
-                              fontSize: "0.7rem",
-                              fontWeight: "500",
-                              transition: "all 0.2s",
-                              whiteSpace: "nowrap"
-                            }}
-                            onMouseEnter={(e) => e.target.style.background = "#7c3aed"}
-                            onMouseLeave={(e) => e.target.style.background = "#8b5cf6"}
-                            title="Share file"
-                          >
-                            ⇄
-                          </button>
+                          {item.type === "folder" ? (
+                            // Folder actions
+                            <>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleShareFolder(item);
+                                }}
+                                style={{
+                                  background: "#8b5cf6",
+                                  color: "white",
+                                  border: "none",
+                                  padding: "0.4rem 0.65rem",
+                                  borderRadius: "4px",
+                                  cursor: "pointer",
+                                  fontSize: "0.7rem",
+                                  fontWeight: "500",
+                                  transition: "all 0.2s",
+                                  whiteSpace: "nowrap"
+                                }}
+                                onMouseEnter={(e) => e.target.style.background = "#7c3aed"}
+                                onMouseLeave={(e) => e.target.style.background = "#8b5cf6"}
+                                title="Share folder"
+                              >
+                                ⇄
+                              </button>
+                            </>
+                          ) : (
+                            // File actions
+                            <>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleDownload(item.id, item.filename || item.name, item.type);
+                                }}
+                                style={{
+                                  background: "#3b82f6",
+                                  color: "white",
+                                  border: "none",
+                                  padding: "0.4rem 0.65rem",
+                                  borderRadius: "4px",
+                                  cursor: "pointer",
+                                  fontSize: "0.7rem",
+                                  fontWeight: "500",
+                                  transition: "all 0.2s",
+                                  whiteSpace: "nowrap"
+                                }}
+                                onMouseEnter={(e) => e.target.style.background = "#2563eb"}
+                                onMouseLeave={(e) => e.target.style.background = "#3b82f6"}
+                                title="Download file"
+                              >
+                                ↓
+                              </button>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleShareFile(item);
+                                }}
+                                style={{
+                                  background: "#8b5cf6",
+                                  color: "white",
+                                  border: "none",
+                                  padding: "0.4rem 0.65rem",
+                                  borderRadius: "4px",
+                                  cursor: "pointer",
+                                  fontSize: "0.7rem",
+                                  fontWeight: "500",
+                                  transition: "all 0.2s",
+                                  whiteSpace: "nowrap"
+                                }}
+                                onMouseEnter={(e) => e.target.style.background = "#7c3aed"}
+                                onMouseLeave={(e) => e.target.style.background = "#8b5cf6"}
+                                title="Share file"
+                              >
+                                ⇄
+                              </button>
+                            </>
+                          )}
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
@@ -1896,6 +1977,16 @@ export default function Dashboard() {
             </button>
           </div>
         </div>
+      )}
+
+      {showShareModal && selectedFolderForShare && (
+        <FolderShareModal
+          folder={selectedFolderForShare}
+          onClose={() => {
+            setShowShareModal(false);
+            setSelectedFolderForShare(null);
+          }}
+        />
       )}
     </TopNavBar>
   );

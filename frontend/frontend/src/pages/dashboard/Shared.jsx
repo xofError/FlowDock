@@ -47,9 +47,9 @@ export default function Shared() {
     return () => { document.body.style.overflow = ""; };
   }, [mobileSidebarOpen]);
 
-  // Fetch shared files
+  // Fetch shared files and folders
   useEffect(() => {
-    const fetchSharedFiles = async () => {
+    const fetchSharedItems = async () => {
       if (!user || !user.id) {
         setLoading(false);
         return;
@@ -60,8 +60,8 @@ export default function Shared() {
         setError(null);
 
         // Fetch files shared by me
-        const byMeResponse = await api.getSharedByMe(user.id);
-        const processedByMe = await Promise.all((byMeResponse || []).map(async (share) => {
+        const byMeFilesResponse = await api.getSharedByMe(user.id);
+        const processedByMeFiles = await Promise.all((byMeFilesResponse || []).map(async (share) => {
           let userEmail = "Unknown";
           try {
             const userInfo = await api.getCurrentUser(share.shared_with_user_id);
@@ -75,6 +75,7 @@ export default function Shared() {
             share_id: share.share_id,
             file_id: share.file_id,
             name: share.file_name || `File (${share.file_id.substring(0, 8)})`,
+            type: "file",
             sharedWith: userEmail,
             status: share.expires_at && new Date(share.expires_at) < new Date() ? "Expired" : "Active",
             expiration: share.expires_at ? new Date(share.expires_at).toLocaleDateString() : "Never",
@@ -82,9 +83,39 @@ export default function Shared() {
           };
         }));
 
+        // Fetch folders shared by me
+        const byMeFoldersResponse = await api.getFolderSharesByMe(user.id);
+        const processedByMeFolders = await Promise.all((byMeFoldersResponse?.shared_folders || []).map(async (share) => {
+          let sharedWithEmail = share.shared_with || "Unknown";
+          
+          // If shared_with is a UUID (not an email), resolve it to get the email
+          if (sharedWithEmail && !sharedWithEmail.includes("@")) {
+            try {
+              const userInfo = await api.getCurrentUser(sharedWithEmail);
+              sharedWithEmail = userInfo.email || sharedWithEmail;
+            } catch (err) {
+              console.error("Failed to fetch user info:", err);
+              // Keep original if fetch fails
+            }
+          }
+          
+          return {
+            id: share.share_id || share.id,
+            share_id: share.share_id || share.id,
+            folder_id: share.folder_id,
+            name: share.folder_name || `Folder (${share.folder_id.substring(0, 8)})`,
+            type: "folder",
+            sharedWith: sharedWithEmail,
+            status: share.expires_at && new Date(share.expires_at) < new Date() ? "Expired" : "Active",
+            expiration: share.expires_at ? new Date(share.expires_at).toLocaleDateString() : "Never",
+            direction: "by_me",
+            permission: share.permission || "view"
+          };
+        }));
+
         // Fetch files shared with me
-        const withMeResponse = await api.getSharedWithMe(user.id);
-        const processedWithMe = await Promise.all((withMeResponse || []).map(async (share) => {
+        const withMeFilesResponse = await api.getSharedWithMe(user.id);
+        const processedWithMeFiles = await Promise.all((withMeFilesResponse || []).map(async (share) => {
           let userEmail = "Unknown";
           try {
             const userInfo = await api.getCurrentUser(share.shared_by_user_id);
@@ -98,6 +129,7 @@ export default function Shared() {
             share_id: share.share_id,
             file_id: share.file_id,
             name: share.file_name || `File (${share.file_id.substring(0, 8)})`,
+            type: "file",
             sharedWith: userEmail,
             status: share.expires_at && new Date(share.expires_at) < new Date() ? "Expired" : "Active",
             expiration: share.expires_at ? new Date(share.expires_at).toLocaleDateString() : "Never",
@@ -105,11 +137,27 @@ export default function Shared() {
           };
         }));
 
-        setSharedByMe(processedByMe);
-        setSharedWithMe(processedWithMe);
+        // Fetch folders shared with me
+        const sharedFoldersResponse = await api.getSharedFolders();
+        const processedSharedFolders = (sharedFoldersResponse.shared_folders || []).map((folder) => {
+          return {
+            id: folder.folder_id,
+            folder_id: folder.folder_id,
+            name: folder.folder_name || `Folder (${folder.folder_id.substring(0, 8)})`,
+            type: "folder",
+            sharedWith: folder.owner_id || "Unknown",
+            status: "Active",
+            expiration: folder.expires_at ? new Date(folder.expires_at).toLocaleDateString() : "Never",
+            direction: "with_me",
+            permission: folder.permission || "view"
+          };
+        });
+
+        setSharedByMe([...processedByMeFiles, ...processedByMeFolders]);
+        setSharedWithMe([...processedWithMeFiles, ...processedSharedFolders]);
       } catch (err) {
-        console.error("Failed to fetch shared files:", err);
-        setError(err.message || "Failed to load shared files");
+        console.error("Failed to fetch shared items:", err);
+        setError(err.message || "Failed to load shared items");
         setSharedByMe([]);
         setSharedWithMe([]);
       } finally {
@@ -117,7 +165,7 @@ export default function Shared() {
       }
     };
 
-    fetchSharedFiles();
+    fetchSharedItems();
   }, [user?.id]);
 
   const handleRevoke = async (file) => {
@@ -152,6 +200,26 @@ export default function Shared() {
     } catch (err) {
       console.error("Download failed:", err);
       setAlertMessage("Failed to download: " + (err.message || "Unknown error"));
+      setShowAlertModal(true);
+    }
+  };
+
+  const handleDownloadFolder = async (folder) => {
+    try {
+      const blob = await api.downloadFolder(folder.folder_id);
+      
+      // Create a download link
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = folder.name || `folder_${folder.folder_id.substring(0, 8)}.zip`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error("Download failed:", err);
+      setAlertMessage("Failed to download folder: " + (err.message || "Unknown error"));
       setShowAlertModal(true);
     }
   };
@@ -295,7 +363,10 @@ export default function Shared() {
            <tbody>
              {data.map((file) => (
                <tr key={file.id} style={{ backgroundColor: "#ffffff", height: "2.75rem", borderBottom: "1px solid #e5e7eb" }}>
-                 <td style={{ padding: "1rem", fontSize: "0.875rem", color: "#0f172a", whiteSpace: "nowrap" }}>{file.name}</td>
+                 <td style={{ padding: "1rem", fontSize: "0.875rem", color: "#0f172a", whiteSpace: "nowrap", display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                   <span>{file.type === "folder" ? "📁" : "📄"}</span>
+                   <span>{file.name}</span>
+                 </td>
                  <td style={{ padding: "1rem", fontSize: "0.875rem", color: "#64748b", whiteSpace: "nowrap" }}>{file.sharedWith}</td>
                  <td style={{ padding: "1rem", fontSize: "0.875rem", color: "#64748b" }}>
                    <span style={{ padding: "0.25rem 0.5rem", borderRadius: "4px", backgroundColor: file.status === "Active" ? "#dcfce7" : "#fee2e2", color: file.status === "Active" ? "#166534" : "#991b1b" }}>
@@ -305,50 +376,86 @@ export default function Shared() {
                  <td style={{ padding: "1rem", fontSize: "0.875rem", color: "#64748b", whiteSpace: "nowrap" }}>{file.expiration}</td>
                  <td style={{ padding: "1rem" }}>
                    <div style={{ display: "flex", gap: "0.5rem" }}>
-                     <button
-                       onClick={() => handleDownload(file)}
-                       style={{
-                         padding: "0.4rem 0.75rem",
-                         borderRadius: "6px",
-                         border: "1px solid #d1d5db",
-                         backgroundColor: "#f3f4f6",
-                         color: "#000000",
-                         fontSize: "0.875rem",
-                         cursor: "pointer",
-                       }}
-                     >
-                       Download
-                     </button>
-                     {file.status === "Active" ? (
-                       <button
-                         onClick={() => handleRevoke(file)}
-                         style={{
-                           padding: "0.4rem 0.75rem",
-                           borderRadius: "6px",
-                           border: "1px solid #d1d5db",
-                           backgroundColor: "#f3f4f6",
-                           color: "#000000",
-                           fontSize: "0.875rem",
-                           cursor: "pointer",
-                         }}
-                       >
-                         Revoke
-                       </button>
-                     ) : (
-                       <button
-                         onClick={() => handleExtend(file)}
-                         style={{
-                           padding: "0.4rem 0.75rem",
-                           borderRadius: "6px",
-                           border: "1px solid #d1d5db",
-                           backgroundColor: "#f3f4f6",
-                           color: "#000000",
-                           fontSize: "0.875rem",
-                           cursor: "pointer",
-                         }}
-                       >
-                         Extend
-                       </button>
+                     {file.type === "file" && (
+                       <>
+                         <button
+                           onClick={() => handleDownload(file)}
+                           style={{
+                             padding: "0.4rem 0.75rem",
+                             borderRadius: "6px",
+                             border: "1px solid #d1d5db",
+                             backgroundColor: "#f3f4f6",
+                             color: "#000000",
+                             fontSize: "0.875rem",
+                             cursor: "pointer",
+                           }}
+                         >
+                           Download
+                         </button>
+                         {file.status === "Active" ? (
+                           <button
+                             onClick={() => handleRevoke(file)}
+                             style={{
+                               padding: "0.4rem 0.75rem",
+                               borderRadius: "6px",
+                               border: "1px solid #d1d5db",
+                               backgroundColor: "#f3f4f6",
+                               color: "#000000",
+                               fontSize: "0.875rem",
+                               cursor: "pointer",
+                             }}
+                           >
+                             Revoke
+                           </button>
+                         ) : (
+                           <button
+                             onClick={() => handleExtend(file)}
+                             style={{
+                               padding: "0.4rem 0.75rem",
+                               borderRadius: "6px",
+                               border: "1px solid #d1d5db",
+                               backgroundColor: "#f3f4f6",
+                               color: "#000000",
+                               fontSize: "0.875rem",
+                               cursor: "pointer",
+                             }}
+                           >
+                             Extend
+                           </button>
+                         )}
+                       </>
+                     )}
+                     {file.type === "folder" && (
+                       <>
+                         <button
+                           onClick={() => handleDownloadFolder(file)}
+                           style={{
+                             padding: "0.4rem 0.75rem",
+                             borderRadius: "6px",
+                             border: "1px solid #d1d5db",
+                             backgroundColor: "#f3f4f6",
+                             color: "#000000",
+                             fontSize: "0.875rem",
+                             cursor: "pointer",
+                           }}
+                         >
+                           Download
+                         </button>
+                         <button
+                           onClick={() => handleRevoke(file)}
+                           style={{
+                             padding: "0.4rem 0.75rem",
+                             borderRadius: "6px",
+                             border: "1px solid #d1d5db",
+                             backgroundColor: "#f3f4f6",
+                             color: "#000000",
+                             fontSize: "0.875rem",
+                             cursor: "pointer",
+                           }}
+                         >
+                           Revoke
+                         </button>
+                       </>
                      )}
                    </div>
                  </td>

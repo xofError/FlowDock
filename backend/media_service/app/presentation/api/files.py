@@ -130,12 +130,14 @@ async def get_user_content(
             folders_list = []
             logger.warning(f"Failed to list folders for user {user_id}: {error}")
 
-        # Get root files
-        success, files, error = await file_service.list_user_files(user_id)
+        # Get root files (explicitly pass folder_id=None to ensure only root files)
+        success, files, error = await file_service.list_user_files(user_id, folder_id=None)
 
         if not success:
             files = []
             logger.warning(f"Failed to list files for user {user_id}: {error}")
+        
+        logger.info(f"[getUserContent] Retrieved {len(files) if files else 0} root files for user {user_id}")
 
         # Convert folders to response format
         formatted_folders = []
@@ -1441,8 +1443,13 @@ async def upload_folder(
     total_size = 0
     
     try:
+        # Log all file filenames for debugging
+        logger.info(f"[folder-upload] Received files: {[f.filename for f in files]}")
+        
         # Create root folder for this upload
         root_folder_name = files[0].filename.split('/')[0] if '/' in files[0].filename else "uploaded_folder"
+        logger.info(f"[folder-upload] Root folder name: {root_folder_name}")
+        
         success, root_folder_id, error = await folder_service.create_folder(
             user_id=user_id,
             name=root_folder_name,
@@ -1451,35 +1458,57 @@ async def upload_folder(
         if not success:
             raise HTTPException(status_code=400, detail=f"Failed to create root folder: {error}")
         
+        logger.info(f"[folder-upload] Created root folder: {root_folder_id}")
         folder_structure[""] = root_folder_id
+        folder_structure[root_folder_name] = root_folder_id  # Map root folder name to its ID
         
         # Process each file
         for file in files:
             try:
+                # Log file details for debugging
+                logger.info(f"[folder-upload] Processing file - filename: '{file.filename}'")
+                
                 # Extract path components
                 path_parts = file.filename.split('/')
                 file_name = path_parts[-1]
                 folder_path = '/'.join(path_parts[:-1])
                 
+                logger.info(f"[folder-upload] Path parts: {path_parts}, folder_path: '{folder_path}', file_name: '{file_name}'")
+                
                 # Create folder hierarchy if needed
+                # NOTE: Skip the root folder name from the path since we already created it
                 current_folder_id = root_folder_id
-                if folder_path:
-                    # Create intermediate folders
-                    parts = folder_path.split('/')
-                    for i, part in enumerate(parts):
-                        partial_path = '/'.join(parts[:i+1])
-                        if partial_path not in folder_structure:
-                            success, folder_id, error = await folder_service.create_folder(
-                                user_id=user_id,
-                                name=part,
-                                parent_id=current_folder_id,
-                            )
-                            if not success:
-                                logger.error(f"Failed to create folder {part}: {error}")
-                                failed_files += 1
-                                continue
-                            folder_structure[partial_path] = folder_id
-                        current_folder_id = folder_structure[partial_path]
+                if folder_path and folder_path != root_folder_name:
+                    # Only create subfolders beyond the root folder name
+                    # Remove the root folder name from the path if it exists
+                    path_to_create = folder_path
+                    if path_to_create.startswith(root_folder_name + '/'):
+                        path_to_create = path_to_create[len(root_folder_name) + 1:]
+                    
+                    if path_to_create:
+                        # Create intermediate folders
+                        parts = path_to_create.split('/')
+                        for i, part in enumerate(parts):
+                            partial_path = '/'.join(parts[:i+1])
+                            # Use root_folder_name as prefix to track absolute path
+                            full_path = root_folder_name + '/' + partial_path
+                            
+                            if full_path not in folder_structure:
+                                success, folder_id, error = await folder_service.create_folder(
+                                    user_id=user_id,
+                                    name=part,
+                                    parent_id=current_folder_id,
+                                )
+                                if not success:
+                                    logger.error(f"Failed to create folder {part}: {error}")
+                                    failed_files += 1
+                                    continue
+                                logger.info(f"[folder-upload] Created subfolder '{part}' with ID {folder_id}")
+                                folder_structure[full_path] = folder_id
+                            current_folder_id = folder_structure[full_path]
+                
+                # Update file.filename to be just the filename, not the full path
+                file.filename = file_name
                 
                 # Upload file to the target folder
                 success, file_id, size, error = await service.upload_file_encrypted(

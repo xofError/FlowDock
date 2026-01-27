@@ -298,3 +298,117 @@ async def download_public_folder_zip(
         logger.error(f"[download-public-folder-zip] Error: {e}")
         raise HTTPException(status_code=500, detail="Failed to download folder")
 
+
+@router.get("/s/{token}/metadata")
+async def get_public_link_metadata(
+    token: str = Path(..., description="Share link token (file or folder)"),
+    password: str = Query(None, description="Password if link is protected"),
+    db: Session = Depends(get_db),
+    file_service: FileService = Depends(get_file_service),
+    folder_service: FolderService = Depends(get_folder_service),
+    public_folder_service: PublicFolderLinksService = Depends(get_public_folder_link_service),
+):
+    """
+    Get metadata for a public link (file or folder).
+    
+    This endpoint attempts to fetch metadata for the given token, checking both
+    file links and folder links. Used by the public link page to display information.
+    
+    **No authentication required** - anyone with valid token can access.
+    
+    Parameters:
+    - **token**: Share link token (from email/link)
+    - **password**: Optional password if link is protected
+    
+    Returns:
+    - Metadata for file or folder
+    """
+    try:
+        # First try to get file metadata
+        from app.models.share import ShareLink
+        share_link = db.query(ShareLink).filter(ShareLink.token == token).first()
+        
+        if share_link:
+            # It's a file link
+            # 1. Verify link is active
+            if not share_link.active:
+                raise HTTPException(status_code=410, detail="Share link is no longer active")
+            
+            # 2. Verify not expired
+            if share_link.expires_at and datetime.now(timezone.utc) > share_link.expires_at:
+                raise HTTPException(status_code=410, detail="Share link has expired")
+            
+            # 3. Verify download limit not exceeded
+            if share_link.max_downloads > 0 and share_link.downloads_used >= share_link.max_downloads:
+                raise HTTPException(status_code=410, detail="Download limit exceeded")
+            
+            # 4. Verify password if protected
+            if share_link.password_hash:
+                if not password:
+                    raise HTTPException(status_code=403, detail="Password required")
+                from passlib.context import CryptContext
+                pwd_context = CryptContext(schemes=["argon2"], deprecated="auto")
+                if not pwd_context.verify(password, share_link.password_hash):
+                    raise HTTPException(status_code=403, detail="Invalid password")
+            
+            # 5. Get file metadata
+            success, metadata, error = await file_service.get_file_metadata(
+                share_link.file_id,
+                requester_user_id="public_link"
+            )
+            
+            if not success or not metadata:
+                raise HTTPException(status_code=404, detail="File not found")
+            
+            # 6. Return file metadata
+            return {
+                "file_id": share_link.file_id,
+                "name": metadata.get("filename", "Unknown"),
+                "size": metadata.get("size", 0),
+                "type": metadata.get("content_type", "unknown"),
+                "created_at": metadata.get("created_at"),
+                "token": token,
+                "is_password_protected": bool(share_link.password_hash),
+                "max_downloads": share_link.max_downloads,
+                "downloads_used": share_link.downloads_used,
+                "expires_at": share_link.expires_at.isoformat() if share_link.expires_at else None
+            }
+        
+        # If not a file link, try folder link
+        logger.info(f"[metadata] File link not found for token {token[:10]}, trying folder link...")
+        
+        # Get folder link details first
+        link = await public_folder_service.get_link(token)
+        if not link:
+            logger.warning(f"[metadata] Folder link not found for token {token[:10]}")
+            raise HTTPException(status_code=404, detail="Link not found")
+        
+        # Verify access to folder link
+        has_access = await public_folder_service.verify_access(token, password)
+        if not has_access:
+            raise HTTPException(status_code=403, detail="Access denied - invalid password or link expired")
+        
+        # Get folder details
+        folder = await folder_service.get_folder(link.folder_id)
+        if not folder:
+            raise HTTPException(status_code=404, detail="Folder not found")
+        
+        # Return folder metadata
+        return {
+            "folder_id": link.folder_id,
+            "name": folder.get("name", "Unknown Folder"),
+            "type": "folder",
+            "token": token,
+            "is_password_protected": bool(link.password_hash) if hasattr(link, 'password_hash') else False,
+            "max_downloads": link.max_downloads if hasattr(link, 'max_downloads') else None,
+            "downloads_used": link.download_count if hasattr(link, 'download_count') else 0,
+            "expires_at": link.expires_at.isoformat() if hasattr(link, 'expires_at') and link.expires_at else None,
+            "created_at": link.created_at.isoformat() if hasattr(link, 'created_at') and link.created_at else None,
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[metadata] Error getting metadata: {e}")
+        raise HTTPException(status_code=404, detail="Failed to retrieve metadata")
+

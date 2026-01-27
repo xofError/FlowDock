@@ -63,17 +63,26 @@ export default function FolderUploadComponent({ onUploadComplete }) {
     try {
       const formData = new FormData();
       
+      // Log files for debugging
+      console.log("[FolderUpload] Files to upload:", selectedFiles.map(f => ({
+        name: f.name,
+        webkitRelativePath: f.webkitRelativePath,
+        size: f.size
+      })));
+      
       // Add all files with their relative paths
       selectedFiles.forEach((file) => {
-        formData.append("files", file, file.webkitRelativePath || file.name);
+        const relativePath = file.webkitRelativePath || file.name;
+        console.log(`[FolderUpload] Adding file: ${relativePath}`);
+        formData.append("files", file, relativePath);
       });
 
       const response = await fetch(
-        `${process.env.REACT_APP_API_URL || "http://localhost:8001"}/media/files/upload-folder/${user.id}`,
+        `${process.env.REACT_APP_API_URL || "http://localhost:8001"}/media/upload-folder/${user.id}`,
         {
           method: "POST",
           headers: {
-            Authorization: `Bearer ${localStorage.getItem("jwt_token")}`,
+            Authorization: `Bearer ${localStorage.getItem("access_token")}`,
           },
           body: formData,
         }

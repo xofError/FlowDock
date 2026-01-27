@@ -207,6 +207,7 @@ class PublicFolderLinkResponse(BaseModel):
     """Response containing a public folder link"""
     link_id: str = Field(..., description="Unique link identifier")
     link: str = Field(..., description="Public folder URL")
+    token: str = Field(..., description="Public link token")
     folder_id: str = Field(..., description="Folder ID")
     expires_at: Optional[datetime] = Field(None)
     password_protected: bool = Field(default=False)

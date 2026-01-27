@@ -5,6 +5,26 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;700&display=swap" rel="stylesheet">
     <title>Login Page</title>
+    <script>
+      // Redirect clean URLs (without #) to hash-based URLs for React Router
+      // This allows sharing links like /public/folders/token and /s/token/access
+      (function() {
+        const path = window.location.pathname;
+        const hash = window.location.hash;
+        
+        // Only redirect if there's a path and no hash (and it's not the root or static assets)
+        if (path && !hash && !path.match(/\.(js|css|png|jpg|jpeg|gif|svg|ico)$/)) {
+          // Don't redirect root or /public/* paths that should stay as-is
+          if (path !== '/' && path.startsWith('/public/')) {
+            // Redirect /public/folders/token to /#/public/folders/token
+            window.location.href = '/#' + path + window.location.search;
+          } else if (path.startsWith('/s/')) {
+            // Redirect /s/token/access to /#/s/token/access
+            window.location.href = '/#' + path + window.location.search;
+          }
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

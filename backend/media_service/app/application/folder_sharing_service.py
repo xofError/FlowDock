@@ -352,6 +352,7 @@ class FolderSharingService:
         self,
         folder_id: str,
         user_id: str,
+        user_email: str = None,
     ) -> Optional[str]:
         """
         Check if user has access to folder - including inherited permissions.
@@ -364,16 +365,29 @@ class FolderSharingService:
         Args:
             folder_id: Folder ID
             user_id: User ID
+            user_email: User email (optional, used to find shares by email)
             
         Returns:
             Permission level if accessible (view/edit/admin), None if not
         """
         try:
+            # 0. Check if user is the folder owner (always has full access)
+            folder = await self.folder_repo.get_folder_by_id(folder_id)
+            if folder and folder.owner_id == user_id:
+                logger.info(f"[check-access] User {user_id} is owner of folder {folder_id}")
+                return "admin"  # Owner has admin permission
+            
             # 1. Check for direct share (most common case)
-            share = await self.shares_collection.find_one({
-                "folder_id": folder_id,
-                "target_id": user_id,
-            })
+            # Search by both user_id and user_email
+            query = {
+                "$or": [
+                    {"folder_id": folder_id, "target_id": user_id}
+                ]
+            }
+            if user_email:
+                query["$or"].append({"folder_id": folder_id, "target_id": user_email})
+            
+            share = await self.shares_collection.find_one(query)
             
             if share:
                 # Check expiration
@@ -398,11 +412,15 @@ class FolderSharingService:
                 parent_id = folder.parent_id
                 
                 # Check if parent has a cascading share with this user
-                parent_share = await self.shares_collection.find_one({
-                    "folder_id": parent_id,
-                    "target_id": user_id,
-                    "cascade": True  # Only cascading shares apply to children
-                })
+                parent_query = {
+                    "$or": [
+                        {"folder_id": parent_id, "target_id": user_id, "cascade": True}
+                    ]
+                }
+                if user_email:
+                    parent_query["$or"].append({"folder_id": parent_id, "target_id": user_email, "cascade": True})
+                
+                parent_share = await self.shares_collection.find_one(parent_query)
                 
                 if parent_share:
                     # Found an inherited permission!
@@ -424,14 +442,17 @@ class FolderSharingService:
     async def list_shared_folders(
         self,
         user_id: str,
+        user_email: str = None,
     ) -> List[Dict[str, Any]]:
         """
         List all folders shared with a user.
         
         FIX #3: Optimized with bulk folder fetch instead of N+1 queries.
+        FIX #4: Now searches by both user_id AND user_email (folders can be shared by email)
         
         Args:
             user_id: User ID
+            user_email: User email (optional, used to find shares by email)
             
         Returns:
             List of shared folder information
@@ -439,10 +460,19 @@ class FolderSharingService:
         logger.info(f"[list-shared] Listing folders shared with user {user_id}")
         
         try:
-            # 1. Get all active shares for this user
-            shares = await self.shares_collection.find({
-                "target_id": user_id,
-            }).to_list(None)
+            # 1. Build query to find shares for this user (by ID or email)
+            query = {
+                "$or": [
+                    {"target_id": user_id}  # Shared directly by user ID
+                ]
+            }
+            
+            # Add email to query if provided
+            if user_email:
+                query["$or"].append({"target_id": user_email})
+            
+            # Get all active shares for this user
+            shares = await self.shares_collection.find(query).to_list(None)
             
             if not shares:
                 return []
@@ -495,4 +525,79 @@ class FolderSharingService:
             
         except Exception as e:
             logger.error(f"[list-shared] Error listing shared folders: {e}")
+            return []
+
+    async def list_shared_folders_by_owner(
+        self,
+        owner_id: str,
+    ) -> List[Dict[str, Any]]:
+        """
+        List all folders that an owner has shared with other users.
+        
+        Args:
+            owner_id: Owner ID (user who created the shares)
+            
+        Returns:
+            List of shared folder information
+        """
+        logger.info(f"[list-shared-by-owner] Listing folders shared by user {owner_id}")
+        
+        try:
+            # 1. Find all shares created by this owner
+            query = {"shared_by": owner_id}
+            
+            # Get all shares created by this owner
+            shares = await self.shares_collection.find(query).to_list(None)
+            
+            if not shares:
+                return []
+            
+            # 2. Filter out expired shares
+            active_shares = [
+                s for s in shares 
+                if not (s.get("expires_at") and s["expires_at"] < datetime.utcnow())
+            ]
+            
+            if not active_shares:
+                return []
+
+            # 3. Bulk fetch all folder details
+            folder_ids = []
+            for share in active_shares:
+                oid = self.folder_repo._to_object_id(share.get("folder_id"))
+                if oid:
+                    folder_ids.append(oid)
+            
+            if not folder_ids:
+                return []
+
+            # Fetch all folders in one query
+            folders_cursor = self.folder_repo.collection.find({"_id": {"$in": folder_ids}})
+            folders_map = {}
+            async for folder_doc in folders_cursor:
+                folders_map[str(folder_doc["_id"])] = folder_doc
+            
+            # 4. Join share data with folder data in memory
+            result = []
+            for share in active_shares:
+                folder_id = share.get("folder_id")
+                if folder_id in folders_map:
+                    folder_doc = folders_map[folder_id]
+                    share_info = {
+                        "share_id": str(share.get("_id", "")),
+                        "folder_id": folder_id,
+                        "folder_name": folder_doc.get("name", ""),
+                        "owner_id": folder_doc.get("owner_id", ""),
+                        "shared_with": share.get("target_id", ""),  # email or user ID it's shared with
+                        "permission": share.get("permission", "view"),
+                        "shared_at": share.get("created_at").isoformat() if share.get("created_at") else None,
+                        "expires_at": share.get("expires_at").isoformat() if share.get("expires_at") else None,
+                    }
+                    result.append(share_info)
+            
+            logger.info(f"[list-shared-by-owner] Found {len(result)} folders shared by user")
+            return result
+            
+        except Exception as e:
+            logger.error(f"[list-shared-by-owner] Error listing folders shared by owner: {e}")
             return []

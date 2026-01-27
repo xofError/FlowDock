@@ -55,7 +55,7 @@ class MongoGridFSRepository(IFileRepository):
                 "owner": file.owner_id,
                 "contentType": file.content_type,
                 "originalFilename": file.filename,
-                "folderId": file.folder_id,  # Added folder support
+                "folder_id": file.folder_id,  # Added folder support - snake_case to match queries
                 "encrypted": file.encrypted,
                 "nonce": file.nonce,
                 "encryptedKey": file.encrypted_key,
@@ -104,7 +104,7 @@ class MongoGridFSRepository(IFileRepository):
                 content_type=meta.get("contentType", grid_out.content_type),
                 size=grid_out.length,
                 owner_id=meta.get("owner", ""),
-                folder_id=meta.get("folderId"),  # Added folder support
+                folder_id=meta.get("folder_id"),  # Added folder support - snake_case to match queries
                 upload_date=grid_out.upload_date,
                 encrypted=meta.get("encrypted", False),
                 nonce=meta.get("nonce", ""),
@@ -199,16 +199,27 @@ class MongoGridFSRepository(IFileRepository):
         """
         try:
             # Build query: always filter by owner
-            query = {"metadata.owner": owner_id}
-            
             # CRITICAL FIX: When folder_id is None, only get root files
             # When folder_id is provided, get files in that folder
             if folder_id is None:
-                # Root files: no folder_id or folder_id is None/null
-                query["metadata.folder_id"] = None
+                # Root files: folder_id must not be set OR be None/empty
+                # Use $and to ensure both owner and root-level conditions are met
+                query = {
+                    "$and": [
+                        {"metadata.owner": owner_id},
+                        {"$or": [
+                            {"metadata.folder_id": {"$exists": False}},
+                            {"metadata.folder_id": None},
+                            {"metadata.folder_id": ""}
+                        ]}
+                    ]
+                }
             else:
                 # Files in specific folder
-                query["metadata.folder_id"] = folder_id
+                query = {
+                    "metadata.owner": owner_id,
+                    "metadata.folder_id": folder_id
+                }
             
             cursor = self.fs.find(query)
             files = []
@@ -265,10 +276,10 @@ class MongoGridFSRepository(IFileRepository):
             
             if folder_id is None:
                 # Root files have no folder_id
-                query["metadata.folderId"] = {"$in": [None, ""]}
+                query["metadata.folder_id"] = {"$in": [None, ""]}
             else:
                 # Files in specific folder
-                query["metadata.folderId"] = folder_id
+                query["metadata.folder_id"] = folder_id
 
             cursor = fs.find(query).sort("uploadDate", -1)
             files = []
@@ -799,10 +810,10 @@ class MongoFolderRepository(IFolderRepository):
             
             if folder_id is None:
                 # Root files have no folder_id
-                query["metadata.folderId"] = {"$in": [None, ""]}
+                query["metadata.folder_id"] = {"$in": [None, ""]}
             else:
                 # Files in specific folder
-                query["metadata.folderId"] = folder_id
+                query["metadata.folder_id"] = folder_id
 
             cursor = fs.find(query).sort("uploadDate", -1)
             files = []
