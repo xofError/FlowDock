@@ -162,6 +162,7 @@ async def get_user_content(
                     "size": file_info["size"],
                     "content_type": file_info["content_type"],
                     "upload_date": file_info["upload_date"],
+                    "metadata": file_info.get("metadata", {}),
                 })
 
         return UserContentResponse(
@@ -216,6 +217,8 @@ async def upload_file(
     try:
         # Capture client IP address for logging
         ip_address = request.client.host if request else None
+        
+        logger.info(f"[upload] Starting file upload: filename='{file.filename}', size_est={file.size or 'unknown'}, user={user_id}, ip={ip_address}, folder_id={folder_id}")
 
         # Use injected service to upload encrypted file (now includes virus scan)
         success, file_id, original_size, error, scan_metadata = await service.upload_file_encrypted(
@@ -227,7 +230,13 @@ async def upload_file(
 
         if not success:
             status_code = 400 if "Invalid" in error or "infected" in error.lower() else 413 if "too large" in error else 500
+            logger.error(f"[upload] Upload FAILED: {file.filename}, error='{error}', status={status_code}")
             raise HTTPException(status_code=status_code, detail=error)
+
+        # Log successful upload with scan results
+        scan_status = scan_metadata.get('scan_status', 'unknown') if scan_metadata else 'unknown'
+        file_hash = scan_metadata.get('hash', 'N/A')[:16] + '...' if scan_metadata and scan_metadata.get('hash') else 'N/A'
+        logger.info(f"[upload] SUCCESS: filename='{file.filename}', file_id={file_id}, size={original_size}, scan_status={scan_status}, hash={file_hash}")
 
         return FileUploadResponse(
             file_id=file_id,
@@ -240,7 +249,7 @@ async def upload_file(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Upload error: {e}")
+        logger.error(f"[upload] Upload error: filename='{file.filename}', error={str(e)}")
         raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
 
 
@@ -274,6 +283,7 @@ async def download_file(
     try:
         is_authorized = False
         requester_user_id = None
+        access_type = "unknown"
 
         # Case A: Public Link with Download Token
         if token:
@@ -281,15 +291,20 @@ async def download_file(
             if token_valid:
                 is_authorized = True
                 requester_user_id = "public_link"
+                access_type = "public_link"
+                logger.info(f"[download] Public link access via token for file_id={file_id}")
             else:
-                logger.error(f"Token verification failed")
+                logger.warning(f"[download] Invalid/expired token for file_id={file_id}")
 
         # Case B: Logged-in User
         elif current_user_id:
             requester_user_id = current_user_id
             is_authorized = True
+            access_type = "authenticated_user"
+            logger.info(f"[download] User {current_user_id} requesting file_id={file_id}")
 
         if not is_authorized:
+            logger.error(f"[download] Access denied for file_id={file_id}")
             raise HTTPException(status_code=403, detail="Permission denied")
 
         # If requester is logged in user, allow shared access if a direct share exists
@@ -348,9 +363,13 @@ async def download_file(
 
         if not success:
             if error == "Access denied":
+                logger.warning(f"[download] Access denied for user {requester_user_id} on file_id={file_id}")
                 raise HTTPException(status_code=403, detail=error)
+            logger.error(f"[download] Download failed for file_id={file_id}, error={error}")
             raise HTTPException(status_code=404, detail=error)
 
+        logger.info(f"[download] SUCCESS: file_id={file_id}, filename='{metadata['filename']}', size={metadata.get('size', 'unknown')}, access_type={access_type}")
+        
         return StreamingResponse(
             file_stream,
             media_type=metadata["content_type"],
@@ -360,7 +379,7 @@ async def download_file(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Download error: {e}")
+        logger.error(f"[download] Unexpected error for file_id={file_id}: {str(e)}")
         raise HTTPException(status_code=500, detail="Download failed")
 
 
@@ -397,6 +416,8 @@ async def delete_file(
     try:
         # Capture client IP address for logging
         ip_address = request.client.host if request else None
+        
+        logger.info(f"[delete] Attempting to delete file_id={file_id}, user={current_user_id}, ip={ip_address}")
 
         # Delete using injected service
         success, file_size, error = await service.delete_file(
@@ -407,7 +428,9 @@ async def delete_file(
 
         if not success:
             if error == "Access denied":
+                logger.warning(f"[delete] Access denied for user {current_user_id} on file_id={file_id}")
                 raise HTTPException(status_code=403, detail=error)
+            logger.error(f"[delete] Delete failed for file_id={file_id}, error={error}")
             raise HTTPException(status_code=404, detail=error)
 
         # Cascade: Delete all shares for this file
@@ -415,11 +438,13 @@ async def delete_file(
             shares_deleted = db.query(Share).filter(Share.file_id == file_id).delete()
             db.commit()
             if shares_deleted > 0:
-                logger.info(f"✓ Cascade deleted {shares_deleted} share(s) for file {file_id}")
+                logger.info(f"[delete] CASCADE: Deleted {shares_deleted} share(s) for file {file_id}")
         except Exception as share_error:
-            logger.warning(f"Failed to cascade delete shares for file {file_id}: {share_error}")
+            logger.warning(f"[delete] Failed to cascade delete shares for file {file_id}: {share_error}")
             db.rollback()
 
+        logger.info(f"[delete] SUCCESS: file_id={file_id}, size_freed={file_size} bytes")
+        
         return FileDeleteResponse(
             status="deleted",
             file_id=file_id
@@ -428,8 +453,222 @@ async def delete_file(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Delete error: {e}")
+        logger.error(f"[delete] Unexpected error for file_id={file_id}: {str(e)}")
         raise HTTPException(status_code=500, detail="Deletion failed")
+
+
+# ============================================================================
+# RESTORE FILE (From Trash)
+# ============================================================================
+@router.post("/files/{file_id}/restore")
+async def restore_file(
+    file_id: str = Path(..., description="File ID (ObjectId)"),
+    request: Request = None,
+    current_user_id: str = Depends(get_current_user_id),
+    service: FileService = Depends(get_file_service),
+):
+    """
+    Restore a soft-deleted file from trash.
+
+    **Security**: Requires valid JWT token. User can only restore their own deleted files.
+
+    Parameters:
+    - **file_id**: MongoDB ObjectId of the deleted file
+
+    Returns:
+    - Restoration status
+    """
+    try:
+        # Capture client IP address for logging
+        ip_address = request.client.host if request else None
+        
+        logger.info(f"[restore] Attempting to restore file_id={file_id}, user={current_user_id}, ip={ip_address}")
+
+        # Restore using injected service
+        success, error = await service.restore_file(
+            file_id=file_id,
+            requester_user_id=current_user_id,
+            ip_address=ip_address
+        )
+
+        if not success:
+            if error == "Access denied":
+                logger.warning(f"[restore] Access denied for user {current_user_id} on file_id={file_id}")
+                raise HTTPException(status_code=403, detail=error)
+            logger.error(f"[restore] Restore failed for file_id={file_id}, error={error}")
+            raise HTTPException(status_code=404, detail=error)
+
+        logger.info(f"[restore] SUCCESS: file_id={file_id}")
+        
+        return {
+            "status": "restored",
+            "file_id": file_id
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[restore] Unexpected error for file_id={file_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail="Restoration failed")
+
+
+# ============================================================================
+# PERMANENTLY DELETE FILE (From Trash - Hard Delete)
+# ============================================================================
+@router.delete("/files/{file_id}/permanent")
+async def permanently_delete_file(
+    file_id: str = Path(..., description="File ID (ObjectId)"),
+    request: Request = None,
+    current_user_id: str = Depends(get_current_user_id),
+    service: FileService = Depends(get_file_service),
+    db: Session = Depends(get_db),
+):
+    """
+    Permanently delete a soft-deleted file from trash (hard delete).
+
+    **Security**: Requires valid JWT token. User can only permanently delete their own files.
+
+    Parameters:
+    - **file_id**: MongoDB ObjectId of the file to permanently delete
+
+    Returns:
+    - Permanent deletion status
+    """
+    try:
+        # Capture client IP address for logging
+        ip_address = request.client.host if request else None
+        
+        logger.info(f"[permanent_delete] Attempting to permanently delete file_id={file_id}, user={current_user_id}, ip={ip_address}")
+
+        # Get file metadata to verify ownership and get GridFS ID
+        file = await service.repo.get_file_metadata(file_id)
+        if not file:
+            logger.error(f"[permanent_delete] File not found: {file_id}")
+            raise HTTPException(status_code=404, detail="File not found")
+
+        if file.owner_id != current_user_id:
+            logger.warning(f"[permanent_delete] Access denied for user {current_user_id} on file_id={file_id}")
+            raise HTTPException(status_code=403, detail="Access denied")
+
+        # Hard delete from GridFS (both file and metadata chunks)
+        success = await service.repo.delete_file_from_gridfs(file_id)
+        if not success:
+            logger.error(f"[permanent_delete] Failed to delete from GridFS: {file_id}")
+            raise HTTPException(status_code=500, detail="Failed to permanently delete file")
+
+        # Update user quota (file no longer exists)
+        try:
+            # This would integrate with quota service if available
+            logger.info(f"[permanent_delete] File quota would be updated for user {current_user_id}")
+        except Exception as quota_err:
+            logger.warning(f"[permanent_delete] Failed to update quota: {quota_err}")
+
+        # Log activity
+        if service.activity_logger:
+            await service.activity_logger.log_activity(
+                current_user_id,
+                "FILE_PERMANENTLY_DELETE",
+                {
+                    "file_id": file_id,
+                    "filename": file.filename,
+                    "size": file.size,
+                },
+                ip_address,
+            )
+
+        # Cascade: Delete all shares for this file
+        try:
+            shares_deleted = db.query(Share).filter(Share.file_id == file_id).delete()
+            db.commit()
+            if shares_deleted > 0:
+                logger.info(f"[permanent_delete] CASCADE: Deleted {shares_deleted} share(s) for file {file_id}")
+        except Exception as share_error:
+            logger.warning(f"[permanent_delete] Failed to cascade delete shares for file {file_id}: {share_error}")
+            db.rollback()
+
+        logger.info(f"[permanent_delete] SUCCESS: file_id={file_id}, size_freed={file.size} bytes")
+        
+        return {
+            "status": "permanently_deleted",
+            "file_id": file_id
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[permanent_delete] Unexpected error for file_id={file_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail="Permanent deletion failed")
+
+
+# ============================================================================
+# GET TRASH (Soft-Deleted Files)
+# ============================================================================
+@router.get("/trash/{user_id}")
+async def get_trash(
+    user_id: str = Path(..., description="User ID"),
+    current_user_id: str = Depends(get_current_user_id),
+    service: FileService = Depends(get_file_service),
+):
+    """
+    Get list of soft-deleted files (trash) for a user.
+
+    **Security**: Requires valid JWT token. Users can only view their own trash.
+
+    Parameters:
+    - **user_id**: User identifier
+
+    Returns:
+    - List of deleted files in trash
+    """
+    # Verify user ownership
+    verify_user_ownership(current_user_id, user_id)
+    
+    try:
+        logger.info(f"[trash] Retrieving trash for user {user_id}")
+
+        # Query MongoDB directly for deleted files only
+        mongo_db = service.folder_repo.db if hasattr(service, 'folder_repo') and hasattr(service.folder_repo, 'db') else None
+        
+        if mongo_db is not None:
+            fs_files = mongo_db.get_collection("fs.files")
+            query = {
+                "metadata.owner": user_id,
+                "metadata.is_deleted": True
+            }
+            # Use await to convert async cursor to list
+            cursor = fs_files.find(query).sort("uploadDate", -1)
+            docs = await cursor.to_list(None)
+            
+            trash_files = []
+            for doc in docs:
+                meta = doc.get("metadata", {})
+                trash_files.append({
+                    "file_id": str(doc["_id"]),
+                    "name": doc.get("filename", ""),
+                    "filename": doc.get("filename", ""),
+                    "size": doc.get("length", 0),
+                    "deleted_at": meta.get("deleted_at"),
+                    "uploaded_at": doc.get("uploadDate"),
+                    "content_type": meta.get("contentType", ""),
+                })
+            
+            logger.info(f"[trash] Found {len(trash_files)} deleted files for user {user_id}")
+            return {
+                "trash": trash_files,
+                "total": len(trash_files)
+            }
+        
+        logger.warning(f"[trash] MongoDB not available")
+        return {
+            "trash": [],
+            "total": 0
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[trash] Error retrieving trash for user {user_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to retrieve trash")
 
 
 # ============================================================================
@@ -554,15 +793,19 @@ async def list_user_files(
     try:
         # Verify ownership
         if user_id != current_user_id:
+            logger.warning(f"[list_user_files] Unauthorized list attempt: user {current_user_id} tried to list files for {user_id}")
             raise HTTPException(
                 status_code=403,
                 detail="Cannot list files for other users"
             )
 
+        logger.info(f"[list_user_files] Listing files for user {user_id}")
+
         # List files using injected service
         success, files, error = await service.list_user_files(user_id)
 
         if not success:
+            logger.error(f"[list_user_files] Failed to list files for user {user_id}: {error}")
             raise HTTPException(status_code=500, detail=error or "Failed to list files")
 
         # Convert to response models
@@ -575,16 +818,17 @@ async def list_user_files(
                     size=file_info["size"],
                     content_type=file_info["content_type"],
                     upload_date=file_info["upload_date"],
-                    metadata={}
+                    metadata=file_info.get("metadata", {})
                 )
             )
 
+        logger.info(f"[list_user_files] SUCCESS: Retrieved {len(response_files)} files for user {user_id}")
         return response_files
 
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"List files error: {e}")
+        logger.error(f"[list_user_files] Unexpected error for user {user_id}: {str(e)}")
         raise HTTPException(status_code=500, detail="Failed to list files")
 
 
@@ -1587,6 +1831,8 @@ async def upload_folder(
                 else:
                     failed_files += 1
                     logger.error(f"[folder-upload] Failed to upload {file_name}: {error}")
+                    # The activity logging for infected files happens in service.upload_file_encrypted
+                    # This captures all failure reasons including virus scan failures
                     
             except Exception as e:
                 failed_files += 1

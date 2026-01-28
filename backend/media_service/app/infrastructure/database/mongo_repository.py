@@ -110,6 +110,8 @@ class MongoGridFSRepository(IFileRepository):
                 nonce=meta.get("nonce", ""),
                 encrypted_key=meta.get("encryptedKey", ""),
                 is_infected=meta.get("isInfected", False),  # Added virus scan status
+                is_deleted=meta.get("is_deleted", False),  # Soft delete status
+                deleted_at=meta.get("deleted_at"),  # Deletion timestamp
                 metadata=meta,
             )
 
@@ -148,6 +150,8 @@ class MongoGridFSRepository(IFileRepository):
                 encrypted=meta.get("encrypted", False),
                 nonce=meta.get("nonce", ""),
                 encrypted_key=meta.get("encryptedKey", ""),
+                is_deleted=meta.get("is_deleted", False),  # Soft delete status
+                deleted_at=meta.get("deleted_at"),  # Deletion timestamp
                 metadata=meta,
             )
 
@@ -186,9 +190,23 @@ class MongoGridFSRepository(IFileRepository):
             logger.error(f"Failed to delete {file_id}: {e}")
             return False
 
+    async def delete_file_from_gridfs(self, file_id: str) -> bool:
+        """
+        Permanently delete file from GridFS (hard delete).
+        This is used for permanent deletion from trash.
+        
+        Args:
+            file_id: ObjectId as string
+            
+        Returns:
+            True if deleted, False otherwise
+        """
+        return await self.delete(file_id)
+
     async def list_by_owner(self, owner_id: str, folder_id: Optional[str] = None) -> List[File]:
         """
         List all files owned by a user, optionally filtered by folder.
+        Automatically excludes deleted files (soft delete).
         
         Args:
             owner_id: Owner identifier
@@ -198,11 +216,11 @@ class MongoGridFSRepository(IFileRepository):
             List of File entities
         """
         try:
-            # Build query: always filter by owner
+            # Build query: always filter by owner and exclude deleted files
             # CRITICAL FIX: When folder_id is None, only get root files
             # When folder_id is provided, get files in that folder
             if folder_id is None:
-                # Root files: folder_id must not be set OR be None/empty
+                # Root files: folder_id must not be set OR be None/empty, AND not deleted
                 # Use $and to ensure both owner and root-level conditions are met
                 query = {
                     "$and": [
@@ -211,14 +229,24 @@ class MongoGridFSRepository(IFileRepository):
                             {"metadata.folder_id": {"$exists": False}},
                             {"metadata.folder_id": None},
                             {"metadata.folder_id": ""}
+                        ]},
+                        {"$or": [
+                            {"metadata.is_deleted": {"$exists": False}},
+                            {"metadata.is_deleted": False}
                         ]}
                     ]
                 }
             else:
-                # Files in specific folder
+                # Files in specific folder (not deleted)
                 query = {
-                    "metadata.owner": owner_id,
-                    "metadata.folder_id": folder_id
+                    "$and": [
+                        {"metadata.owner": owner_id},
+                        {"metadata.folder_id": folder_id},
+                        {"$or": [
+                            {"metadata.is_deleted": {"$exists": False}},
+                            {"metadata.is_deleted": False}
+                        ]}
+                    ]
                 }
             
             cursor = self.fs.find(query)
@@ -237,6 +265,8 @@ class MongoGridFSRepository(IFileRepository):
                     encrypted=meta.get("encrypted", False),
                     nonce=meta.get("nonce", ""),
                     encrypted_key=meta.get("encryptedKey", ""),
+                    is_deleted=meta.get("is_deleted", False),  # Soft delete status
+                    deleted_at=meta.get("deleted_at"),  # Deletion timestamp
                     metadata=meta,
                 )
                 files.append(file)
@@ -254,6 +284,7 @@ class MongoGridFSRepository(IFileRepository):
     ) -> List[File]:
         """
         List all files in a specific folder (root if folder_id is None).
+        Automatically excludes deleted files (soft delete).
         
         Args:
             folder_id: The folder identifier (None = root)
@@ -273,6 +304,12 @@ class MongoGridFSRepository(IFileRepository):
             # Only filter by owner if owner_id is provided
             if owner_id:
                 query["metadata.owner"] = owner_id
+            
+            # Always exclude deleted files
+            query["$or"] = [
+                {"metadata.is_deleted": {"$exists": False}},
+                {"metadata.is_deleted": False}
+            ]
             
             if folder_id is None:
                 # Root files have no folder_id
@@ -298,6 +335,8 @@ class MongoGridFSRepository(IFileRepository):
                     nonce=meta.get("nonce", ""),
                     encrypted_key=meta.get("encryptedKey", ""),
                     is_infected=meta.get("isInfected", False),
+                    is_deleted=meta.get("is_deleted", False),
+                    deleted_at=meta.get("deleted_at"),
                     metadata=meta,
                 )
                 files.append(file)
@@ -310,11 +349,11 @@ class MongoGridFSRepository(IFileRepository):
 
     async def update_file_metadata(self, file_id: str, updates: dict) -> bool:
         """
-        Update file metadata (e.g., moving to a new folder).
+        Update file metadata (e.g., moving to a new folder, soft delete).
         
         Args:
             file_id: ObjectId as string
-            updates: Dict of fields to update (e.g., {"folder_id": "new_folder_id"})
+            updates: Dict of fields to update (e.g., {"folder_id": "new_folder_id", "is_deleted": True})
             
         Returns:
             True if updated, False otherwise
@@ -331,6 +370,12 @@ class MongoGridFSRepository(IFileRepository):
             if "folder_id" in updates:
                 mongo_updates["metadata.folderId"] = updates["folder_id"]
             
+            # Soft delete fields
+            if "is_deleted" in updates:
+                mongo_updates["metadata.is_deleted"] = updates["is_deleted"]
+            if "deleted_at" in updates:
+                mongo_updates["metadata.deleted_at"] = updates["deleted_at"]
+            
             # Add other fields as needed
             if not mongo_updates:
                 return False
@@ -340,7 +385,7 @@ class MongoGridFSRepository(IFileRepository):
                 {"$set": mongo_updates}
             )
             
-            logger.info(f"✓ Updated metadata for file {file_id}")
+            logger.info(f"✓ Updated metadata for file {file_id}: {mongo_updates}")
             return True  # Return True even if modified_count is 0 (idempotent)
             
         except Exception as e:
@@ -835,6 +880,8 @@ class MongoFolderRepository(IFolderRepository):
                     nonce=meta.get("nonce", ""),
                     encrypted_key=meta.get("encryptedKey", ""),
                     is_infected=meta.get("isInfected", False),
+                    is_deleted=meta.get("is_deleted", False),  # Soft delete status
+                    deleted_at=meta.get("deleted_at"),  # Deletion timestamp
                     metadata=meta,
                 )
                 files.append(file)

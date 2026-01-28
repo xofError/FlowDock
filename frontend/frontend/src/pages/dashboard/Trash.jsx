@@ -7,6 +7,8 @@ import MyFilesIcon from "../../resources/icons/my_files.svg";
 import SharedIcon from "../../resources/icons/shared.svg";
 import TrashIcon from "../../resources/icons/trash.svg";
 import SettingsIcon from "../../resources/icons/settings.svg";
+import { useAuth } from "../../hooks/useAuth";
+import api from "../../services/api";
 
 const navItems = [
   { icon: DashboardIcon, label: "Dashboard", to: "/dashboard" },
@@ -17,17 +19,12 @@ const navItems = [
   { icon: SettingsIcon, label: "Settings", to: "/settings" },
 ];
 
-const SAMPLE_TRASH = [
-  { id: 1, name: "VacationPhotos.zip", originalLocation: "My Files/Pictures", dateDeleted: "2025-12-24", size: "50 MB" },
-  { id: 2, name: "OldProject.pdf", originalLocation: "My Files/Documents", dateDeleted: "2025-12-20", size: "8.3 MB" },
-  { id: 3, name: "BackupData.xlsx", originalLocation: "My Files/Archive", dateDeleted: "2025-12-18", size: "12.7 MB" },
-  { id: 4, name: "TempVideo.mp4", originalLocation: "My Files/Videos", dateDeleted: "2025-12-15", size: "120 MB" },
-];
-
 export default function Trash() {
   const routerNavigate = useNavigate();
-  const [deletedFiles, setDeletedFiles] = useState(SAMPLE_TRASH);
-  const [actionStates, setActionStates] = useState({}); // Track clicked actions
+  const { user } = useAuth();
+  const [deletedFiles, setDeletedFiles] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [actionStates, setActionStates] = useState({}); // Track pending actions
   const [deleteWarning, setDeleteWarning] = useState(null); // Track delete warning modal
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
 
@@ -42,34 +39,95 @@ export default function Trash() {
     return () => { document.body.style.overflow = ""; };
   }, [mobileSidebarOpen]);
 
-  const handleRestore = (fileId) => {
-    setActionStates(prev => ({ ...prev, [fileId]: "restored" }));
-    setTimeout(() => {
-      setDeletedFiles(prev => prev.filter(f => f.id !== fileId));
+  const loadTrash = async (userId) => {
+    if (!userId) return;
+    setLoading(true);
+    try {
+      const response = await api.getTrash(userId);
+      setDeletedFiles(response.trash || []);
+    } catch (err) {
+      console.error("Failed to load trash:", err);
+      setDeletedFiles([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Load trash files when user is available
+  useEffect(() => {
+    if (user?.id) {
+      loadTrash(user.id);
+    }
+  }, [user?.id]);
+
+  const formatDate = (dateStr) => {
+    if (!dateStr) return "Unknown";
+    const date = new Date(dateStr);
+    return date.toLocaleDateString('en-US', { 
+      year: 'numeric', 
+      month: 'short', 
+      day: 'numeric' 
+    });
+  };
+
+  const formatFileSize = (bytes) => {
+    if (!bytes || bytes === 0) return "0 B";
+    const sizes = ['B', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(1024));
+    return Math.round(bytes / Math.pow(1024, i) * 100) / 100 + " " + sizes[i];
+  };
+
+  const handleRestore = async (file) => {
+    setActionStates(prev => ({ ...prev, [file.file_id]: "restoring" }));
+    try {
+      await api.restoreFile(file.file_id);
+      setActionStates(prev => ({ ...prev, [file.file_id]: "restored" }));
+      setTimeout(() => {
+        setDeletedFiles(prev => prev.filter(f => f.file_id !== file.file_id));
+        setActionStates(prev => {
+          const newState = { ...prev };
+          delete newState[file.file_id];
+          return newState;
+        });
+      }, 1500);
+    } catch (err) {
+      console.error("Failed to restore file:", err);
       setActionStates(prev => {
         const newState = { ...prev };
-        delete newState[fileId];
+        delete newState[file.file_id];
         return newState;
       });
-    }, 1500);
+    }
   };
 
   const handlePermanentlyDelete = (fileId) => {
     setDeleteWarning(fileId);
   };
 
-  const confirmPermanentDelete = () => {
+  const confirmPermanentDelete = async () => {
     if (deleteWarning) {
-      setActionStates(prev => ({ ...prev, [deleteWarning]: "deleted" }));
-      setTimeout(() => {
-        setDeletedFiles(prev => prev.filter(f => f.id !== deleteWarning));
+      setActionStates(prev => ({ ...prev, [deleteWarning]: "deleting" }));
+      try {
+        await api.permanentlyDeleteFile(deleteWarning);
+        setActionStates(prev => ({ ...prev, [deleteWarning]: "deleted" }));
+        setTimeout(() => {
+          setDeletedFiles(prev => prev.filter(f => f.file_id !== deleteWarning));
+          setActionStates(prev => {
+            const newState = { ...prev };
+            delete newState[deleteWarning];
+            return newState;
+          });
+          setDeleteWarning(null);
+        }, 1500);
+      } catch (err) {
+        console.error("Failed to delete file permanently:", err);
         setActionStates(prev => {
           const newState = { ...prev };
           delete newState[deleteWarning];
           return newState;
         });
         setDeleteWarning(null);
-      }, 1500);
+      }
     }
   };
 
@@ -85,54 +143,56 @@ export default function Trash() {
           <table style={{ width: "100%", textAlign: "left", borderCollapse: "collapse", minWidth: "700px" }}>
             <colgroup>
               <col style={{ width: "25%" }} />
-              <col style={{ width: "25%" }} />
-              <col style={{ width: "15%" }} />
               <col style={{ width: "20%" }} />
               <col style={{ width: "15%" }} />
+              <col style={{ width: "20%" }} />
+              <col style={{ width: "20%" }} />
             </colgroup>
             <thead>
               <tr style={{ backgroundColor: "transparent", borderBottom: "1px solid #e5e7eb" }}>
                 <th style={{ padding: "1rem 0", fontSize: "0.875rem", fontWeight: 600, color: "#374151", textAlign: "left", verticalAlign: "top" }}>Name</th>
-                <th style={{ padding: "1rem 0", fontSize: "0.875rem", fontWeight: 600, color: "#374151", textAlign: "left", verticalAlign: "top" }}>Original Location</th>
-                <th style={{ padding: "1rem 0", fontSize: "0.875rem", fontWeight: 600, color: "#374151", textAlign: "left", verticalAlign: "top" }}>Date Deleted</th>
                 <th style={{ padding: "1rem 0", fontSize: "0.875rem", fontWeight: 600, color: "#374151", textAlign: "left", verticalAlign: "top" }}>Size</th>
+                <th style={{ padding: "1rem 0", fontSize: "0.875rem", fontWeight: 600, color: "#374151", textAlign: "left", verticalAlign: "top" }}>Date Deleted</th>
+                <th style={{ padding: "1rem 0", fontSize: "0.875rem", fontWeight: 600, color: "#374151", textAlign: "left", verticalAlign: "top" }}>Content Type</th>
                 <th style={{ padding: "1rem 0", fontSize: "0.875rem", fontWeight: 600, color: "#374151", textAlign: "left", verticalAlign: "top" }}>Actions</th>
               </tr>
             </thead>
             <tbody>
               {data.map((file, idx) => (
-                <tr key={file.id} style={{ backgroundColor: "#ffffff", borderBottom: idx === data.length - 1 ? "none" : "1px solid #e5e7eb" }}>
-                  <td style={{ padding: "1rem 0", fontSize: "0.875rem", color: "#0f172a", verticalAlign: "top" }}>{file.name}</td>
-                  <td style={{ padding: "1rem 0", fontSize: "0.875rem", color: "#64748b", verticalAlign: "top" }}>{file.originalLocation}</td>
-                  <td style={{ padding: "1rem 0", fontSize: "0.875rem", color: "#64748b", verticalAlign: "top" }}>{file.dateDeleted}</td>
-                  <td style={{ padding: "1rem 0", fontSize: "0.875rem", color: "#64748b", verticalAlign: "top" }}>{file.size}</td>
+                <tr key={file.file_id} style={{ backgroundColor: "#ffffff", borderBottom: idx === data.length - 1 ? "none" : "1px solid #e5e7eb" }}>
+                  <td style={{ padding: "1rem 0", fontSize: "0.875rem", color: "#0f172a", verticalAlign: "top", wordBreak: "break-word" }}>{file.name || file.filename}</td>
+                  <td style={{ padding: "1rem 0", fontSize: "0.875rem", color: "#64748b", verticalAlign: "top" }}>{formatFileSize(file.size)}</td>
+                  <td style={{ padding: "1rem 0", fontSize: "0.875rem", color: "#64748b", verticalAlign: "top" }}>{formatDate(file.deleted_at)}</td>
+                  <td style={{ padding: "1rem 0", fontSize: "0.875rem", color: "#64748b", verticalAlign: "top" }}>{file.content_type || "Unknown"}</td>
                   <td style={{ padding: "1rem 0", verticalAlign: "top" }}>
                     <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
                       <span
-                        onClick={() => handleRestore(file.id)}
+                        onClick={() => handleRestore(file)}
                         style={{ 
-                          color: actionStates[file.id] === "restored" ? "#16a34a" : "#2563eb",
+                          color: actionStates[file.file_id] === "restored" ? "#16a34a" : actionStates[file.file_id] === "restoring" ? "#64748b" : "#2563eb",
                           textDecoration: "underline",
-                          cursor: "pointer",
+                          cursor: actionStates[file.file_id] === "restoring" ? "wait" : "pointer",
                           fontWeight: 500,
                           fontSize: "0.875rem",
-                          transition: "all 0.2s"
+                          transition: "all 0.2s",
+                          opacity: actionStates[file.file_id] === "restoring" ? 0.6 : 1
                         }}
                       >
-                        {actionStates[file.id] === "restored" ? "✓ Restored" : "Restore"}
+                        {actionStates[file.file_id] === "restored" ? "✓ Restored" : actionStates[file.file_id] === "restoring" ? "Restoring..." : "Restore"}
                       </span>
                       <span
-                        onClick={() => handlePermanentlyDelete(file.id)}
+                        onClick={() => handlePermanentlyDelete(file.file_id)}
                         style={{
-                          color: actionStates[file.id] === "deleted" ? "#dc2626" : "#2563eb",
+                          color: actionStates[file.file_id] === "deleted" ? "#dc2626" : actionStates[file.file_id] === "deleting" ? "#64748b" : "#2563eb",
                           textDecoration: "underline",
-                          cursor: "pointer",
+                          cursor: actionStates[file.file_id] === "deleting" ? "wait" : "pointer",
                           fontWeight: 500,
                           fontSize: "0.875rem",
-                          transition: "all 0.2s"
+                          transition: "all 0.2s",
+                          opacity: actionStates[file.file_id] === "deleting" ? 0.6 : 1
                         }}
                       >
-                        {actionStates[file.id] === "deleted" ? "✓ Deleted" : "Permanently Delete"}
+                        {actionStates[file.file_id] === "deleted" ? "✓ Deleted" : actionStates[file.file_id] === "deleting" ? "Deleting..." : "Delete Permanently"}
                       </span>
                     </div>
                   </td>
@@ -268,7 +328,11 @@ export default function Trash() {
         </header>
 
         {/* Trash Table */}
-        {deletedFiles.length > 0 ? (
+        {loading ? (
+          <div style={{ textAlign: "center", padding: "3rem", color: "#64748b" }}>
+            <p>Loading trash...</p>
+          </div>
+        ) : deletedFiles.length > 0 ? (
           <SharedTable title="Deleted Files" data={deletedFiles} />
         ) : (
           <div style={{ textAlign: "center", padding: "3rem", color: "#64748b" }}>

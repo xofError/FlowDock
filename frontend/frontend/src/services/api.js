@@ -411,6 +411,33 @@ class APIClient {
   }
 
   /**
+   * Get user's trash (deleted files)
+   */
+  async getTrash(userId) {
+    return this.request(`${MEDIA_API_URL}/trash/${userId}`, {
+      method: "GET",
+    });
+  }
+
+  /**
+   * Restore file from trash
+   */
+  async restoreFile(fileId) {
+    return this.request(`${MEDIA_API_URL}/files/${fileId}/restore`, {
+      method: "POST",
+    });
+  }
+
+  /**
+   * Permanently delete file from trash
+   */
+  async permanentlyDeleteFile(fileId) {
+    return this.request(`${MEDIA_API_URL}/files/${fileId}/permanent`, {
+      method: "DELETE",
+    });
+  }
+
+  /**
    * Share file with user by email
    */
   async shareFileWithUser(fileId, targetEmail, expiresAt = null) {

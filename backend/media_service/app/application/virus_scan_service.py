@@ -7,6 +7,8 @@ import logging
 import hashlib
 import io
 import clamd
+import tempfile
+import aiofiles
 from typing import AsyncGenerator, Tuple, Optional
 from fastapi import HTTPException
 
@@ -57,10 +59,12 @@ class VirusScanService:
         """
         Scan file stream for viruses and calculate SHA-256 hash simultaneously.
         
-        This is a stream-based pipeline that processes chunks in real-time:
-        1. Read chunk from upload stream
-        2. Update SHA-256 hash
-        3. Send chunk to ClamAV scanner
+        Uses temporary file buffering to avoid loading entire file into RAM.
+        Process:
+        1. Stream chunks to temporary disk file
+        2. Calculate SHA-256 hash as chunks arrive
+        3. Scan temporary file with ClamAV
+        4. Clean up temporary file
         
         Args:
             file_stream: Async generator yielding file chunks
@@ -78,6 +82,7 @@ class VirusScanService:
         is_infected = False
         threat_name = None
         scan_status = "clean"
+        temp_file = None
 
         try:
             # Ensure ClamAV connection is available
@@ -88,35 +93,49 @@ class VirusScanService:
                 logger.warning("ClamAV unavailable, allowing upload without scan")
                 # Process stream without scanning, just hash it
                 async for chunk in file_stream:
-                    sha256_hash.update(chunk)
+                    if chunk:
+                        sha256_hash.update(chunk)
                 file_hash = sha256_hash.hexdigest()
                 return file_hash, "skipped", False, None
 
-            # Collect chunks for scanning
-            chunks = []
+            # Create temporary file for streaming chunks (avoids RAM buildup)
+            temp_file = tempfile.NamedTemporaryFile(delete=False, prefix=f"scan_{filename}_")
+            temp_path = temp_file.name
+            temp_file.close()  # Close file handle so aiofiles can open it
+            
             total_bytes = 0
             
-            async for chunk in file_stream:
-                if not chunk:
-                    break
-                
-                # Update hash immediately
-                sha256_hash.update(chunk)
-                chunks.append(chunk)
-                total_bytes += len(chunk)
+            # Stream chunks to temporary file and calculate hash
+            async with aiofiles.open(temp_path, mode='wb') as f:
+                async for chunk in file_stream:
+                    if not chunk:
+                        break
+                    
+                    # Update hash
+                    sha256_hash.update(chunk)
+                    
+                    # Write chunk to temporary file
+                    await f.write(chunk)
+                    total_bytes += len(chunk)
 
-            # Now scan the collected data using instream()
-            # instream() takes a file-like object with chunks
+            # Now scan the temporary file using ClamAV
             try:
-                # Create a BytesIO-like object from chunks for scanning
-                file_buffer = io.BytesIO(b''.join(chunks))
+                logger.debug(f"[scan] Scanning {filename}: {total_bytes} bytes via ClamAV from temp file")
                 
-                # Call instream with the buffer
-                scan_result = self.clamd_connection.instream(file_buffer)
+                # ClamAV can scan a file by path (more efficient than instream for large files)
+                # or we can use instream with the file handle
+                with open(temp_path, 'rb') as file_handle:
+                    scan_result = self.clamd_connection.instream(file_handle)
                 
             except Exception as scan_error:
                 logger.error(f"ClamAV instream error for {filename}: {scan_error}")
                 file_hash = sha256_hash.hexdigest()
+                # Clean up temp file on error
+                try:
+                    import os
+                    os.unlink(temp_path)
+                except:
+                    pass
                 return file_hash, "error", False, str(scan_error)
 
             # Process ClamAV response
@@ -126,30 +145,43 @@ class VirusScanService:
 
                 if status == 'OK':
                     scan_status = 'clean'
-                    logger.info(f"✓ File {filename} scanned clean ({total_bytes / 1024 / 1024:.2f}MB)")
+                    file_hash = sha256_hash.hexdigest()
+                    logger.info(f"[virus_scan] ✓ CLEAN: {filename} ({total_bytes} bytes, hash={file_hash[:16]}...)")
 
                 elif status == 'FOUND':
                     is_infected = True
                     threat_name = threat
                     scan_status = 'infected'
-                    logger.warning(f"⚠ Virus detected in {filename}: {threat}")
+                    file_hash = sha256_hash.hexdigest()
+                    logger.warning(f"[virus_scan] 🚨 INFECTED: {filename}, threat='{threat}', hash={file_hash[:16]}...")
 
                 else:
-                    logger.warning(f"Unexpected ClamAV status: {status}")
+                    logger.warning(f"[virus_scan] Unexpected ClamAV status for {filename}: {status}")
                     scan_status = 'error'
+                    file_hash = sha256_hash.hexdigest()
 
             else:
-                logger.warning("No scan result received from ClamAV")
+                logger.warning(f"[virus_scan] No scan result received from ClamAV for {filename}")
                 scan_status = 'error'
+                file_hash = sha256_hash.hexdigest()
 
-            file_hash = sha256_hash.hexdigest()
             return file_hash, scan_status, is_infected, threat_name
 
         except Exception as e:
-            logger.error(f"Virus scan error for {filename}: {e}")
-            # Still calculate hash even if scan fails
             file_hash = sha256_hash.hexdigest()
+            logger.error(f"[virus_scan] ERROR scanning {filename}: {str(e)}, hash={file_hash[:16]}...")
+            # Still calculate hash even if scan fails
             return file_hash, "error", False, str(e)
+        
+        finally:
+            # Always clean up temporary file
+            if temp_file is not None:
+                try:
+                    import os
+                    os.unlink(temp_path)
+                    logger.debug(f"[scan] Cleaned up temporary file: {temp_path}")
+                except Exception as e:
+                    logger.warning(f"[scan] Failed to clean up temp file {temp_path}: {e}")
 
     async def scan_and_hash_with_stream_passthrough(
         self,
@@ -161,6 +193,7 @@ class VirusScanService:
         Scan stream AND pass through chunks simultaneously.
         
         This allows you to scan while still processing (e.g., encrypting) the data.
+        Uses temporary file to avoid RAM buildup.
         Returns both the passthrough stream and scan results.
         
         Args:
@@ -176,32 +209,44 @@ class VirusScanService:
         threat_name = None
         scan_status = "clean"
         accumulated_chunks = []
+        temp_file = None
 
-        # Consume entire stream first to scan
+        # Consume entire stream first to scan (buffer to disk, not RAM)
         try:
             if not self.clamd_connection:
                 self._initialize_connection()
 
             if self.clamd_connection:
-                # Accumulate all chunks first
-                async for chunk in file_stream:
-                    if not chunk:
-                        break
-                    sha256_hash.update(chunk)
-                    accumulated_chunks.append(chunk)
+                # Create temporary file for streaming chunks
+                temp_file = tempfile.NamedTemporaryFile(delete=False, prefix=f"scan_{filename}_")
+                temp_path = temp_file.name
+                temp_file.close()
+                
+                # Stream to temp file and accumulate for passthrough
+                async with aiofiles.open(temp_path, mode='wb') as f:
+                    async for chunk in file_stream:
+                        if not chunk:
+                            break
+                        sha256_hash.update(chunk)
+                        accumulated_chunks.append(chunk)
+                        await f.write(chunk)
 
-                # Create buffer and scan
-                file_buffer = io.BytesIO(b''.join(accumulated_chunks))
-                scan_result = self.clamd_connection.instream(file_buffer)
+                # Scan the temporary file
+                try:
+                    with open(temp_path, 'rb') as file_handle:
+                        scan_result = self.clamd_connection.instream(file_handle)
 
-                if scan_result and 'stream' in scan_result:
-                    status, threat = scan_result['stream']
-                    if status == 'OK':
-                        scan_status = 'clean'
-                    elif status == 'FOUND':
-                        is_infected = True
-                        threat_name = threat
-                        scan_status = 'infected'
+                    if scan_result and 'stream' in scan_result:
+                        status, threat = scan_result['stream']
+                        if status == 'OK':
+                            scan_status = 'clean'
+                        elif status == 'FOUND':
+                            is_infected = True
+                            threat_name = threat
+                            scan_status = 'infected'
+                except Exception as scan_error:
+                    logger.error(f"ClamAV scan error for passthrough: {scan_error}")
+                    scan_status = "error"
             else:
                 # ClamAV unavailable, just accumulate chunks
                 async for chunk in file_stream:
@@ -212,6 +257,15 @@ class VirusScanService:
         except Exception as e:
             logger.error(f"Passthrough scan error: {e}")
             scan_status = "error"
+        
+        finally:
+            # Clean up temporary file
+            if temp_file is not None:
+                try:
+                    import os
+                    os.unlink(temp_path)
+                except Exception as e:
+                    logger.warning(f"Failed to clean up temp file: {e}")
 
         # Create passthrough generator from accumulated chunks
         async def passthrough_generator():

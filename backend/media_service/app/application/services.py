@@ -253,6 +253,23 @@ class FileService:
             # 5. Check if infected
             if is_infected:
                 logger.warning(f"⚠ File upload rejected: {filename} infected with {threat_name}")
+                
+                # Log activity for infected file upload
+                if self.activity_logger:
+                    await self.activity_logger.log_activity(
+                        user_id,
+                        "FILE_UPLOAD_INFECTED",
+                        {
+                            "filename": filename,
+                            "size": original_size,
+                            "content_type": file.content_type,
+                            "threat": threat_name,
+                            "scan_status": "infected",
+                            "hash": file_hash[:16] + "..." if file_hash else None,
+                        },
+                        ip_address,
+                    )
+                
                 return False, None, 0, f"File infected: {threat_name}", {
                     "scan_status": "infected",
                     "threat": threat_name,
@@ -450,7 +467,10 @@ class FileService:
         ip_address: Optional[str] = None,
     ) -> Tuple[bool, Optional[int], Optional[str]]:
         """
-        Delete a file.
+        Soft delete a file (move to trash/recycle bin).
+        
+        Instead of immediately destroying the file, we mark it as deleted.
+        Permanently deleted files older than 30 days can be cleaned up by a background job.
         
         Args:
             file_id: File to delete
@@ -461,6 +481,8 @@ class FileService:
             Tuple of (success, file_size, error_message)
         """
         try:
+            from datetime import datetime, timezone
+            
             # 1. Get metadata to verify ownership
             file = await self.repo.get_file_metadata(file_id)
             if not file:
@@ -469,15 +491,19 @@ class FileService:
             if file.owner_id != requester_user_id:
                 return False, None, "Access denied"
 
-            # 2. Delete
-            success = await self.repo.delete(file_id)
+            # 2. Soft delete: Mark file as deleted instead of removing it
+            success = await self.repo.update_file_metadata(
+                file_id,
+                {
+                    "is_deleted": True,
+                    "deleted_at": datetime.now(timezone.utc).isoformat(),
+                }
+            )
+            
             if not success:
                 return False, None, "Deletion failed"
 
-            # 3. Update storage quota (negative delta for deletion)
-            await self.quota_repo.update_usage(requester_user_id, -file.size)
-
-            # 4. Log activity
+            # 3. Log activity (quota NOT updated - file still counts until permanent deletion)
             if self.activity_logger:
                 await self.activity_logger.log_activity(
                     requester_user_id,
@@ -486,16 +512,77 @@ class FileService:
                         "file_id": file_id,
                         "filename": file.filename,
                         "size": file.size,
+                        "deletion_type": "soft_delete",
                     },
                     ip_address,
                 )
 
-            logger.info(f"✓ Deleted file {file_id}")
+            logger.info(f"✓ Soft deleted file {file_id} (moved to trash)")
             return True, file.size, None
 
         except Exception as e:
             logger.error(f"Delete failed: {e}")
             return False, None, str(e)
+
+    async def restore_file(
+        self,
+        file_id: str,
+        requester_user_id: str,
+        ip_address: Optional[str] = None,
+    ) -> Tuple[bool, Optional[str]]:
+        """
+        Restore a soft-deleted file from trash.
+        
+        Args:
+            file_id: File to restore
+            requester_user_id: User requesting restoration
+            ip_address: Optional client IP for logging
+            
+        Returns:
+            Tuple of (success, error_message)
+        """
+        try:
+            # 1. Get metadata to verify ownership
+            file = await self.repo.get_file_metadata(file_id)
+            if not file:
+                return False, "File not found"
+
+            if file.owner_id != requester_user_id:
+                return False, "Access denied"
+
+            if not file.is_deleted:
+                return False, "File is not in trash"
+
+            # 2. Restore: Unmark as deleted
+            success = await self.repo.update_file_metadata(
+                file_id,
+                {
+                    "is_deleted": False,
+                    "deleted_at": None,
+                }
+            )
+            
+            if not success:
+                return False, "Restoration failed"
+
+            # 3. Log activity
+            if self.activity_logger:
+                await self.activity_logger.log_activity(
+                    requester_user_id,
+                    "FILE_RESTORE",
+                    {
+                        "file_id": file_id,
+                        "filename": file.filename,
+                    },
+                    ip_address,
+                )
+
+            logger.info(f"✓ Restored file {file_id} from trash")
+            return True, None
+
+        except Exception as e:
+            logger.error(f"Restore failed: {e}")
+            return False, str(e)
 
     # ========================================================================
     # Metadata & List Operations
@@ -507,7 +594,7 @@ class FileService:
         requester_user_id: str,
     ) -> Tuple[bool, Optional[dict], Optional[str]]:
         """
-        Get file metadata.
+        Get file metadata including encryption and scan information.
         
         Args:
             file_id: File to retrieve metadata for
@@ -519,11 +606,14 @@ class FileService:
         try:
             file = await self.repo.get_file_metadata(file_id)
             if not file:
+                logger.warning(f"[get_file_metadata] File not found: {file_id}")
                 return False, None, "File not found"
 
             if requester_user_id != "public_link" and file.owner_id != requester_user_id:
+                logger.warning(f"[get_file_metadata] Access denied for user {requester_user_id} to file {file_id} owned by {file.owner_id}")
                 return False, None, "Access denied"
 
+            # Include file metadata (sha256, scan_status, etc)
             metadata = {
                 "file_id": file.id,
                 "filename": file.filename,
@@ -531,12 +621,15 @@ class FileService:
                 "content_type": file.content_type,
                 "upload_date": file.upload_date,
                 "encrypted": file.encrypted,
+                "is_infected": file.is_infected,
+                "metadata": file.metadata or {},  # Include scan results and hash
             }
 
+            logger.info(f"[get_file_metadata] Retrieved metadata for {file.filename} (id: {file_id}, scan_status: {file.metadata.get('scan_status', 'unknown') if file.metadata else 'unknown'})")
             return True, metadata, None
 
         except Exception as e:
-            logger.error(f"Metadata retrieval failed: {e}")
+            logger.error(f"[get_file_metadata] Metadata retrieval failed for {file_id}: {e}")
             return False, None, str(e)
 
     async def list_user_files(
@@ -592,6 +685,7 @@ class FileService:
                     "upload_date": f.upload_date,
                     "encrypted": f.encrypted,
                     "folder_id": f.folder_id,
+                    "metadata": f.metadata,
                 }
                 for f in filtered_files
             ]
@@ -1015,9 +1109,13 @@ class FolderService:
                 {
                     "file_id": f.id,
                     "name": f.filename,
+                    "filename": f.filename,
                     "size": f.size,
                     "created_at": f.upload_date,
+                    "upload_date": f.upload_date,
                     "is_infected": f.is_infected,
+                    "content_type": f.content_type,
+                    "metadata": f.metadata,
                 }
                 for f in files
             ]

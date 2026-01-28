@@ -30,6 +30,10 @@ class File:
     # Virus scan status
     is_infected: bool = False
     
+    # Soft delete (Recycle bin support)
+    is_deleted: bool = False
+    deleted_at: Optional[datetime] = None
+    
     # Additional metadata
     metadata: Dict[str, Any] = field(default_factory=dict)
 
@@ -52,6 +56,8 @@ class File:
             "nonce": self.nonce,
             "encrypted_key": self.encrypted_key,
             "is_infected": self.is_infected,
+            "is_deleted": self.is_deleted,
+            "deleted_at": self.deleted_at,
             "metadata": self.metadata,
         }
 

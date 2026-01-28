@@ -45,6 +45,7 @@ export default function MyFiles() {
   const [fileModalLoading, setFileModalLoading] = useState(false);
   const [publicLinks, setPublicLinks] = useState([]);
   const [linksLoading, setLinksLoading] = useState(false);
+  const [deleteConfirmation, setDeleteConfirmation] = useState(null);
 
   // Fetch files on component mount
   useEffect(() => {
@@ -65,6 +66,7 @@ export default function MyFiles() {
         const mappedFiles = (response || []).map((file) => ({
           id: file.file_id,
           name: file.filename,
+          filename: file.filename,
           owner: "You",
           lastAccessed: file.upload_date ? new Date(file.upload_date).toLocaleString() : "N/A",
           size: formatFileSize(file.size),
@@ -72,7 +74,9 @@ export default function MyFiles() {
           hash: file.metadata?.hash || "N/A",
           encryption: file.metadata?.encryption || "AES-256",
           downloads: file.metadata?.downloads || 0,
-          content_type: file.content_type
+          content_type: file.content_type,
+          // Include full metadata for FileDetailsModal
+          metadata: file.metadata || {}
         }));
         
         console.log("Mapped files:", mappedFiles);
@@ -125,13 +129,21 @@ export default function MyFiles() {
   };
 
   const handleDeleteFile = async (fileId) => {
+    // Show confirmation modal
+    setDeleteConfirmation(fileId);
+    setSelectedFile(null);
+  };
+
+  const confirmDeleteFile = async () => {
+    if (!deleteConfirmation) return;
+    
     try {
       setFileModalLoading(true);
-      await api.deleteFile(fileId);
+      await api.deleteFile(deleteConfirmation);
       
       // Remove the file from the list
-      setFiles((prevFiles) => prevFiles.filter((f) => f.id !== fileId));
-      setSelectedFile(null);
+      setFiles((prevFiles) => prevFiles.filter((f) => f.id !== deleteConfirmation));
+      setDeleteConfirmation(null);
       
       setAlertMessage("File deleted successfully");
       setShowAlertModal(true);
@@ -139,9 +151,14 @@ export default function MyFiles() {
       console.error("Delete failed:", err);
       setAlertMessage("Failed to delete file: " + (err.message || "Unknown error"));
       setShowAlertModal(true);
+      setDeleteConfirmation(null);
     } finally {
       setFileModalLoading(false);
     }
+  };
+
+  const cancelDeleteFile = () => {
+    setDeleteConfirmation(null);
   };
 
   const validateEmail = (email) => {
@@ -949,6 +966,79 @@ export default function MyFiles() {
             >
               OK
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {deleteConfirmation && (
+        <div
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: "rgba(0, 0, 0, 0.5)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 1001
+          }}
+          onClick={cancelDeleteFile}
+        >
+          <div
+            style={{
+              backgroundColor: "white",
+              padding: "2rem",
+              borderRadius: "8px",
+              maxWidth: "400px",
+              boxShadow: "0 4px 6px rgba(0, 0, 0, 0.1)"
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 style={{ marginTop: 0, marginBottom: "1rem", color: "#0f172a", fontSize: "1.25rem", fontWeight: 600 }}>
+              Delete File?
+            </h2>
+            <p style={{ marginBottom: "1.5rem", color: "#64748b", lineHeight: "1.6" }}>
+              Are you sure you want to <span style={{ fontWeight: 600, color: "#dc2626" }}>delete this file</span>? 
+              It will be moved to trash and can be recovered from there.
+            </p>
+            <div style={{ display: "flex", gap: "0.75rem", justifyContent: "flex-end" }}>
+              <button
+                onClick={cancelDeleteFile}
+                style={{
+                  padding: "0.5rem 1rem",
+                  backgroundColor: "#e5e7eb",
+                  color: "#0f172a",
+                  border: "none",
+                  borderRadius: "6px",
+                  cursor: "pointer",
+                  fontWeight: 500,
+                  fontSize: "0.875rem"
+                }}
+              >
+                No, Cancel
+              </button>
+              <button
+                onClick={confirmDeleteFile}
+                disabled={fileModalLoading}
+                style={{
+                  padding: "0.5rem 1rem",
+                  backgroundColor: "#dc2626",
+                  color: "white",
+                  border: "none",
+                  borderRadius: "6px",
+                  cursor: fileModalLoading ? "wait" : "pointer",
+                  fontWeight: 500,
+                  fontSize: "0.875rem",
+                  opacity: fileModalLoading ? 0.6 : 1,
+                  pointerEvents: fileModalLoading ? "none" : "auto"
+                }}
+              >
+                {fileModalLoading ? "Deleting..." : "Yes, Delete"}
+              </button>
+            </div>
           </div>
         </div>
       )}

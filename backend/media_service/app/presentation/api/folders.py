@@ -48,6 +48,8 @@ async def create_folder(
     try:
         ip_address = request.client.host if request else None
         
+        logger.info(f"[create_folder] Creating folder: name='{folder_data.name}', parent_id={folder_data.parent_id}, user={current_user_id}, ip={ip_address}")
+        
         success, folder_id, error = await service.create_folder(
             user_id=current_user_id,
             name=folder_data.name,
@@ -56,19 +58,22 @@ async def create_folder(
         )
         
         if not success:
+            logger.error(f"[create_folder] FAILED: name='{folder_data.name}', error='{error}'")
             raise HTTPException(status_code=400, detail=error)
 
         # Get the created folder to return full response
         success, folder_dict, error = await service.get_folder(folder_id, current_user_id)
         if success:
+            logger.info(f"[create_folder] SUCCESS: folder_id={folder_id}, name='{folder_data.name}'")
             return FolderResponse(**folder_dict)
         else:
+            logger.error(f"[create_folder] Failed to retrieve created folder {folder_id}")
             raise HTTPException(status_code=500, detail="Failed to retrieve created folder")
 
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Create folder error: {e}")
+        logger.error(f"[create_folder] Unexpected error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Create folder failed: {str(e)}")
 
 
@@ -262,6 +267,8 @@ async def delete_folder(
         folder_id = folder_id.strip()
         ip_address = request.client.host if request else None
         
+        logger.info(f"[delete_folder] Attempting to delete folder_id={folder_id}, user={current_user_id}, ip={ip_address}")
+        
         success, error = await service.delete_folder_recursive(
             user_id=current_user_id,
             folder_id=folder_id,
@@ -269,8 +276,11 @@ async def delete_folder(
         )
         
         if not success:
+            logger.error(f"[delete_folder] FAILED: folder_id={folder_id}, error='{error}'")
             raise HTTPException(status_code=400, detail=error)
 
+        logger.info(f"[delete_folder] SUCCESS: folder_id={folder_id}")
+        
         return FolderDeleteResponse(
             status="deleted",
             folder_id=folder_id,
@@ -279,7 +289,7 @@ async def delete_folder(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Delete folder error: {e}")
+        logger.error(f"[delete_folder] Unexpected error for folder_id={folder_id}: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Delete folder failed: {str(e)}")
 
 
