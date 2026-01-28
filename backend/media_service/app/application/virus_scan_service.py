@@ -43,7 +43,7 @@ class VirusScanService:
             )
             # Test connection
             if self.clamd_connection.ping():
-                logger.info(f"✓ ClamAV connected at {self.clamav_host}:{self.clamav_port}")
+                logger.debug(f"✓ ClamAV connected at {self.clamav_host}:{self.clamav_port}")
             else:
                 logger.warning("ClamAV connection test failed, will retry on use")
         except Exception as e:

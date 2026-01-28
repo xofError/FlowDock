@@ -655,9 +655,9 @@ class FileService:
         try:
             files = await self.repo.list_by_owner(user_id, folder_id=folder_id)
             
-            logger.info(f"[list_user_files] Retrieved {len(files)} files from repo (folder_id={folder_id})")
+            logger.debug(f"[list_user_files] Retrieved {len(files)} files from repo (folder_id={folder_id})")
             for f in files:
-                logger.info(f"[list_user_files] File: '{f.filename}' | folder_id={repr(f.folder_id)} | type={type(f.folder_id)}")
+                logger.debug(f"[list_user_files] File: '{f.filename}' | folder_id={repr(f.folder_id)} | type={type(f.folder_id)}")
             
             # Explicitly filter by folder_id to ensure proper scoping
             filtered_files = []
@@ -666,15 +666,15 @@ class FileService:
                 if folder_id is None:
                     if not f.folder_id:
                         filtered_files.append(f)
-                        logger.info(f"[list_user_files] Including (root): '{f.filename}'")
+                        logger.debug(f"[list_user_files] Including (root): '{f.filename}'")
                     else:
-                        logger.info(f"[list_user_files] Filtering out (has folder): '{f.filename}' with folder_id={f.folder_id}")
+                        logger.debug(f"[list_user_files] Filtering out (has folder): '{f.filename}' with folder_id={f.folder_id}")
                 # If requesting specific folder, ensure IDs match
                 else:
                     if str(f.folder_id) == str(folder_id):
                         filtered_files.append(f)
             
-            logger.info(f"[list_user_files] Filtered to {len(filtered_files)} files (folder_id={folder_id})")
+            logger.debug(f"[list_user_files] Filtered to {len(filtered_files)} files (folder_id={folder_id})")
             
             files_list = [
                 {

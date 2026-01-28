@@ -32,9 +32,9 @@ def decode_jwt_token(token: str) -> Optional[Dict[str, Any]]:
         Decoded token payload or None if invalid
     """
     try:
-        logger.info(f"[decode] Attempting to decode token with secret length: {len(JWT_SECRET)}, algo: {JWT_ALGORITHM}")
+        logger.debug(f"[decode] Attempting to decode token with secret length: {len(JWT_SECRET)}, algo: {JWT_ALGORITHM}")
         payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
-        logger.info(f"[decode] Token decoded successfully")
+        logger.debug(f"[decode] Token decoded successfully")
         return payload
     except JWTError as e:
         logger.error(f"[decode] JWT decode failed: {e}")
@@ -105,6 +105,10 @@ def verify_user_ownership(token_user_id: str, requested_user_id: str) -> bool:
         HTTPException: If user_id mismatch (403 Forbidden)
     """
     if token_user_id != requested_user_id:
+        logger.warning(
+            f"[security] User ID mismatch - Access denied: "
+            f"token_user_id='{token_user_id}' != requested_user_id='{requested_user_id}'"
+        )
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Access denied: cannot access other users' files"

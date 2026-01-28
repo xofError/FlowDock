@@ -255,9 +255,17 @@ export default function Dashboard() {
 
   const handleFileSelect = async (e) => {
     const file = e.target.files?.[0];
-    if (!file || !user?.id) return;
+    if (!file) return;
+    
+    // Use user.id from state, fallback to localStorage
+    const userId = user?.id || localStorage.getItem("user_id");
+    if (!userId) {
+      console.error("User ID not available for upload");
+      return;
+    }
+    
     try {
-      await uploadFile(user.id, file, null, currentFolderId);
+      await uploadFile(userId, file, null, currentFolderId);
       await loadFolders(currentFolderId);
     } finally {
       if (fileInputRef.current) fileInputRef.current.value = "";

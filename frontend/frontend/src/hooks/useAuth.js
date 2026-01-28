@@ -25,10 +25,15 @@ export const useAuth = () => {
           if (userId) {
             try {
               const userData = await api.getCurrentUser(userId);
+              // Ensure user object has id field
+              if (userData && !userData.id) {
+                userData.id = userId;
+              }
               setUser(userData);
             } catch (err) {
               console.warn("Could not load user profile:", err);
-              // Don't throw - auth check still succeeded
+              // Fallback: create minimal user object with ID from localStorage
+              setUser({ id: userId });
             }
           }
         } else {
@@ -54,10 +59,19 @@ export const useAuth = () => {
       }
       
       const userData = await api.getCurrentUser(id);
+      // Ensure user object has id field
+      if (userData && !userData.id) {
+        userData.id = id;
+      }
       setUser(userData);
     } catch (err) {
       console.error("Failed to load user", err);
       setError(err.message);
+      // Fallback: create minimal user object with ID
+      const id = userId || localStorage.getItem("user_id");
+      if (id) {
+        setUser({ id });
+      }
     }
   }, []);
 
@@ -85,10 +99,15 @@ export const useAuth = () => {
       // Wrap user profile fetch in try-catch so login succeeds even if it fails
       try {
         const userData = await api.getCurrentUser(response.user_id);
+        // Ensure user object has id field
+        if (userData && !userData.id) {
+          userData.id = response.user_id;
+        }
         setUser(userData);
       } catch (profileErr) {
         console.warn("Could not load user profile immediately:", profileErr);
-        // We do NOT throw here. Login succeeds even if profile load fails.
+        // Fallback: create minimal user object with ID from response
+        setUser({ id: response.user_id });
       }
 
       return response;

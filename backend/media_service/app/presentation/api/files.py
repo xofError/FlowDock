@@ -606,6 +606,7 @@ async def permanently_delete_file(
 @router.get("/trash/{user_id}")
 async def get_trash(
     user_id: str = Path(..., description="User ID"),
+    request: Request = None,
     current_user_id: str = Depends(get_current_user_id),
     service: FileService = Depends(get_file_service),
 ):
@@ -624,6 +625,9 @@ async def get_trash(
     verify_user_ownership(current_user_id, user_id)
     
     try:
+        # Capture client IP address for logging
+        ip_address = request.client.host if request else None
+        
         logger.info(f"[trash] Retrieving trash for user {user_id}")
 
         # Query MongoDB directly for deleted files only
@@ -653,12 +657,37 @@ async def get_trash(
                 })
             
             logger.info(f"[trash] Found {len(trash_files)} deleted files for user {user_id}")
+            
+            # Log activity
+            if service.activity_logger:
+                await service.activity_logger.log_activity(
+                    current_user_id,
+                    "TRASH_VIEW",
+                    {
+                        "trash_count": len(trash_files),
+                    },
+                    ip_address,
+                )
+            
             return {
                 "trash": trash_files,
                 "total": len(trash_files)
             }
         
         logger.warning(f"[trash] MongoDB not available")
+        
+        # Log activity even if MongoDB is not available
+        if service.activity_logger:
+            await service.activity_logger.log_activity(
+                current_user_id,
+                "TRASH_VIEW",
+                {
+                    "trash_count": 0,
+                    "error": "MongoDB not available",
+                },
+                ip_address,
+            )
+        
         return {
             "trash": [],
             "total": 0
