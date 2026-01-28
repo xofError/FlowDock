@@ -130,6 +130,8 @@ services:
       # Localhost URLs for testing
       BACKEND_URL: "http://localhost"
       FRONTEND_URL: "http://localhost"
+      # Cookie security - set to False for HTTP development, True for HTTPS production
+      COOKIE_SECURE: "False"
     ports:
       - "8000:8000"
     networks:

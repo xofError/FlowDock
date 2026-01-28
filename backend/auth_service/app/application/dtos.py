@@ -157,3 +157,32 @@ class ActivityLogResponseDTO(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+# ============ User Profile & Settings DTOs ============
+
+class UserDTO(BaseModel):
+    """DTO for user profile response."""
+    id: str
+    email: str
+    full_name: Optional[str] = None
+    verified: bool = False
+    is_2fa_enabled: bool = False
+    storage_used: int
+    storage_limit: int
+    created_at: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+class UserUpdateDTO(BaseModel):
+    """DTO for updating user profile."""
+    full_name: Optional[str] = None
+    email: Optional[EmailStr] = None
+
+
+class PasswordChangeDTO(BaseModel):
+    """DTO for changing password."""
+    current_password: str
+    new_password: str = Field(..., min_length=8)

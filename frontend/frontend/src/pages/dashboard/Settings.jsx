@@ -2,6 +2,9 @@ import React, { useState, useRef, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { X, Link } from "lucide-react";
 import TopNavBar from "../../layout/TopNavBar";
+import { useAuth } from "../../hooks/useAuth";
+import api from "../../services/api";
+import { QRCodeSVG } from "qrcode.react";
 import DashboardIcon from "../../resources/icons/dashboard.svg";
 import MyFilesIcon from "../../resources/icons/my_files.svg";
 import SharedIcon from "../../resources/icons/shared.svg";
@@ -21,36 +24,41 @@ const navItems = [
 
 const settingsNavItems = [
   { id: "account", label: "Account" },
-  { id: "storage", label: "Storage" },
   { id: "security", label: "Security" },
+  { id: "storage", label: "Storage" },
+  { id: "sessions", label: "Sessions" },
 ];
-
-const SAMPLE_DEVICES = [
-  { id: 1, name: "Chrome on MacOS", date: "Currently using" },
-  { id: 2, name: "Safari on MacOS", date: "May 15, 2025" },
-];
-
-const RECOVERY_PHRASE = "aurora bridge crystal delta echo forest gamma horizon india jungle keeper";
 
 export default function Settings() {
   const routerNavigate = useNavigate();
+  const { user, refreshUser } = useAuth();
   const [activeSection, setActiveSection] = useState("account");
   const [profileName, setProfileName] = useState("");
   const [profileEmail, setProfileEmail] = useState("");
-  const [tempName, setTempName] = useState(profileName);
-  const [tempEmail, setTempEmail] = useState(profileEmail);
+  const [tempName, setTempName] = useState("");
+  const [tempEmail, setTempEmail] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
-  const [emailError, setEmailError] = useState("");
-  const [emptyTrashWarning, setEmptyTrashWarning] = useState(false);
-  const [enable2FA, setEnable2FA] = useState(false);
-  const [recoveryPhraseModal, setRecoveryPhraseModal] = useState(false);
-  const [devices, setDevices] = useState(SAMPLE_DEVICES);
-  const [deviceToRemove, setDeviceToRemove] = useState(null);
-  const [removeDeviceWarning, setRemoveDeviceWarning] = useState(false);
+  const [errorMessage, setErrorMessage] = useState("");
+  const [passwordForm, setPasswordForm] = useState({ current: "", new: "", confirm: "" });
+  const [twoFAData, setTwoFAData] = useState(null);
+  const [twoFACode, setTwoFACode] = useState("");
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [sessions, setSessions] = useState([]);
+  const [showEmptyTrashConfirm, setShowEmptyTrashConfirm] = useState(false);
   const accountRef = useRef(null);
-  const storageRef = useRef(null);
   const securityRef = useRef(null);
+  const storageRef = useRef(null);
+  const sessionsRef = useRef(null);
+
+  useEffect(() => {
+    if (user) {
+      setProfileName(user.full_name || "");
+      setProfileEmail(user.email || "");
+      setTempName(user.full_name || "");
+      setTempEmail(user.email || "");
+    }
+  }, [user]);
 
   useEffect(() => {
     function onToggle() { setMobileSidebarOpen(s => !s); }
@@ -63,67 +71,191 @@ export default function Settings() {
     return () => { document.body.style.overflow = ""; };
   }, [mobileSidebarOpen]);
 
+  // Load sessions when component mounts
+  useEffect(() => {
+    const loadSessions = async () => {
+      try {
+        const sessionsData = await api.getSessions();
+        setSessions(sessionsData);
+      } catch (err) {
+        console.error("Failed to load sessions:", err);
+      }
+    };
+    loadSessions();
+  }, []);
+
   const validateEmail = (email) => {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     return emailRegex.test(email);
   };
 
-  const handleUpdateProfile = () => {
-    setEmailError("");
+  const handleUpdateProfile = async (e) => {
+    e?.preventDefault?.();
+    setErrorMessage("");
     
     if (!tempName.trim()) {
-      setEmailError("Name is required");
+      setErrorMessage("Name is required");
       return;
     }
 
-    if (!tempEmail.trim()) {
-      setEmailError("Email is required");
-      return;
+    setLoading(true);
+    try {
+      const response = await api.updateProfile({ full_name: tempName });
+      // Update both display name and temp name
+      setProfileName(tempName);
+      setTempName(tempName);
+      // Refresh user data from backend to ensure consistency
+      await refreshUser();
+      setSuccessMessage("✓ Profile updated successfully!");
+      setTimeout(() => setSuccessMessage(""), 3000);
+    } catch (err) {
+      setErrorMessage(err.message || "Failed to update profile");
+    } finally {
+      setLoading(false);
     }
-
-    if (!validateEmail(tempEmail)) {
-      setEmailError("Please enter a valid email address (e.g., user@example.com)");
-      return;
-    }
-
-    setProfileName(tempName);
-    setProfileEmail(tempEmail);
-    setSuccessMessage(`✓ Profile updated successfully! Name: ${tempName}, Email: ${tempEmail}`);
-    setTimeout(() => setSuccessMessage(""), 3000);
   };
 
-  const handleEmptyTrash = () => {
-    setEmptyTrashWarning(true);
+  const handlePasswordChange = async (e) => {
+    e.preventDefault();
+    setErrorMessage("");
+
+    if (!passwordForm.current || !passwordForm.new || !passwordForm.confirm) {
+      setErrorMessage("All fields are required");
+      return;
+    }
+
+    if (passwordForm.new !== passwordForm.confirm) {
+      setErrorMessage("New passwords don't match");
+      return;
+    }
+
+    if (passwordForm.new.length < 8) {
+      setErrorMessage("Password must be at least 8 characters");
+      return;
+    }
+
+    setLoading(true);
+    try {
+      await api.changePassword(passwordForm.current, passwordForm.new);
+      setPasswordForm({ current: "", new: "", confirm: "" });
+      setSuccessMessage("✓ Password changed successfully!");
+      setTimeout(() => setSuccessMessage(""), 3000);
+    } catch (err) {
+      setErrorMessage(err.message || "Failed to change password");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const start2FASetup = async () => {
+    setErrorMessage("");
+    setLoading(true);
+    try {
+      const data = await api.setup2FA();
+      setTwoFAData(data);
+    } catch (err) {
+      setErrorMessage(err.message || "Could not start 2FA setup");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const confirm2FA = async () => {
+    setErrorMessage("");
+    if (!twoFACode || twoFACode.length !== 6) {
+      setErrorMessage("Please enter a valid 6-digit code");
+      return;
+    }
+
+    setLoading(true);
+    try {
+      await api.enable2FA(twoFACode);
+      setTwoFAData(null);
+      setTwoFACode("");
+      await refreshUser();
+      setSuccessMessage("✓ 2FA Enabled Successfully!");
+      setTimeout(() => setSuccessMessage(""), 3000);
+    } catch (err) {
+      setErrorMessage(err.message || "Invalid Code");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDisable2FA = async () => {
+    const password = prompt("Enter your password to disable 2FA:");
+    if (!password) return;
+
+    setErrorMessage("");
+    setLoading(true);
+    try {
+      await api.disable2FA(password);
+      await refreshUser();
+      setSuccessMessage("✓ 2FA Disabled Successfully!");
+      setTimeout(() => setSuccessMessage(""), 3000);
+    } catch (err) {
+      setErrorMessage(err.message || "Failed to disable 2FA");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleEmptyTrash = async () => {
+    setErrorMessage("");
+    setLoading(true);
+    try {
+      await api.emptyTrash(user.id);
+      setSuccessMessage("✓ Trash emptied successfully!");
+      setShowEmptyTrashConfirm(false);
+      setTimeout(() => setSuccessMessage(""), 3000);
+    } catch (err) {
+      setErrorMessage(err.message || "Failed to empty trash");
+    } finally {
+      setLoading(false);
+    }
   };
 
   const confirmEmptyTrash = () => {
-    setEmptyTrashWarning(false);
-    setSuccessMessage("✓ Trash emptied successfully! All files have been permanently deleted.");
-    setTimeout(() => setSuccessMessage(""), 3000);
+    setShowEmptyTrashConfirm(true);
   };
 
-  const handleRemoveDevice = (deviceId) => {
-    setDeviceToRemove(deviceId);
-    setRemoveDeviceWarning(true);
-  };
+  const handleRevokeSession = async (sessionId) => {
+    if (!window.confirm("Are you sure you want to logout from this session?")) {
+      return;
+    }
 
-  const confirmRemoveDevice = () => {
-    if (deviceToRemove) {
-      setDevices(prev => prev.filter(d => d.id !== deviceToRemove));
-      setRemoveDeviceWarning(false);
-      setSuccessMessage("✓ Device removed and logged out successfully.");
+    setErrorMessage("");
+    setLoading(true);
+    try {
+      await api.revokeSession(sessionId);
+      // Reload sessions
+      const sessionsData = await api.getSessions();
+      setSessions(sessionsData);
+      setSuccessMessage("✓ Session revoked successfully!");
       setTimeout(() => setSuccessMessage(""), 3000);
+    } catch (err) {
+      setErrorMessage(err.message || "Failed to revoke session");
+    } finally {
+      setLoading(false);
     }
   };
 
-  const handleLogoutAllDevices = () => {
-    setDevices([]);
-    setSuccessMessage("✓ Logged out from all devices successfully.");
-    setTimeout(() => setSuccessMessage(""), 3000);
-  };
+  const handleRevokeAllSessions = async () => {
+    if (!window.confirm("Are you sure you want to logout from all devices? You will be logged out immediately.")) {
+      return;
+    }
 
-  const handleRegenerateRecovery = () => {
-    setRecoveryPhraseModal(true);
+    setErrorMessage("");
+    setLoading(true);
+    try {
+      await api.revokeAllSessions();
+      // Logout user
+      await api.logout();
+      routerNavigate("/login");
+    } catch (err) {
+      setErrorMessage(err.message || "Failed to revoke all sessions");
+      setLoading(false);
+    }
   };
 
   const scrollToSection = (sectionId) => {
@@ -131,10 +263,12 @@ export default function Settings() {
     setTimeout(() => {
       if (sectionId === "account" && accountRef.current) {
         accountRef.current.scrollIntoView({ behavior: "smooth" });
-      } else if (sectionId === "storage" && storageRef.current) {
-        storageRef.current.scrollIntoView({ behavior: "smooth" });
       } else if (sectionId === "security" && securityRef.current) {
         securityRef.current.scrollIntoView({ behavior: "smooth" });
+      } else if (sectionId === "storage" && storageRef.current) {
+        storageRef.current.scrollIntoView({ behavior: "smooth" });
+      } else if (sectionId === "sessions" && sessionsRef.current) {
+        sessionsRef.current.scrollIntoView({ behavior: "smooth" });
       }
     }, 100);
   };
@@ -191,42 +325,14 @@ export default function Settings() {
         .input-field:focus { outline: none; border-color: #2563eb; box-shadow: 0 0 0 3px rgba(37,99,235,0.1); }
 
         .update-btn { background-color: #2563eb; color: #fff; border: none; padding: 0.75rem 1.5rem; border-radius: 6px; cursor: pointer; font-weight:500; font-size:0.875rem; transition: background-color 0.2s; }
-        .update-btn:hover { background-color: #1d4ed8; }
-        .empty-btn, .secondary-btn { background-color: #e5e7eb; color: #000; border: none; padding: 0.75rem 1.5rem; border-radius: 6px; cursor: pointer; font-weight: 500; font-size:0.875rem; transition: background-color 0.2s; }
-        .empty-btn:hover, .secondary-btn:hover { background-color: #d1d5db; }
+        .update-btn:hover:not(:disabled) { background-color: #1d4ed8; }
+        .update-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .secondary-btn { background-color: #e5e7eb; color: #000; border: none; padding: 0.75rem 1.5rem; border-radius: 6px; cursor: pointer; font-weight: 500; font-size:0.875rem; transition: background-color 0.2s; }
+        .secondary-btn:hover:not(:disabled) { background-color: #d1d5db; }
+        .secondary-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
         .success-message { background-color: #dcfce7; color: #166534; border: 1px solid #bbf7d0; padding: 0.75rem; border-radius: 6px; margin-top: 1rem; font-size: 0.875rem; }
-
-        .storage-chart { width: 100%; height: 40px; background: linear-gradient(to right, #2563eb 35%, #e5e7eb 35%); border-radius: 8px; margin-bottom: 1rem; }
-
-        .toggle-switch { display:inline-flex; align-items:center; width:48px; height:24px; background:#d1d5db; border-radius:12px; padding:2px; cursor:pointer; transition: background 0.2s; }
-        .toggle-switch.active { background: #2563eb; }
-        .toggle-switch-circle { width:20px; height:20px; background:white; border-radius:50%; transition: transform 0.2s; }
-        .toggle-switch.active .toggle-switch-circle { transform: translateX(24px); }
-
-        .icon-box { display:inline-flex; align-items:center; justify-content:center; width:40px; height:40px; background-color:#e5e7eb; border-radius:6px; margin-right:1rem; }
-        .icon-box svg { width:20px; height:20px; }
-
-        .device-item { display:flex; align-items:center; justify-content:space-between; padding:1rem 0; border-bottom:1px solid #e5e7eb; }
-        .device-item:last-child { border-bottom: none; }
-        .remove-btn { background:none; border:none; color:#dc2626; cursor:pointer; font-size:1.25rem; padding:0; width:24px; height:24px; display:flex; align-items:center; justify-content:center; }
-
-        .modal-overlay { position: fixed; inset:0; background-color: rgba(0,0,0,0.5); display:flex; align-items:center; justify-content:center; z-index:100; }
-        .modal-content { background:#fff; border-radius:8px; padding:1.5rem; max-width:400px; width:90%; box-shadow:0 10px 40px rgba(0,0,0,0.15); }
-        .modal-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:1rem; }
-        .modal-title { font-size:1.25rem; font-weight:600; color:#0f172a; }
-        .modal-close-btn { background:none; border:none; cursor:pointer; display:flex; padding:0; }
-        .modal-close-btn svg { color:#dc2626; width:1.5rem; height:1.5rem; }
-        .modal-text { font-size:0.875rem; color:#64748b; margin-bottom:1.5rem; line-height:1.6; }
-        .warning-text { color:#dc2626; font-weight:600; }
-        .modal-buttons { display:flex; gap:0.75rem; justify-content:flex-end; }
-        .modal-btn { padding:0.5rem 1rem; border-radius:6px; cursor:pointer; font-weight:500; font-size:0.875rem; border:none; transition: background-color 0.2s; }
-        .modal-btn-cancel { background-color:#e5e7eb; color:#0f172a; }
-        .modal-btn-cancel:hover { background-color:#d1d5db; }
-        .modal-btn-delete { background-color:#dc2626; color:#fff; }
-        .modal-btn-delete:hover { background-color:#b91c1c; }
-
-        .recovery-phrase-box { background-color:#f9fafb; border:1px solid #e5e7eb; border-radius:6px; padding:1rem; font-family:monospace; font-size:0.875rem; word-break:break-all; color:#0f172a; }
+        .error-message { background-color: #fee2e2; color: #991b1b; border: 1px solid #fecaca; padding: 0.75rem; border-radius: 6px; margin-top: 1rem; font-size: 0.875rem; }
 
         .mobile-menu { position: fixed; inset:0; background-color: rgba(0,0,0,0.7); display:flex; align-items:center; justify-content:center; z-index:60; }
         .panel { background:#ffffff; border-radius:8px; padding:1.5rem; max-width:400px; width:90%; box-shadow:0 10px 40px rgba(0,0,0,0.15); }
@@ -299,6 +405,10 @@ export default function Settings() {
           </div>
         </header>
 
+        {/* Messages */}
+        {successMessage && <div className="success-message" style={{ marginBottom: "1rem" }}>{successMessage}</div>}
+        {errorMessage && <div className="error-message" style={{ marginBottom: "1rem" }}>{errorMessage}</div>}
+
         {/* Account Section */}
         <section ref={accountRef} style={{ marginBottom: "4rem" }}>
           <h2 style={{ fontSize: "1.5rem", fontWeight: "bold", color: "#0f172a", marginBottom: "1.5rem" }}>
@@ -314,7 +424,7 @@ export default function Settings() {
               value={tempName}
               onChange={(e) => {
                 setTempName(e.target.value);
-                if (emailError) setEmailError("");
+                if (errorMessage) setErrorMessage("");
               }}
               className="input-field"
               style={{ marginBottom: "1.5rem" }}
@@ -325,63 +435,42 @@ export default function Settings() {
             </label>
             <input
               type="email"
-              value={tempEmail}
-              onChange={(e) => {
-                setTempEmail(e.target.value);
-                if (emailError) setEmailError("");
-              }}
+              value={profileEmail}
+              disabled
               className="input-field"
-              style={{ marginBottom: "2rem" }}
+              style={{ marginBottom: "2rem", backgroundColor: "#f3f4f6", cursor: "not-allowed" }}
             />
+            <p style={{ fontSize: "0.75rem", color: "#64748b", marginBottom: "1.5rem" }}>Email cannot be changed directly.</p>
 
-            <div style={{ display: "flex", alignItems: "flex-start", gap: "1rem" }}>
-              <button className="update-btn" onClick={handleUpdateProfile} style={{ flexShrink: 0 }}>
-                Update Profile
-              </button>
-              {successMessage.includes("Profile updated") && <div className="success-message" style={{ marginTop: 0 }}>{successMessage}</div>}
-            </div>
-            {emailError && <div style={{ color: "#dc2626", fontSize: "0.875rem", marginTop: "0.75rem" }}>{emailError}</div>}
+            <button className="update-btn" onClick={handleUpdateProfile} disabled={loading} style={{ marginRight: "1rem" }}>
+              {loading ? "Saving..." : "Update Profile"}
+            </button>
           </div>
-        </section>
 
-        {/* Storage Section */}
-        <section ref={storageRef} style={{ marginBottom: "4rem" }}>
-          <h2 style={{ fontSize: "1.5rem", fontWeight: "bold", color: "#0f172a", marginBottom: "1.5rem" }}>
-            Storage
-          </h2>
-
-          <div style={{ maxWidth: "500px" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "1rem" }}>
-              <span style={{ fontSize: "0.875rem", color: "#64748b" }}>Storage Used</span>
-              <span style={{ fontSize: "0.875rem", fontWeight: "600", color: "#0f172a" }}>35%</span>
-            </div>
-
-            <div className="storage-chart" />
-
-            <p style={{ fontSize: "0.75rem", color: "#64748b", marginBottom: "1.5rem" }}>
-              3.5 GB of 10 GB used (Free Plan)
-            </p>
-
-            <h3 style={{ fontSize: "1rem", fontWeight: "600", color: "#0f172a", marginBottom: "1rem" }}>
-              Manage Storage
-            </h3>
-
-            <div style={{ display: "flex", alignItems: "flex-start", gap: "1rem", marginBottom: "1.5rem" }}>
-              <div style={{ flex: 1 }}>
-                <h4 style={{ fontSize: "0.875rem", fontWeight: "600", color: "#0f172a", marginBottom: "0.25rem" }}>
-                  Empty Trash
-                </h4>
-                <p style={{ fontSize: "0.75rem", color: "#64748b", marginBottom: "1rem" }}>
-                  Files in your trash are automatically deleted after 30 days.
-                </p>
-                <div style={{ display: "flex", alignItems: "flex-start", gap: "1rem" }}>
-                  <button className="empty-btn" onClick={handleEmptyTrash}>
-                    Empty
-                  </button>
-                  {successMessage.includes("Trash emptied") && <div className="success-message" style={{ marginTop: 0 }}>{successMessage}</div>}
+          {/* Storage Section */}
+          <div ref={storageRef} style={{ marginTop: "2rem", maxWidth: "500px" }}>
+            <h3 style={{ fontSize: "1rem", fontWeight: "600", color: "#0f172a", marginBottom: "1rem" }}>Storage</h3>
+            <div style={{ padding: "1rem", backgroundColor: "#f9fafb", borderRadius: "6px", marginBottom: "1.5rem" }}>
+              <div style={{ marginBottom: "1rem" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "0.5rem", fontSize: "0.875rem", color: "#374151" }}>
+                  <span>Used Storage</span>
+                  <span style={{ fontWeight: "600" }}>
+                    {user ? `${(user.storage_used / 1024 / 1024).toFixed(2)} MB / ${(user.storage_limit / 1024 / 1024 / 1024).toFixed(1)} GB` : "Loading..."}
+                  </span>
+                </div>
+                <div style={{ width: "100%", height: "8px", backgroundColor: "#e5e7eb", borderRadius: "4px", overflow: "hidden" }}>
+                  <div style={{ 
+                    width: user ? `${(user.storage_used / user.storage_limit) * 100}%` : "0%", 
+                    height: "100%", 
+                    backgroundColor: "#2563eb", 
+                    transition: "width 0.3s ease" 
+                  }}></div>
                 </div>
               </div>
             </div>
+            <button className="secondary-btn" onClick={confirmEmptyTrash} disabled={loading} style={{ backgroundColor: "#fee2e2", color: "#991b1b" }}>
+              {loading ? "Emptying..." : "Empty Trash"}
+            </button>
           </div>
         </section>
 
@@ -392,185 +481,173 @@ export default function Settings() {
           </h2>
 
           <div style={{ maxWidth: "500px" }}>
-            {/* Two-Factor Authentication */}
+            {/* Password Change */}
             <h3 style={{ fontSize: "1rem", fontWeight: "600", color: "#0f172a", marginBottom: "1rem" }}>
-              Two-step Authentication
+              Change Password
             </h3>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "2rem", padding: "1rem", backgroundColor: "#f9fafb", borderRadius: "6px" }}>
-              <div style={{ display: "flex", alignItems: "center" }}>
-                <div className="icon-box">
-                  <img src={SecurityIcon} alt="Authenticator" style={{ width: "20px", height: "20px" }} />
-                </div>
-                <div>
-                  <p style={{ fontSize: "0.875rem", fontWeight: "500", color: "#0f172a", marginBottom: "0.25rem" }}>
-                    Use an authenticator app
-                  </p>
-                  <p style={{ fontSize: "0.75rem", color: "#64748b" }}>
-                    Get a verification code when you sign in
-                  </p>
-                </div>
-              </div>
-              <div
-                className={`toggle-switch ${enable2FA ? "active" : ""}`}
-                onClick={() => setEnable2FA(!enable2FA)}
-              >
-                <div className="toggle-switch-circle"></div>
-              </div>
-            </div>
+            <div style={{ marginBottom: "2rem", padding: "1rem", backgroundColor: "#f9fafb", borderRadius: "6px" }}>
+              <label style={{ display: "block", marginBottom: "0.5rem", fontSize: "0.875rem", fontWeight: "500", color: "#374151" }}>
+                Current Password
+              </label>
+              <input
+                type="password"
+                value={passwordForm.current}
+                onChange={(e) => setPasswordForm({ ...passwordForm, current: e.target.value })}
+                className="input-field"
+              />
 
-            {/* Recovery Phrase */}
-            <h3 style={{ fontSize: "1rem", fontWeight: "600", color: "#0f172a", marginBottom: "1rem" }}>
-              Recovery Phrase
-            </h3>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "2rem", padding: "1rem", backgroundColor: "#f9fafb", borderRadius: "6px" }}>
-              <div style={{ display: "flex", alignItems: "center" }}>
-                <div className="icon-box">
-                  <img src={KeyIcon} alt="Key" style={{ width: "20px", height: "20px" }} />
-                </div>
-                <div>
-                  <p style={{ fontSize: "0.875rem", fontWeight: "500", color: "#0f172a", marginBottom: "0.25rem" }}>
-                    Recovery Phrase
-                  </p>
-                  <p style={{ fontSize: "0.75rem", color: "#64748b" }}>
-                    If you lose access to your account, you can use your recovery phrase to get back in.
-                  </p>
-                </div>
-              </div>
-              <button className="secondary-btn" onClick={handleRegenerateRecovery} style={{ flexShrink: 0 }}>
-                Regenerate
+              <label style={{ display: "block", marginBottom: "0.5rem", fontSize: "0.875rem", fontWeight: "500", color: "#374151" }}>
+                New Password
+              </label>
+              <input
+                type="password"
+                value={passwordForm.new}
+                onChange={(e) => setPasswordForm({ ...passwordForm, new: e.target.value })}
+                className="input-field"
+              />
+
+              <label style={{ display: "block", marginBottom: "0.5rem", fontSize: "0.875rem", fontWeight: "500", color: "#374151" }}>
+                Confirm New Password
+              </label>
+              <input
+                type="password"
+                value={passwordForm.confirm}
+                onChange={(e) => setPasswordForm({ ...passwordForm, confirm: e.target.value })}
+                className="input-field"
+                style={{ marginBottom: "1rem" }}
+              />
+
+              <button className="update-btn" onClick={handlePasswordChange} disabled={loading} style={{ marginRight: "1rem" }}>
+                {loading ? "Updating..." : "Update Password"}
               </button>
             </div>
 
-            {/* Trusted Devices */}
+            {/* Two-Factor Authentication */}
             <h3 style={{ fontSize: "1rem", fontWeight: "600", color: "#0f172a", marginBottom: "1rem" }}>
-              Trusted Devices
+              Two-Factor Authentication
             </h3>
-            <div style={{ marginBottom: "1.5rem" }}>
-              {devices.map((device, idx) => (
-                <div key={device.id} className="device-item" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "1rem 0", borderBottom: idx === devices.length - 1 ? "none" : "1px solid #e5e7eb" }}>
-                  <div>
-                    <p style={{ fontSize: "0.875rem", fontWeight: "500", color: "#0f172a", marginBottom: "0.25rem" }}>
-                      {device.name}
-                    </p>
-                    <p style={{ fontSize: "0.75rem", color: "#64748b" }}>
-                      {device.date}
-                    </p>
-                  </div>
-                  <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                    {idx === 0 && (
-                      <p style={{ fontSize: "0.65rem", color: "#64748b", textAlign: "right", margin: 0, lineHeight: "1.2", marginRight: "0.5rem" }}>
-                        If it is not you,<br />logout by clicking
+            <div style={{ padding: "1rem", backgroundColor: "#f9fafb", borderRadius: "6px", marginBottom: "2rem" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+                  <img src={KeyIcon} alt="Security" style={{ width: "1.25rem", height: "1.25rem" }} />
+                  <span style={{ fontSize: "0.875rem", color: "#64748b" }}>
+                    Protect your account with an extra layer of security using an authenticator app.
+                  </span>
+                </div>
+                <span style={{ paddingLeft: "1rem", paddingRight: "0.75rem", paddingTop: "0.25rem", paddingBottom: "0.25rem", borderRadius: "9999px", fontSize: "0.75rem", fontWeight: "600", backgroundColor: user?.is_2fa_enabled ? "#dbeafe" : "#f3f4f6", color: user?.is_2fa_enabled ? "#0369a1" : "#6b7280" }}>
+                  {user?.is_2fa_enabled ? "ENABLED" : "DISABLED"}
+                </span>
+              </div>
+
+              {!user?.is_2fa_enabled && !twoFAData && (
+                <button className="update-btn" onClick={start2FASetup} disabled={loading}>
+                  {loading ? "Loading..." : "Enable 2FA"}
+                </button>
+              )}
+
+              {twoFAData && (
+                <div style={{ backgroundColor: "#eff6ff", padding: "1rem", borderRadius: "6px", marginTop: "1rem" }}>
+                  <h4 style={{ fontSize: "0.875rem", fontWeight: "600", color: "#1e40af", marginBottom: "1rem" }}>
+                    Setup Authenticator App
+                  </h4>
+                  <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: "1.5rem", marginBottom: "1rem" }}>
+                    <div style={{ backgroundColor: "#ffffff", padding: "0.5rem", borderRadius: "6px" }}>
+                      {twoFAData.otpauth_url && <QRCodeSVG value={twoFAData.otpauth_url} size={120} />}
+                    </div>
+                    <div>
+                      <p style={{ fontSize: "0.875rem", color: "#1e40af", marginBottom: "1rem" }}>
+                        1. Scan this QR code with Google Authenticator or Authy.<br/>
+                        2. Enter the 6-digit code below to confirm.
                       </p>
-                    )}
-                    <button 
-                      onClick={() => handleRemoveDevice(device.id)}
-                      title="Remove device"
-                      style={{
-                        background: "none",
-                        border: "none",
-                        color: "#dc2626",
-                        cursor: "pointer",
-                        fontSize: "1.25rem",
-                        padding: "0",
-                        width: "24px",
-                        height: "24px",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        flexShrink: 0
-                      }}
-                    >
-                      ×
-                    </button>
+                      <div style={{ display: "flex", gap: "0.5rem" }}>
+                        <input
+                          type="text"
+                          placeholder="000000"
+                          maxLength={6}
+                          value={twoFACode}
+                          onChange={(e) => setTwoFACode(e.target.value.replace(/\D/g,''))}
+                          style={{ width: "6rem", textAlign: "center", fontFamily: "monospace", fontSize: "1.125rem", letterSpacing: "0.1em" }}
+                          className="input-field"
+                        />
+                        <button className="update-btn" onClick={confirm2FA} disabled={loading} style={{ margin: 0 }}>
+                          {loading ? "Verifying..." : "Verify"}
+                        </button>
+                      </div>
+                    </div>
                   </div>
                 </div>
-              ))}
+              )}
+
+              {user?.is_2fa_enabled && !twoFAData && (
+                <button className="secondary-btn" onClick={handleDisable2FA} disabled={loading} style={{ backgroundColor: "#fee2e2", color: "#991b1b" }}>
+                  {loading ? "Disabling..." : "Disable 2FA"}
+                </button>
+              )}
             </div>
+          </div>
+        </section>
 
-            <button className="secondary-btn" onClick={handleLogoutAllDevices}>
-              Log out from all devices
+        {/* Sessions Section */}
+        <section ref={sessionsRef} style={{ marginBottom: "4rem" }}>
+          <h2 style={{ fontSize: "1.5rem", fontWeight: "bold", color: "#0f172a", marginBottom: "1.5rem" }}>
+            Sessions & Devices
+          </h2>
+
+          <div style={{ maxWidth: "600px" }}>
+            <p style={{ fontSize: "0.875rem", color: "#64748b", marginBottom: "1.5rem" }}>
+              Manage your active sessions and devices. You can logout from specific devices or all devices at once.
+            </p>
+
+            {sessions && sessions.length > 0 ? (
+              <div style={{ marginBottom: "2rem" }}>
+                {sessions.map((session) => (
+                  <div key={session.id} style={{ padding: "1rem", backgroundColor: "#f9fafb", borderRadius: "6px", marginBottom: "1rem", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontWeight: "600", color: "#0f172a", marginBottom: "0.5rem", fontSize: "0.875rem" }}>
+                        {session.browser_name || "Unknown Browser"}
+                      </div>
+                      <div style={{ fontSize: "0.75rem", color: "#64748b", marginBottom: "0.25rem" }}>
+                        IP: {session.ip_address || "Unknown"}
+                      </div>
+                      <div style={{ fontSize: "0.75rem", color: "#64748b" }}>
+                        Last Active: {session.created_at ? new Date(session.created_at).toLocaleDateString() : "Unknown"}
+                      </div>
+                      {session.active === false && (
+                        <div style={{ fontSize: "0.75rem", color: "#991b1b", marginTop: "0.25rem", fontWeight: "500" }}>
+                          INACTIVE
+                        </div>
+                      )}
+                    </div>
+                    {session.active !== false && (
+                      <button 
+                        className="secondary-btn" 
+                        onClick={() => handleRevokeSession(session.id)}
+                        disabled={loading}
+                        style={{ backgroundColor: "#fee2e2", color: "#991b1b", marginLeft: "1rem" }}
+                      >
+                        {loading ? "..." : "Logout"}
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div style={{ padding: "1rem", backgroundColor: "#f9fafb", borderRadius: "6px", textAlign: "center", color: "#64748b", marginBottom: "2rem" }}>
+                No active sessions found
+              </div>
+            )}
+
+            <button 
+              className="secondary-btn" 
+              onClick={handleRevokeAllSessions}
+              disabled={loading}
+              style={{ backgroundColor: "#fee2e2", color: "#991b1b" }}
+            >
+              {loading ? "Logging Out..." : "Logout From All Devices"}
             </button>
-
-            {successMessage && !successMessage.includes("Profile updated") && !successMessage.includes("Trash emptied") && <div className="success-message" style={{ marginTop: "1rem" }}>{successMessage}</div>}
           </div>
         </section>
       </main>
-
-      {/* Empty Trash Confirmation Modal */}
-      {emptyTrashWarning && (
-        <div className="modal-overlay" onClick={() => setEmptyTrashWarning(false)}>
-          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h2 className="modal-title">Empty Trash?</h2>
-              <button className="modal-close-btn" onClick={() => setEmptyTrashWarning(false)}>
-                <X />
-              </button>
-            </div>
-
-            <div className="modal-text">
-              Are you sure you want to <span className="warning-text">permanently delete</span> all files in your trash? This action cannot be undone.
-            </div>
-
-            <div className="modal-buttons">
-              <button className="modal-btn modal-btn-cancel" onClick={() => setEmptyTrashWarning(false)}>
-                No, Cancel
-              </button>
-              <button className="modal-btn modal-btn-delete" onClick={confirmEmptyTrash}>
-                Yes, Empty Trash
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Remove Device Confirmation Modal */}
-      {removeDeviceWarning && (
-        <div className="modal-overlay" onClick={() => setRemoveDeviceWarning(false)}>
-          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h2 className="modal-title">Remove Device?</h2>
-              <button className="modal-close-btn" onClick={() => setRemoveDeviceWarning(false)}>
-                <X />
-              </button>
-            </div>
-
-            <div className="modal-text">
-              Are you sure you want to <span className="warning-text">log out</span> from this device? You will need to sign in again.
-            </div>
-
-            <div className="modal-buttons">
-              <button className="modal-btn modal-btn-cancel" onClick={() => setRemoveDeviceWarning(false)}>
-                No, Cancel
-              </button>
-              <button className="modal-btn modal-btn-delete" onClick={confirmRemoveDevice}>
-                Yes, Remove Device
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Recovery Phrase Modal */}
-      {recoveryPhraseModal && (
-        <div className="modal-overlay" onClick={() => setRecoveryPhraseModal(false)}>
-          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h2 className="modal-title">Recovery Phrase</h2>
-              <button className="modal-close-btn" onClick={() => setRecoveryPhraseModal(false)}>
-                <X />
-              </button>
-            </div>
-
-            <div className="recovery-phrase-box">
-              {RECOVERY_PHRASE}
-            </div>
-
-            <p style={{ fontSize: "0.75rem", color: "#64748b", marginTop: "1rem", textAlign: "center" }}>
-              Save this phrase in a safe place. You'll need it to recover your account.
-            </p>
-          </div>
-        </div>
-      )}
 
       {/* Mobile sidebar panel */}
       {mobileSidebarOpen && (
@@ -581,7 +658,7 @@ export default function Settings() {
               <button onClick={() => setMobileSidebarOpen(false)} style={{ background: "none", border: "none", cursor: "pointer" }}>✕</button>
             </div>
             <nav style={{ display: "flex", flexDirection: "column", gap: "0.6rem" }}>
-            {navItems.map((item, idx) => (
+              {navItems.map((item, idx) => (
                 <button key={idx} onClick={() => { setMobileSidebarOpen(false); routerNavigate(item.to); }} style={{ display: "flex", gap: "0.5rem", alignItems: "center", padding: "0.6rem 0.2rem", background: "transparent", border: "none", cursor: "pointer" }}>
                   {item.lucideIcon === "Link" ? (
                     <Link style={{ width: "1rem", height: "1rem", color: "#64748b" }} />
@@ -592,6 +669,70 @@ export default function Settings() {
                 </button>
               ))}
             </nav>
+          </div>
+        </div>
+      )}
+
+      {/* Empty Trash Confirmation Modal */}
+      {showEmptyTrashConfirm && (
+        <div style={{
+          position: "fixed",
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: "rgba(0, 0, 0, 0.5)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          zIndex: 1000,
+        }}>
+          <div style={{
+            backgroundColor: "white",
+            borderRadius: "12px",
+            padding: "2rem",
+            maxWidth: "400px",
+            width: "90%",
+            boxShadow: "0 4px 6px rgba(0, 0, 0, 0.1)",
+          }}>
+            <h3 style={{ fontSize: "1.25rem", fontWeight: "bold", color: "#0f172a", marginBottom: "1rem" }}>
+              Empty Trash?
+            </h3>
+            <p style={{ color: "#64748b", marginBottom: "1.5rem", lineHeight: "1.5" }}>
+              Are you sure you want to permanently delete all files in trash? This action cannot be undone.
+            </p>
+            <div style={{ display: "flex", gap: "1rem", justifyContent: "flex-end" }}>
+              <button
+                onClick={() => setShowEmptyTrashConfirm(false)}
+                disabled={loading}
+                style={{
+                  padding: "0.5rem 1.5rem",
+                  border: "1px solid #e2e8f0",
+                  borderRadius: "8px",
+                  backgroundColor: "white",
+                  color: "#64748b",
+                  cursor: loading ? "not-allowed" : "pointer",
+                  fontWeight: "500",
+                  opacity: loading ? 0.6 : 1,
+                }}>
+                Cancel
+              </button>
+              <button
+                onClick={handleEmptyTrash}
+                disabled={loading}
+                style={{
+                  padding: "0.5rem 1.5rem",
+                  border: "none",
+                  borderRadius: "8px",
+                  backgroundColor: "#dc2626",
+                  color: "white",
+                  cursor: loading ? "not-allowed" : "pointer",
+                  fontWeight: "500",
+                  opacity: loading ? 0.6 : 1,
+                }}>
+                {loading ? "Emptying..." : "Delete Permanently"}
+              </button>
+            </div>
           </div>
         </div>
       )}

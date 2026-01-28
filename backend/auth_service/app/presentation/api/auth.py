@@ -107,6 +107,8 @@ def login(
         # Extract client IP
         client_ip = request.client.host if request.client else None
         
+        logger.info(f"Login attempt for {data.email}, totp_code present: {bool(data.totp_code)}")
+        
         # Authenticate user and set login metadata
         user = service.authenticate_user(data.email, data.password, client_ip)
 
@@ -119,19 +121,24 @@ def login(
 
         # Handle TOTP if enabled
         if user.twofa_enabled:
+            logger.info(f"User {data.email} has 2FA enabled, totp_code present: {bool(data.totp_code)}")
             if not data.totp_code:
                 # Return response indicating TOTP is required (don't generate tokens yet)
+                logger.info(f"2FA required for {data.email}, requesting TOTP code")
                 return TokenResponseDTO(
                     access_token="",
                     user_id=str(user.id),
                     totp_required=True,
                 )
             # Verify TOTP code
+            logger.info(f"Verifying TOTP code for {data.email}")
             if not twofa_service.verify_totp_code(data.email, data.totp_code):
+                logger.warning(f"Invalid TOTP code for {data.email}")
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail="Invalid TOTP code",
                 )
+            logger.info(f"TOTP code verified for {data.email}, proceeding with token generation")
 
         # Revoke all previous tokens for this user (single-session enforcement)
         token_store.revoke_all_by_user(user.email)
@@ -155,22 +162,30 @@ def login(
         
         now = datetime.now(timezone.utc)
         max_age = int((expiry - now).total_seconds())
+        
+        logger.info(f"Setting refresh token cookie for {user.email} with max_age={max_age}")
         response.set_cookie(
             key="refresh_token",
             value=refresh_token,
             httponly=True,
-            secure=True,  # [FIX] Set to True for HTTPS - prevents plain text transmission
-            samesite="Strict",  # [FIX] Strict instead of lax for CSRF protection
+            secure=settings.cookie_secure,  # Use configuration instead of hardcoded True
+            samesite="Strict",
             max_age=max_age,
         )
-
-        return TokenResponseDTO(
+        
+        token_response = TokenResponseDTO(
             access_token=access_token,
             user_id=str(user.id),
             totp_required=False,
         )
+        logger.info(f"Login successful for {user.email}, returning tokens: {token_response.model_dump()}")
+        return token_response
     except ValueError as e:
+        logger.error(f"Login error for {data.email}: {str(e)}")
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(e))
+    except Exception as e:
+        logger.error(f"Unexpected error during login for {data.email}: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Login failed")
 
 
 @router.post("/logout")

@@ -131,11 +131,17 @@ export default function Dashboard() {
   const fileTypes = [...new Set(currentFiles.map((f) => f.type))].filter(Boolean);
 
   useEffect(() => {
-    if (authLoading) return;
+    console.log(`[Dashboard] Auth loading: ${authLoading}, isAuthenticated: ${isAuthenticated}, user: ${user?.id}`);
+    if (authLoading) {
+      console.log(`[Dashboard] Still loading auth`);
+      return;
+    }
     if (!isAuthenticated) {
+      console.log(`[Dashboard] Not authenticated, redirecting to login`);
       navigate("/login", { replace: true });
       return;
     }
+    console.log(`[Dashboard] Authenticated as ${user?.id}, loading folders and storage`);
     if (user?.id) {
       loadFolders(null); // Load root on mount
       loadUserStorage(user.id); // Fetch user storage

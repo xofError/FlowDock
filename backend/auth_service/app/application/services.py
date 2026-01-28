@@ -446,3 +446,101 @@ class AuthService:
             return updated
         except Exception:
             return user
+
+class UserService:
+    """Service for user profile management and settings operations."""
+
+    def __init__(
+        self,
+        user_repo: IUserRepository,
+        password_hasher: IPasswordHasher,
+    ):
+        self.user_repo = user_repo
+        self.password_hasher = password_hasher
+
+    async def update_user(self, user_id, user_update_dto) -> User:
+        """
+        Update user profile information.
+        
+        Args:
+            user_id: User ID to update
+            user_update_dto: UserUpdateDTO with fields to update
+            
+        Returns:
+            Updated user entity
+            
+        Raises:
+            ValueError: If user not found
+        """
+        from uuid import UUID
+        
+        # Convert string ID to UUID if needed
+        if isinstance(user_id, str):
+            user_id = UUID(user_id)
+        
+        user = self.user_repo.get_by_id(user_id)
+        if not user:
+            raise ValueError("User not found")
+        
+        # Update only provided fields
+        if user_update_dto.full_name is not None:
+            user.full_name = user_update_dto.full_name
+        
+        if user_update_dto.email is not None:
+            # Check if email is already taken
+            existing = self.user_repo.get_by_email(user_update_dto.email)
+            if existing and existing.id != user_id:
+                raise ValueError("Email already in use")
+            user.email = user_update_dto.email
+        
+        return self.user_repo.update(user)
+
+    async def change_password(self, user_id, current_password: str, new_password: str) -> User:
+        """
+        Change user password with verification of current password.
+        
+        Args:
+            user_id: User ID
+            current_password: Current password (for verification)
+            new_password: New password
+            
+        Returns:
+            Updated user entity
+            
+        Raises:
+            ValueError: If user not found or current password is incorrect
+        """
+        from uuid import UUID
+        
+        # Convert string ID to UUID if needed
+        if isinstance(user_id, str):
+            user_id = UUID(user_id)
+        
+        user = self.user_repo.get_by_id(user_id)
+        if not user:
+            raise ValueError("User not found")
+        
+        # Verify current password
+        if not self.password_hasher.verify(current_password, user.password_hash):
+            raise ValueError("Current password is incorrect")
+        
+        # Hash and set new password
+        user.password_hash = self.password_hasher.hash(new_password)
+        return self.user_repo.update(user)
+
+    async def verify_password(self, email: str, password: str) -> bool:
+        """
+        Verify a user's password.
+        
+        Args:
+            email: User email
+            password: Password to verify
+            
+        Returns:
+            True if password is correct, False otherwise
+        """
+        user = self.user_repo.get_by_email(email)
+        if not user:
+            return False
+        
+        return self.password_hasher.verify(password, user.password_hash)

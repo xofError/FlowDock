@@ -700,6 +700,117 @@ async def get_trash(
         raise HTTPException(status_code=500, detail="Failed to retrieve trash")
 
 
+# EMPTY TRASH (Permanently delete all soft-deleted files)
+# ============================================================================
+@router.delete("/trash/{user_id}/empty")
+async def empty_trash(
+    user_id: str = Path(..., description="User ID"),
+    request: Request = None,
+    current_user_id: str = Depends(get_current_user_id),
+    service: FileService = Depends(get_file_service),
+):
+    """
+    Permanently delete all files in trash for a user (hard delete all soft-deleted files).
+
+    **Security**: Requires valid JWT token. Users can only empty their own trash.
+
+    Parameters:
+    - **user_id**: User identifier
+
+    Returns:
+    - Summary of deleted files
+    """
+    # Verify user ownership
+    verify_user_ownership(current_user_id, user_id)
+    
+    try:
+        ip_address = request.client.host if request else None
+        
+        logger.info(f"[trash] Emptying trash for user {user_id}")
+
+        # Query MongoDB for all deleted files
+        mongo_db = service.folder_repo.db if hasattr(service, 'folder_repo') and hasattr(service.folder_repo, 'db') else None
+        
+        if mongo_db is not None:
+            fs_files = mongo_db.get_collection("fs.files")
+            fs_chunks = mongo_db.get_collection("fs.chunks")
+            
+            query = {
+                "metadata.owner": user_id,
+                "metadata.is_deleted": True
+            }
+            
+            # Get list of file IDs to delete
+            cursor = fs_files.find(query)
+            file_ids = []
+            async for doc in cursor:
+                file_ids.append(doc["_id"])
+            
+            deleted_count = 0
+            failed_count = 0
+            
+            # Delete each file and its chunks
+            for file_id in file_ids:
+                try:
+                    # Delete file metadata
+                    await fs_files.delete_one({"_id": file_id})
+                    # Delete associated chunks
+                    await fs_chunks.delete_many({"files_id": file_id})
+                    deleted_count += 1
+                    logger.info(f"[trash] Deleted file {file_id} from trash")
+                except Exception as e:
+                    failed_count += 1
+                    logger.error(f"[trash] Error deleting file {file_id}: {str(e)}")
+            
+            logger.info(f"[trash] Emptied trash for user {user_id}: {deleted_count} deleted, {failed_count} failed")
+            
+            # Log activity
+            if service.activity_logger:
+                await service.activity_logger.log_activity(
+                    current_user_id,
+                    "TRASH_EMPTIED",
+                    {
+                        "deleted_count": deleted_count,
+                        "failed_count": failed_count,
+                    },
+                    ip_address,
+                )
+            
+            return {
+                "status": "success",
+                "deleted_count": deleted_count,
+                "failed_count": failed_count,
+                "total_deleted": deleted_count,
+            }
+        
+        logger.warning(f"[trash] MongoDB not available")
+        
+        # Log activity even if MongoDB is not available
+        if service.activity_logger:
+            await service.activity_logger.log_activity(
+                current_user_id,
+                "TRASH_EMPTIED",
+                {
+                    "deleted_count": 0,
+                    "error": "MongoDB not available",
+                },
+                ip_address,
+            )
+        
+        return {
+            "status": "error",
+            "deleted_count": 0,
+            "failed_count": 0,
+            "total_deleted": 0,
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[trash] Error emptying trash for user {user_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to empty trash: {str(e)}")
+
+
 # ============================================================================
 # MOVE FILE
 # ============================================================================

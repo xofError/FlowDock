@@ -17,8 +17,10 @@ export const useAuth = () => {
     const checkAuth = async () => {
       try {
         const token = localStorage.getItem("access_token");
+        console.log(`[useAuth] Checking auth on mount, token present: ${!!token}`);
         
         if (token) {
+          console.log(`[useAuth] Token found, setting isAuthenticated = true`);
           setIsAuthenticated(true);
           // Optionally load user data if needed
           const userId = localStorage.getItem("user_id");
@@ -29,20 +31,23 @@ export const useAuth = () => {
               if (userData && !userData.id) {
                 userData.id = userId;
               }
+              console.log(`[useAuth] Loaded user data on mount:`, userData);
               setUser(userData);
             } catch (err) {
-              console.warn("Could not load user profile:", err);
+              console.warn("[useAuth] Could not load user profile:", err);
               // Fallback: create minimal user object with ID from localStorage
               setUser({ id: userId });
             }
           }
         } else {
+          console.log(`[useAuth] No token found, setting isAuthenticated = false`);
           setIsAuthenticated(false);
         }
       } catch (err) {
-        console.error("Auth check failed:", err);
+        console.error("[useAuth] Auth check failed:", err);
         setIsAuthenticated(false);
       } finally {
+        console.log(`[useAuth] Auth check complete`);
         setLoading(false); // Auth check is complete
       }
     };
@@ -75,43 +80,60 @@ export const useAuth = () => {
     }
   }, []);
 
+  const refreshUser = useCallback(async () => {
+    const userId = localStorage.getItem("user_id");
+    if (userId) {
+      await loadUser(userId);
+    }
+  }, [loadUser]);
+
   const login = useCallback(async (email, password, totpCode = null) => {
     setLoading(true);
     setError(null);
 
     try {
+      console.log(`[useAuth] Logging in ${email} with TOTP: ${!!totpCode}`);
       const response = await api.login(email, password, totpCode);
+      
+      console.log(`[useAuth] Login API response:`, response);
 
       // If TOTP is required, don't store tokens - just return the response
       if (response.totp_required || !response.access_token) {
+        console.log(`[useAuth] TOTP required or no access_token, returning response without storing tokens`);
         return response;
       }
 
       // Store tokens only if login is successful (not TOTP required)
+      console.log(`[useAuth] Storing tokens for ${email}`);
       api.setTokens(response.access_token, response.refresh_token);
 
       // Store user ID for later use
       localStorage.setItem("user_id", response.user_id);
 
       // Set authenticated state
+      console.log(`[useAuth] Setting isAuthenticated to true`);
       setIsAuthenticated(true);
 
       // Wrap user profile fetch in try-catch so login succeeds even if it fails
       try {
+        console.log(`[useAuth] Fetching user profile for ${response.user_id}`);
         const userData = await api.getCurrentUser(response.user_id);
+        console.log(`[useAuth] User profile loaded:`, userData);
         // Ensure user object has id field
         if (userData && !userData.id) {
           userData.id = response.user_id;
         }
         setUser(userData);
       } catch (profileErr) {
-        console.warn("Could not load user profile immediately:", profileErr);
+        console.warn("[useAuth] Could not load user profile immediately:", profileErr);
         // Fallback: create minimal user object with ID from response
         setUser({ id: response.user_id });
       }
 
+      console.log(`[useAuth] Login complete for ${email}`);
       return response;
     } catch (err) {
+      console.error(`[useAuth] Login error:`, err);
       const errorMessage = err.message || "Login failed";
       setError(errorMessage);
       throw err;
@@ -307,6 +329,7 @@ export const useAuth = () => {
     resetPassword,
     logout,
     loadUser,
+    refreshUser,
     setupTOTP,
     verifyTOTP,
     generatePasscode,

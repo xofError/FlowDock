@@ -39,6 +39,10 @@ class Settings(BaseSettings):
     
     # Frontend redirect URL after OAuth
     frontend_url: str = "http://localhost:5173"
+    
+    # Cookie security settings
+    # Set to False for local development (HTTP), True for production (HTTPS)
+    cookie_secure: bool = False  # Default to False for development
 
     class Config:
         env_file = ".env"

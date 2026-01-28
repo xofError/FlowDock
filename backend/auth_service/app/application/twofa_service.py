@@ -33,6 +33,7 @@ class TwoFAService:
         """Initiate TOTP setup for a user.
 
         Generates a new TOTP secret and returns it along with QR provisioning URI.
+        Temporarily stores the secret on the user for verification during enable step.
 
         Args:
             email: User's email
@@ -52,6 +53,10 @@ class TwoFAService:
 
         # Get QR URI for scanning
         uri = self.totp_service.get_provisioning_uri(email, secret)
+        
+        # Store secret temporarily (not enabled yet)
+        user.totp_secret = secret
+        self.user_repo.update(user)
 
         return secret, uri
 
@@ -84,6 +89,37 @@ class TwoFAService:
 
         # Update user: save secret and enable 2FA
         user.totp_secret = totp_secret
+        user.twofa_enabled = True
+        self.user_repo.update(user)
+
+        # Generate recovery codes
+        plaintext_codes = self._generate_recovery_codes(user.id, recovery_code_count)
+
+        return plaintext_codes
+
+    def enable_2fa_with_code(self, email: str, totp_code: str, recovery_code_count: int = 10) -> list[str]:
+        """Enable 2FA after verifying the code (secret should already be stored from setup).
+
+        Args:
+            email: User's email
+            totp_code: The 6-digit code from authenticator app
+            recovery_code_count: Number of recovery codes to generate
+
+        Returns:
+            List of plaintext recovery codes (shown to user once)
+
+        Raises:
+            ValueError: If user not found or TOTP code invalid
+        """
+        user = self.user_repo.get_by_email(email)
+        if not user or not user.totp_secret:
+            raise ValueError("User not found or TOTP not initiated")
+
+        # Verify the TOTP code using the stored secret
+        if not self.totp_service.verify(user.totp_secret, totp_code):
+            raise ValueError("Invalid TOTP code")
+
+        # Enable 2FA
         user.twofa_enabled = True
         self.user_repo.update(user)
 

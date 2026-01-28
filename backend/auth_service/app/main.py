@@ -9,6 +9,7 @@ import logging
 from app.presentation.api import auth as auth_router
 from app.presentation.api import users as users_router
 from app.presentation.api import logs as logs_router
+from app.presentation.api import sessions as sessions_router
 from app.database import Base, engine, SessionLocal
 from app.infrastructure.database.models import UserModel, SessionModel, RecoveryTokenModel, ActivityLogModel
 from app.application.user_util_service import UserUtilService
@@ -85,8 +86,9 @@ app.add_middleware(
     secret_key=session_secret,
 )
 app.include_router(auth_router.router, prefix="/auth", tags=["auth"])
-app.include_router(users_router.router, tags=["users"])
+app.include_router(users_router.router, prefix="/users", tags=["users"])
 app.include_router(logs_router.router, prefix="/logs")
+app.include_router(sessions_router.router, tags=["sessions"])
 
 
 @app.get("/")

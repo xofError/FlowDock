@@ -54,6 +54,7 @@ services:
       REDIS_DB: 0
       APP_ENV: ${APP_ENV:-development}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      COOKIE_SECURE: ${COOKIE_SECURE:-False}
     ports:
       - "8000:8000"
     depends_on:

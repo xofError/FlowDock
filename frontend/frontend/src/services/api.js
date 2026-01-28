@@ -92,7 +92,11 @@ class APIClient {
         throw new Error(error.detail || `HTTP ${response.status}`);
       }
 
-      return await response.json();
+      const jsonResponse = await response.json();
+      if (url.includes('/auth/login')) {
+        console.log(`[API] Login response received:`, jsonResponse);
+      }
+      return jsonResponse;
     } catch (error) {
       // Provide better error context
       let errorMsg = error.message;
@@ -239,10 +243,14 @@ class APIClient {
       body.totp_code = totpCode;
     }
 
-    return this.request(`${AUTH_API_URL}/auth/login`, {
+    console.log(`[API] Sending login request for ${email}, totp_code: ${!!totpCode}`);
+    const response = await this.request(`${AUTH_API_URL}/auth/login`, {
       method: "POST",
       body: JSON.stringify(body),
     });
+    
+    console.log(`[API] Login response:`, response);
+    return response;
   }
 
   /**
@@ -329,7 +337,7 @@ class APIClient {
    * Get current user info
    */
   async getCurrentUser(userId) {
-    return this.request(`${AUTH_API_URL}/api/users/${userId}`, {
+    return this.request(`${AUTH_API_URL}/users/${userId}`, {
       method: "GET",
     });
   }
@@ -338,7 +346,120 @@ class APIClient {
    * Get user by email
    */
   async getUserByEmail(email) {
-    return this.request(`${AUTH_API_URL}/api/users/by-email/${email}`, {
+    return this.request(`${AUTH_API_URL}/users/by-email/${email}`, {
+      method: "GET",
+    });
+  }
+
+  // =====================================================
+  // USER SETTINGS & PROFILE ENDPOINTS
+  // =====================================================
+
+  /**
+   * Get current user profile
+   */
+  async getProfile() {
+    return this.request(`${AUTH_API_URL}/users/me`, {
+      method: "GET",
+    });
+  }
+
+  /**
+   * Update user profile
+   */
+  async updateProfile(data) {
+    return this.request(`${AUTH_API_URL}/users/me`, {
+      method: "PUT",
+      body: JSON.stringify(data),
+    });
+  }
+
+  /**
+   * Change user password
+   */
+  async changePassword(currentPassword, newPassword) {
+    return this.request(`${AUTH_API_URL}/users/me/password`, {
+      method: "PUT",
+      body: JSON.stringify({
+        current_password: currentPassword,
+        new_password: newPassword,
+      }),
+    });
+  }
+
+  /**
+   * Setup 2FA (generate TOTP secret)
+   */
+  async setup2FA() {
+    return this.request(`${AUTH_API_URL}/users/me/2fa/setup`, {
+      method: "POST",
+    });
+  }
+
+  /**
+   * Enable 2FA with verification code
+   */
+  async enable2FA(code) {
+    return this.request(`${AUTH_API_URL}/users/me/2fa/enable?code=${code}`, {
+      method: "POST",
+    });
+  }
+
+  /**
+   * Disable 2FA (requires password verification)
+   */
+  async disable2FA(password) {
+    return this.request(`${AUTH_API_URL}/users/me/2fa/disable?password=${password}`, {
+      method: "POST",
+    });
+  }
+
+  // =====================================================
+  // SESSION MANAGEMENT ENDPOINTS
+  // =====================================================
+
+  /**
+   * Get all sessions for current user
+   */
+  async getSessions() {
+    return this.request(`${AUTH_API_URL}/sessions/me`, {
+      method: "GET",
+    });
+  }
+
+  /**
+   * Get details of a specific session
+   */
+  async getSessionDetails(sessionId) {
+    return this.request(`${AUTH_API_URL}/sessions/${sessionId}`, {
+      method: "GET",
+    });
+  }
+
+  /**
+   * Revoke a specific session
+   */
+  async revokeSession(sessionId) {
+    return this.request(`${AUTH_API_URL}/sessions/${sessionId}`, {
+      method: "DELETE",
+    });
+  }
+
+  /**
+   * Revoke all sessions
+   */
+  async revokeAllSessions() {
+    return this.request(`${AUTH_API_URL}/sessions/revoke/all`, {
+      method: "DELETE",
+      body: JSON.stringify({ confirm: true }),
+    });
+  }
+
+  /**
+   * Get active sessions count
+   */
+  async getActiveSessionsCount() {
+    return this.request(`${AUTH_API_URL}/sessions/active/count`, {
       method: "GET",
     });
   }
@@ -433,6 +554,15 @@ class APIClient {
    */
   async permanentlyDeleteFile(fileId) {
     return this.request(`${MEDIA_API_URL}/files/${fileId}/permanent`, {
+      method: "DELETE",
+    });
+  }
+
+  /**
+   * Empty trash (permanently delete all soft-deleted files)
+   */
+  async emptyTrash(userId) {
+    return this.request(`${MEDIA_API_URL}/trash/${userId}/empty`, {
       method: "DELETE",
     });
   }

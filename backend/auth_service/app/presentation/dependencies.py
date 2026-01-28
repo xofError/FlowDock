@@ -10,17 +10,20 @@ This wires together all the layers:
 from fastapi import Header, HTTPException, status, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from typing import Dict, Any, Optional
+from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.database import SessionLocal
-from app.application.services import AuthService, RedisService
+from app.application.services import AuthService, RedisService, UserService
 from app.application.twofa_service import TwoFAService
 from app.application.user_util_service import UserUtilService
 from app.application.quota_service import StorageQuotaService
 from app.application.oauth_service import OAuthService
+from app.domain.entities import User
 from app.infrastructure.database.repositories import (
     PostgresUserRepository,
     PostgresRecoveryTokenRepository,
     PostgresLogRepository,
+    PostgresSessionRepository,
 )
 from app.infrastructure.security.security import (
     ArgonPasswordHasher,
@@ -134,6 +137,7 @@ async def get_current_user_id(token: Dict[str, Any] = Depends(verify_jwt_token))
     return user_id
 
 
+# ============ Basic Utility Dependencies (must come before complex ones) ============
 
 def get_db():
     """FastAPI dependency: get database session."""
@@ -142,20 +146,6 @@ def get_db():
         yield db
     finally:
         db.close()
-
-
-def get_user_repository(db=None):
-    """FastAPI dependency: get user repository."""
-    if db is None:
-        db = next(get_db())
-    return PostgresUserRepository(db)
-
-
-def get_recovery_token_repository(db=None):
-    """FastAPI dependency: get recovery token repository."""
-    if db is None:
-        db = next(get_db())
-    return PostgresRecoveryTokenRepository(db)
 
 
 def get_password_hasher():
@@ -183,6 +173,23 @@ def get_redis_service():
     return RedisService()
 
 
+def get_user_repository(db=None):
+    """FastAPI dependency: get user repository."""
+    if db is None:
+        db = next(get_db())
+    return PostgresUserRepository(db)
+
+
+def get_recovery_token_repository(db: Session = Depends(get_db)):
+    """FastAPI dependency: get recovery token repository."""
+    return PostgresRecoveryTokenRepository(db)
+
+
+def get_session_repository(db: Session = Depends(get_db)):
+    """FastAPI dependency: get session repository."""
+    return PostgresSessionRepository(db)
+
+
 def get_log_repository(db=None):
     """FastAPI dependency: get log repository."""
     if db is None:
@@ -194,6 +201,45 @@ def get_email_service():
     """FastAPI dependency: get email service."""
     from app.infrastructure.email.email import get_email_service as _get_email_service
     return _get_email_service()
+
+
+# ============ Complex Dependencies (now safe to use get_db) ============
+
+async def get_current_user(
+    user_id: str = Depends(get_current_user_id),
+    db=Depends(get_db),
+) -> User:
+    """
+    Get the current authenticated user entity.
+    
+    This dependency retrieves the User entity for the authenticated user
+    by looking up their ID in the database.
+    
+    Args:
+        user_id: Authenticated user's ID from JWT token
+        db: Database session
+        
+    Returns:
+        User entity
+        
+    Raises:
+        HTTPException: 404 if user not found
+        
+    Usage:
+        @router.get("/profile")
+        async def get_profile(user: User = Depends(get_current_user)):
+            # user is the authenticated User entity
+    """
+    user_repo = PostgresUserRepository(db)
+    user = user_repo.get_by_id(user_id)
+    
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found",
+        )
+    
+    return user
 
 
 def get_auth_service(
@@ -231,19 +277,12 @@ def get_auth_service(
 
 
 def get_twofa_service(
-    db=None,
-    user_repo=None,
-    recovery_token_repo=None,
-    totp_service=None,
+    db: Session = Depends(get_db),
+    user_repo: PostgresUserRepository = Depends(get_user_repository),
+    recovery_token_repo: PostgresRecoveryTokenRepository = Depends(get_recovery_token_repository),
 ):
     """FastAPI dependency: get configured TwoFAService."""
-    if db is None:
-        db = next(get_db())
-
-    user_repo = user_repo or PostgresUserRepository(db)
-    recovery_token_repo = recovery_token_repo or PostgresRecoveryTokenRepository(db)
-    totp_service = totp_service or TOTPService()
-
+    totp_service = TOTPService()
     return TwoFAService(
         user_repo=user_repo,
         recovery_token_repo=recovery_token_repo,
@@ -296,5 +335,22 @@ def get_oauth_service(
 
     return OAuthService(
         user_repository=user_repo,
+        password_hasher=password_hasher,
+    )
+
+def get_user_service(
+    db=None,
+    user_repo=None,
+    password_hasher=None,
+):
+    """FastAPI dependency: get configured UserService."""
+    if db is None:
+        db = next(get_db())
+
+    user_repo = user_repo or PostgresUserRepository(db)
+    password_hasher = password_hasher or ArgonPasswordHasher()
+
+    return UserService(
+        user_repo=user_repo,
         password_hasher=password_hasher,
     )
