@@ -28,6 +28,7 @@ from app.application.dtos import (
     ResetPasswordRequestDTO,
     GeneratePasscodeRequestDTO,
     VerifyPasscodeRequestDTO,
+    Verify2FARequestDTO,
 )
 from app.application.services import AuthService
 from app.application.twofa_service import TwoFAService
@@ -123,10 +124,12 @@ def login(
         if user.twofa_enabled:
             logger.info(f"User {data.email} has 2FA enabled, totp_code present: {bool(data.totp_code)}")
             if not data.totp_code:
-                # Return response indicating TOTP is required (don't generate tokens yet)
-                logger.info(f"2FA required for {data.email}, requesting TOTP code")
+                # Generate temporary 2FA pending token (valid for 5 minutes)
+                # This token can ONLY be used to verify 2FA, not for regular API access
+                logger.info(f"2FA required for {data.email}, generating pending token")
+                pending_token = token_gen.create_2fa_pending_token(user.id)
                 return TokenResponseDTO(
-                    access_token="",
+                    access_token=pending_token,  # Return as access_token for compatibility
                     user_id=str(user.id),
                     totp_required=True,
                 )
@@ -142,6 +145,12 @@ def login(
 
         # Revoke all previous tokens for this user (single-session enforcement)
         token_store.revoke_all_by_user(user.email)
+        
+        # Also revoke all previous session records in the database
+        from app.infrastructure.database.repositories import PostgresSessionRepository
+        from app.domain.entities import Session as SessionEntity
+        session_repo = PostgresSessionRepository(db)
+        session_repo.revoke_all_by_user(user.id)
 
         # Create tokens
         access_token = token_gen.create_access_token(user.id)
@@ -149,6 +158,21 @@ def login(
 
         # Store refresh token in Redis
         token_store.store(refresh_hash, user.email, expiry)
+        
+        # Extract user agent and create session in database
+        user_agent = request.headers.get("user-agent", "Unknown Device")
+        session_entity = SessionEntity(
+            id=None,  # DB will assign
+            user_id=user.id,
+            refresh_token_hash=refresh_hash,
+            device_info=user_agent,
+            browser_name=None,
+            ip_address=client_ip,
+            expires_at=expiry,
+            active=True,
+        )
+        session_repo.create(session_entity)
+        logger.info(f"Session created for user {user.id} with device: {user_agent}")
 
         # Update user with login information in database
         from app.infrastructure.database.repositories import PostgresUserRepository
@@ -186,6 +210,122 @@ def login(
     except Exception as e:
         logger.error(f"Unexpected error during login for {data.email}: {str(e)}", exc_info=True)
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Login failed")
+
+
+@router.post("/verify-2fa", response_model=TokenResponseDTO)
+def verify_2fa(
+    data: Verify2FARequestDTO,
+    request: Request,
+    response: Response,
+    token_gen: JWTTokenGenerator = Depends(get_token_generator),
+    token_store: RefreshTokenStore = Depends(get_refresh_token_store),
+    twofa_service: TwoFAService = Depends(get_twofa_service),
+    db: Session = Depends(get_db),
+):
+    """Complete 2FA login by verifying TOTP code with pending token.
+    
+    Args:
+        data.totp_code: 6-digit TOTP code from authenticator app
+        data.pending_token: Temporary token issued after password verification (contains user_id)
+    
+    Returns:
+        TokenResponseDTO with access_token and refresh_token (in HttpOnly cookie)
+    """
+    try:
+        # Verify the pending token and extract user_id
+        user_id = token_gen.verify_2fa_pending_token(data.pending_token)
+        if not user_id:
+            logger.warning("Invalid or expired 2FA pending token")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid or expired 2FA token. Please login again.",
+            )
+        
+        logger.info(f"Verifying TOTP code for user {user_id}")
+        
+        # Get user to verify TOTP
+        from app.infrastructure.database.repositories import PostgresUserRepository
+        user_repo = PostgresUserRepository(db)
+        
+        from uuid import UUID
+        user = user_repo.get_by_id(UUID(user_id))
+        if not user:
+            logger.error(f"User not found for ID {user_id}")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="User not found",
+            )
+        
+        # Verify TOTP code
+        if not twofa_service.verify_totp_code(user.email, data.totp_code):
+            logger.warning(f"Invalid TOTP code for user {user_id}")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid TOTP code",
+            )
+        
+        logger.info(f"TOTP verified successfully for user {user_id}, issuing tokens")
+        
+        # Revoke all previous tokens for this user (single-session enforcement)
+        token_store.revoke_all_by_user(user.email)
+        
+        # Also revoke all previous session records in the database
+        from app.infrastructure.database.repositories import PostgresSessionRepository
+        from app.domain.entities import Session as SessionEntity
+        session_repo = PostgresSessionRepository(db)
+        session_repo.revoke_all_by_user(user.id)
+        
+        # Create access and refresh tokens
+        access_token = token_gen.create_access_token(user.id)
+        refresh_token, refresh_hash, expiry = token_gen.create_refresh_token(user.id)
+        
+        # Store refresh token in Redis
+        token_store.store(refresh_hash, user.email, expiry)
+        
+        # Extract user agent and create session in database
+        user_agent = request.headers.get("user-agent", "Unknown Device")
+        client_ip = request.client.host if request.client else None
+        session_entity = SessionEntity(
+            id=None,  # DB will assign
+            user_id=user.id,
+            refresh_token_hash=refresh_hash,
+            device_info=user_agent,
+            browser_name=None,
+            ip_address=client_ip,
+            expires_at=expiry,
+            active=True,
+        )
+        session_repo.create(session_entity)
+        logger.info(f"Session created for user {user.id} with device: {user_agent}")
+        
+        # Set refresh token as HttpOnly cookie
+        from app.core.config import settings
+        now = datetime.now(timezone.utc)
+        max_age = int((expiry - now).total_seconds())
+        
+        response.set_cookie(
+            key="refresh_token",
+            value=refresh_token,
+            httponly=True,
+            secure=settings.cookie_secure,
+            samesite="Strict",
+            max_age=max_age,
+        )
+        
+        return TokenResponseDTO(
+            access_token=access_token,
+            user_id=str(user.id),
+            totp_required=False,
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Unexpected error during 2FA verification: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="2FA verification failed",
+        )
 
 
 @router.post("/logout")
@@ -463,6 +603,28 @@ async def oauth_callback(
         
         # Store refresh token hash with user email and expiry
         token_store.store(refresh_token_hash, user.email, expiry)
+        
+        # Revoke all previous sessions for this user (single-session enforcement)
+        from app.infrastructure.database.repositories import PostgresSessionRepository
+        from app.domain.entities import Session as SessionEntity
+        session_repo = PostgresSessionRepository(db)
+        session_repo.revoke_all_by_user(user.id)
+        
+        # Extract user agent and create session in database
+        user_agent = request.headers.get("user-agent", "Unknown Device")
+        client_ip = request.client.host if request.client else None
+        session_entity = SessionEntity(
+            id=None,  # DB will assign
+            user_id=user.id,
+            refresh_token_hash=refresh_token_hash,
+            device_info=user_agent,
+            browser_name=None,
+            ip_address=client_ip,
+            expires_at=expiry,
+            active=True,
+        )
+        session_repo.create(session_entity)
+        logger.info(f"Session created for OAuth user {user.id} with device: {user_agent}")
 
         # Create redirect response to OAuthCallback component first
         # (not directly to dashboard) so tokens can be properly processed

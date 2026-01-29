@@ -83,6 +83,15 @@ class TotpVerifyRequestDTO(BaseModel):
     totp_secret: Optional[str] = Field(None, description="TOTP secret from setup phase (optional for login)")
 
 
+class Verify2FARequestDTO(BaseModel):
+    """DTO for 2FA verification during login.
+    
+    Used to complete the login flow when 2FA is enabled.
+    """
+    totp_code: str = Field(..., min_length=6, max_length=6, description="6-digit TOTP code")
+    pending_token: str = Field(..., description="Temporary token from initial login (valid for 5 minutes)")
+
+
 # ============ Password Recovery DTOs ============
 
 class ForgotPasswordRequestDTO(BaseModel):

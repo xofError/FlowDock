@@ -314,6 +314,21 @@ class APIClient {
   }
 
   /**
+   * Verify 2FA during login
+   * @param {string} totpCode - 6-digit TOTP code from authenticator app
+   * @param {string} pendingToken - Temporary token issued after password verification
+   */
+  async verify2FA(totpCode, pendingToken) {
+    return this.request(`${AUTH_API_URL}/auth/verify-2fa`, {
+      method: "POST",
+      body: JSON.stringify({
+        totp_code: totpCode,
+        pending_token: pendingToken,
+      }),
+    });
+  }
+
+  /**
    * Generate passcode for magic link sign-in
    */
   async generatePasscode(email) {

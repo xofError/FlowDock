@@ -1,20 +1,20 @@
 import { useState, useEffect, useRef } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import MainLayout from "../../layout/MainLayout.jsx";
-import useAuth from "../../hooks/useAuth.js";
+import { useAuthContext } from "../../context/AuthContext.jsx";
 import Button from "../../components/Button.jsx";
 
 export default function VerifyTOTP() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { login, isAuthenticated, loading: authLoading, error: authError } = useAuth();
+  const { verify2FA, isAuthenticated, loading: authLoading, error: authError } = useAuthContext();
   const navigationInitiated = useRef(false);
   
   const [totp, setTotp] = useState(Array(6).fill(""));
   const [error, setError] = useState(null);
 
-  // Get email and password from navigation state
-  const { email, password } = location.state || {};
+  // Get pending token and email from navigation state
+  const { pending_token, email } = location.state || {};
 
   // Watch for authentication success and navigate
   useEffect(() => {
@@ -24,8 +24,8 @@ export default function VerifyTOTP() {
     }
   }, [isAuthenticated, navigate]);
 
-  // Redirect to login if no credentials passed
-  if (!email || !password) {
+  // Redirect to login if no pending token passed
+  if (!pending_token) {
     return (
       <MainLayout>
         <div className="flex flex-col gap-6 pb-10 justify-center" style={{ width: "320px", margin: "0 auto" }}>
@@ -77,27 +77,26 @@ export default function VerifyTOTP() {
     }
 
     try {
-      // Login with email, password, and TOTP code
+      // Verify 2FA with the pending token from the login response
       console.log(`[VerifyTOTP] Submitting TOTP code for ${email}`);
-      const response = await login(email, password, totp.join(""));
+      const response = await verify2FA(totp.join(""), pending_token);
       
-      console.log(`[VerifyTOTP] Login response:`, response);
+      console.log(`[VerifyTOTP] Verification response:`, response);
       console.log(`[VerifyTOTP] access_token present: ${!!response?.access_token}`);
-      console.log(`[VerifyTOTP] totp_required: ${response?.totp_required}`);
       
-      // Check if login was successful (should have access_token and not totp_required)
-      if (!response || response.totp_required || !response.access_token) {
-        console.error(`[VerifyTOTP] Login failed - missing access_token or totp_required is true`);
+      // Check if verification was successful
+      if (!response || !response.access_token) {
+        console.error(`[VerifyTOTP] Verification failed - missing access_token`);
         setError("Invalid TOTP code. Please try again.");
         setTotp(Array(6).fill("")); // Clear input on error
         return;
       }
       
-      // Login successful - set flag and wait for useEffect to trigger navigation when isAuthenticated updates
-      console.log(`[VerifyTOTP] Login successful, waiting for state update`);
+      // Verification successful - set flag and wait for useEffect to trigger navigation when isAuthenticated updates
+      console.log(`[VerifyTOTP] Verification successful, waiting for state update`);
       navigationInitiated.current = true;
     } catch (err) {
-      console.error(`[VerifyTOTP] Error during login:`, err);
+      console.error(`[VerifyTOTP] Error during verification:`, err);
       setError(err.message || "Invalid TOTP code. Please try again.");
       setTotp(Array(6).fill("")); // Clear input on error
     }

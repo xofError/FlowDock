@@ -295,6 +295,37 @@ export const useAuth = () => {
     }
   }, []);
 
+  const verify2FA = useCallback(async (totpCode, pendingToken) => {
+    setLoading(true);
+    setError(null);
+
+    try {
+      console.log(`[useAuth] Verifying 2FA code with pending token`);
+      const response = await api.verify2FA(totpCode, pendingToken);
+      
+      console.log(`[useAuth] 2FA verification response:`, response);
+      
+      // Store tokens only if verification is successful
+      if (response.access_token) {
+        api.setTokens(response.access_token, response.refresh_token);
+        if (response.user_id) {
+          localStorage.setItem("user_id", response.user_id);
+        }
+      }
+      
+      // Set authenticated state
+      setIsAuthenticated(true);
+      
+      return response;
+    } catch (err) {
+      const errorMessage = err.message || "2FA verification failed";
+      setError(errorMessage);
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
   const handleOAuthCallback = useCallback(async (accessToken, userId) => {
     try {
       // Store tokens in API and localStorage
@@ -334,6 +365,7 @@ export const useAuth = () => {
     verifyTOTP,
     generatePasscode,
     verifyPasscode,
+    verify2FA,
     handleOAuthCallback,
   };
 };

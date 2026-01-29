@@ -13,7 +13,6 @@ export default function Login() {
   
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [totpCode, setTotpCode] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
   const [legalModal, setLegalModal] = useState(null); // "privacy" | "terms" | null
@@ -32,25 +31,24 @@ export default function Login() {
 
     try {
       // Call the real login function which may return totp_required
-      const response = await login(email, password, totpCode || null);
+      const response = await login(email, password);
 
-      // persist user (backend / login hook may already do this, but force here)
-      try {
-        const userToStore = response?.user || { email };
-        if (typeof window !== "undefined" && userToStore) {
-          localStorage.setItem("user", JSON.stringify(userToStore));
-        }
-      } catch (e) {
-        // ignore storage errors
-      }
+      console.log(`[Login] Login response:`, response);
 
-      // If backend requires TOTP, navigate to the verify-TOTP page with credentials
+      // Check if 2FA is required (backend returned pending token)
       if (response?.totp_required) {
-        navigate("/verify-totp", { state: { email, password } });
+        console.log(`[Login] 2FA required, redirecting to verify-totp with pending token`);
+        navigate("/verify-totp", { 
+          state: { 
+            pending_token: response.access_token,  // Pending token is in access_token field
+            email: email 
+          } 
+        });
         return;
       }
 
       // Otherwise login succeeded (tokens stored by useAuth), go to dashboard
+      console.log(`[Login] Login successful, navigating to dashboard`);
       navigate("/dashboard");
     } catch (err) {
       setError(err.message || "Login failed. Please try again.");
@@ -109,18 +107,6 @@ export default function Login() {
             autoComplete="current-password"
             style={{ height: "44px", marginTop: 12, borderRadius: "12px", paddingLeft: "16px" }}
             className="rounded-lg bg-[#e7edf3] px-4 text-[#0d141b] placeholder:text-[#4c739a] text-base focus:outline-none border border-[#d0dce8] disabled:opacity-50"
-          />
-
-          <input
-            name="totpCode"
-            type="text"
-            placeholder="2FA Code (optional)"
-            value={totpCode}
-            onChange={(e) => setTotpCode(e.target.value.slice(0, 6))}
-            disabled={isLoading}
-            style={{ height: "44px", marginTop: 12, borderRadius: "12px", paddingLeft: "16px" }}
-            className="rounded-lg bg-[#e7edf3] px-4 text-[#0d141b] placeholder:text-[#4c739a] text-base focus:outline-none border border-[#d0dce8] disabled:opacity-50"
-            maxLength="6"
           />
 
           {/* Buttons with proper gap */}
